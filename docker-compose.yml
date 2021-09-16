@@ -1,0 +1,58 @@
+version: "3.8"
+
+services:
+  app:
+    build:
+      context: ./
+      dockerfile: ./docker/dockerfile
+    ports:
+      - "3001:3000"
+      - "9292:9292"
+      - "9293:9293"
+    volumes:
+      - ./assets:/var/www/discourse/public/assets
+      - ./uploads:/usr/src/app/public/uploads
+      - ./log:/home/discourse/discourse/log
+      - ./log:/var/www/discourse/log
+      - ./backups:/usr/src/app/public/backups
+      - ./tmp:/home/discourse/discourse/tmp
+    depends_on:
+      - cache
+    environment:
+      ALLOW_EMPTY_PASSWORD: "${ALLOW_EMPTY_PASSWORD}"
+      SECRET_TOKEN: "${SECRET_TOKEN}"
+      DISCOURSE_HOST: "${DISCOURSE_HOST}"
+      DISCOURSE_DB_HOST: "${DISCOURSE_DB_HOST}"
+      RAILS_ENV: "${RAILS_ENV}"
+      DISCOURSE_DB_PORT_NUMBER: "${DISCOURSE_DB_PORT_NUMBER}"
+      DISCOURSE_DB_USERNAME: "${DISCOURSE_DB_USERNAME}"
+      DISCOURSE_DB_PASSWORD: "${DISCOURSE_DB_PASSWORD}"
+      DISCOURSE_DB_NAME: "${DISCOURSE_DB_NAME}"
+      DISCOURSE_REDIS_HOST: "${DISCOURSE_REDIS_HOST}"
+      DISCOURSE_REDIS_PORT_NUMBER: "${DISCOURSE_REDIS_PORT_NUMBER}"
+      DISCOURSE_DEVELOPER_EMAILS: "${DISCOURSE_DEVELOPER_EMAILS}"
+      RUBY_GLOBAL_METHOD_CACHE_SIZE: "${RUBY_GLOBAL_METHOD_CACHE_SIZE}"
+      RUBY_GC_HEAP_GROWTH_MAX_SLOTS: "${RUBY_GC_HEAP_GROWTH_MAX_SLOTS}"
+      RUBY_GC_HEAP_INIT_SLOTS: "${RUBY_GC_HEAP_INIT_SLOTS}"
+      RUBY_GC_HEAP_OLDOBJECT_LIMIT_FACTOR: "${RUBY_GC_HEAP_OLDOBJECT_LIMIT_FACTOR}"
+    #entrypoint: ["/bin/sh", "sleep", "10000"]
+    command: ["no-compile"]
+  
+  web: 
+    build:
+      context: ./docker
+      dockerfile: ./nginx.dockerfile
+    volumes:
+      - ./public:/var/www/discourse/public
+      - ./assets:/var/www/discourse/public/assets
+      - ./uploads:/usr/src/app/public/uploads
+    ports:
+      - 80:80
+    environment: 
+      DISCOURSE_HOST: "${DISCOURSE_HOST}"
+    depends_on:
+      - app
+    command: ["/bin/sh" , "/etc/nginx/nginx.sh"]
+  
+  cache:
+    image: redis
