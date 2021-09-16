@@ -22,6 +22,7 @@ services:
       ALLOW_EMPTY_PASSWORD: "${ALLOW_EMPTY_PASSWORD}"
       SECRET_TOKEN: "${SECRET_TOKEN}"
       DISCOURSE_HOST: "${DISCOURSE_HOST}"
+      DISCOURSE_HOSTNAME: "${DISCOURSE_HOST}"
       DISCOURSE_DB_HOST: "${DISCOURSE_DB_HOST}"
       RAILS_ENV: "${RAILS_ENV}"
       DISCOURSE_DB_PORT_NUMBER: "${DISCOURSE_DB_PORT_NUMBER}"
@@ -45,7 +46,7 @@ services:
     volumes:
       - ./public:/var/www/discourse/public
       - ./assets:/var/www/discourse/public/assets
-      - ./uploads:/usr/src/app/public/uploads
+      - ./uploads:/var/www/discourse/public/uploads
     ports:
       - 80:80
     environment: 

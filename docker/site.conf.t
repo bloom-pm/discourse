@@ -178,7 +178,7 @@ server {
       proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
       proxy_set_header X-Forwarded-Proto $thescheme;
       proxy_set_header X-Sendfile-Type X-Accel-Redirect;
-      #proxy_set_header X-Accel-Mapping $public/=/downloads/;
+      proxy_set_header X-Accel-Mapping $public/=/downloads/;
       expires 1y;
       add_header Cache-Control public,immutable;
 
@@ -187,25 +187,25 @@ server {
       #if ($invalid_referer) { return 403; }
 
       # custom CSS
-      ### location ~ /stylesheet-cache/ {
-      ###    add_header Access-Control-Allow-Origin *;
-      ###     try_files $uri =404;
-      ### }
+      location ~ /stylesheet-cache/ {
+          add_header Access-Control-Allow-Origin *;
+          try_files $uri =404;
+      }
       # this allows us to bypass rails
-      ### location ~* \.(gif|png|jpg|jpeg|bmp|tif|tiff|ico|webp)$ {
-      ###     add_header Access-Control-Allow-Origin *;
-      ###     try_files $uri =404;
-      ### }
+      location ~* \.(gif|png|jpg|jpeg|bmp|tif|tiff|ico|webp)$ {
+          add_header Access-Control-Allow-Origin *;
+          try_files $uri =404;
+      }
       # SVG needs an extra header attached
       location ~* \.(svg)$ {
       }
       # thumbnails & optimized images
-      ### location ~ /_?optimized/ {
-      ###     add_header Access-Control-Allow-Origin *;
-      ###     try_files $uri =404;
-      ### }
-
-      proxy_pass http://$upstream;
+      location ~ /_?optimized/ {
+          add_header Access-Control-Allow-Origin *;
+          try_files $uri =404;
+      }
+      
+      try_files $uri @discourse;
       break;
     }
 
