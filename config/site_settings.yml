@@ -1667,7 +1667,7 @@ security:
     min: 0
     max: 36500
   allow_embedding_site_in_an_iframe:
-    default: false
+    default: true
     hidden: true
   send_old_credential_reminder_days:
     default: 0
