@@ -24,4 +24,7 @@ touch /var/www/discourse/tmp/pids/unicorn.pid
 chmod 0777 /var/www/discourse/tmp/pids/unicorn.pid
 touch /var/www/discourse/log/unicorn.stderr.log
 chmod 0777 /var/www/discourse/log/unicorn.stderr.log
+
+runsvdir /etc/service &
+
 LD_PRELOAD=$RUBY_ALLOCATOR HOME=/home/discourse USER=discourse UNICORN_BIND_ALL=1 UNICORN_PORT=3000 exec thpoff chpst -u discourse:www-data -U discourse:www-data bundle exec config/unicorn_launcher -E production -c config/unicorn.conf.rb

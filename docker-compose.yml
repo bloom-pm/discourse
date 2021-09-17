@@ -36,9 +36,10 @@ services:
       RUBY_GC_HEAP_GROWTH_MAX_SLOTS: "${RUBY_GC_HEAP_GROWTH_MAX_SLOTS}"
       RUBY_GC_HEAP_INIT_SLOTS: "${RUBY_GC_HEAP_INIT_SLOTS}"
       RUBY_GC_HEAP_OLDOBJECT_LIMIT_FACTOR: "${RUBY_GC_HEAP_OLDOBJECT_LIMIT_FACTOR}"
-      DISCOURSE_DEVELOPER_EMAILS: 'community@bloom.pm'
+      DISCOURSE_DEVELOPER_EMAILS: "community@bloom.pm"
       DISCOURSE_SMTP_ADDRESS: "mail"
       DISCOURSE_SMTP_PORT: "25"
+      DISCOURSE_NOTIFICATION_EMAIL: "${DISCOURSE_NOTIFICATION_EMAIL}"
     #entrypoint: ["/bin/sh", "sleep", "10000"]
     command: ["no-compile"]
   
@@ -62,10 +63,10 @@ services:
     image: redis
   
   mail:
-    image: bytemark/smtp
+    image: namshi/smtp
     restart: always
     environment: 
-      RELAY_HOST: "${DISCOURSE_SMTP_ADDRESS}"
-      RELAY_PORT: "${DISCOURSE_SMTP_PORT}"
-      RELAY_USERNAME: "${DISCOURSE_SMTP_USER_NAME}"
-      RELAY_PASSWORD: "${DISCOURSE_SMTP_PASSWORD}"
+      SMARTHOST_ADDRESS: "${DISCOURSE_SMTP_ADDRESS}"
+      SMARTHOST_PORT: "${DISCOURSE_SMTP_PORT}"
+      SMARTHOST_USER: "${DISCOURSE_SMTP_USER_NAME}"
+      SMARTHOST_PASSWORD: "${DISCOURSE_SMTP_PASSWORD}"
