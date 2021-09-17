@@ -40,6 +40,8 @@ services:
       DISCOURSE_SMTP_ADDRESS: "mail"
       DISCOURSE_SMTP_PORT: "25"
       DISCOURSE_NOTIFICATION_EMAIL: "${DISCOURSE_NOTIFICATION_EMAIL}"
+      DISCOURSE_PUMA_BIND: "${DISCOURSE_PUMA_BIND}"
+      DISCOURSE_APP_ROOT: "${DISCOURSE_APP_ROOT}"
     #entrypoint: ["/bin/sh", "sleep", "10000"]
     command: ["no-compile"]
   

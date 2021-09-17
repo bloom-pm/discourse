@@ -128,6 +128,9 @@ ADD ./docker/cron /etc/service/cron/run
 ADD ./docker/rsyslog /etc/service/rsyslog/run
 ADD ./docker/cron.d-anacron /etc/cron.d/anacron
 
+RUN chmod +x /etc/service/cron/run && chmod +x /etc/service/rsyslog/run && chmod +x /etc/cron.d/anacron
+
+
 # Discourse specific bits
 RUN useradd discourse -s /bin/bash -m -U &&\
     mkdir -p /var/www/discourse &&\
@@ -137,7 +140,6 @@ WORKDIR /var/www/discourse
 ADD ["./config.ru", "./.ruby-version.sample","./Brewfile","./package.json","./README.md","./.rubocop.yml","./.eslintignore","./Gemfile.lock","./.prettierrc","./Gemfile","./.prettierignore","./.ruby-gemset.sample","./translator.yml","./Rakefile","./.licensed.yml","./lefthook.yml","./yarn.lock","./.eslintrc","./.template-lintrc.js","./.rspec_parallel","./CONTRIBUTING.md","./LICENSE.txt","./.rspec", "./"] .
 ADD "script/" "script/"
 ADD "app/" "app/"
-ADD "spec/" "spec/"
 ADD "db/" "db/"
 ADD "plugins/" "plugins/"
 ADD "lib/" "lib/"
@@ -171,7 +173,6 @@ RUN chmod 0777  pids/puma.pid
 RUN  mkdir -p /var/www/discourse/tmp/pids
 RUN chmod -R 0777  /var/www/discourse/tmp
 
-RUN chmod +x /etc/service/cron/run && chmod +x /etc/service/rsyslog/run && chmod +x /etc/cron.d/anacron
 RUN bundle exec rails plugin:install_all_gems
 
 COPY docker/discourse_first_run . 
