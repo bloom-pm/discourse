@@ -171,6 +171,8 @@ RUN chmod 0777  pids/puma.pid
 RUN  mkdir -p /var/www/discourse/tmp/pids
 RUN chmod -R 0777  /var/www/discourse/tmp
 
-
+RUN chmod +x /etc/service/cron/run && chmod +x /etc/service/rsyslog/run && chmod +x /etc/cron.d/anacron
+RUN bundle exec rails plugin:install_all_gems
+ 
 ENTRYPOINT ["/bin/bash", "./discourse_run.sh"]
 CMD ["compile"]
