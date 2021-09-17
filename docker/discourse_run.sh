@@ -5,10 +5,9 @@ env
 
 OPTION=$1
 bundle config set --local deployment 'true'
-bundle config mirror.https://rubygems.org http://localhost:9292
-bundle config mirror.https://github.com http://localhost:9292
 
-if [[ $OPTION == "compile" ]]; then
+if [[ $OPTION == "compile" || -f discourse_first_run ]]; then
+  rm -Rf discourse_first_run
   bundle exec rake plugin:pull_compatible_all RAILS_ENV=production
   find /var/www/discourse/vendor/bundle -name tmp -type d -exec rm -rf {} +
   bundle exec rake db:prepare
