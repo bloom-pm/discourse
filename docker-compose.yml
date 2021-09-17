@@ -42,6 +42,7 @@ services:
       DISCOURSE_NOTIFICATION_EMAIL: "${DISCOURSE_NOTIFICATION_EMAIL}"
       DISCOURSE_PUMA_BIND: "${DISCOURSE_PUMA_BIND}"
       DISCOURSE_APP_ROOT: "${DISCOURSE_APP_ROOT}"
+      UNICORN_SIDEKIQS: "${UNICORN_SIDEKIQS}"
     #entrypoint: ["/bin/sh", "sleep", "10000"]
     command: ["no-compile"]
   
