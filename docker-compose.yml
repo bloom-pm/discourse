@@ -60,6 +60,12 @@ services:
   
   cache:
     image: redis
+  
   mail:
     image: bytemark/smtp
     restart: always
+    environment: 
+      RELAY_HOST: "${DISCOURSE_SMTP_ADDRESS}"
+      RELAY_PORT: "${DISCOURSE_SMTP_PORT}"
+      RELAY_USERNAME: "${DISCOURSE_SMTP_USER_NAME}"
+      RELAY_PASSWORD: "${DISCOURSE_SMTP_PASSWORD}"
