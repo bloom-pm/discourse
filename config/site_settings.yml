@@ -2059,8 +2059,8 @@ search:
 
 uncategorized:
   version_checks:
-    client: true
-    default: true
+    client: false
+    default: false
   new_version_emails: true
   send_welcome_message: true
 
