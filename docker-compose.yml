@@ -72,3 +72,13 @@ services:
       SMARTHOST_PORT: "${DISCOURSE_SMTP_PORT}"
       SMARTHOST_USER: "${DISCOURSE_SMTP_USER_NAME}"
       SMARTHOST_PASSWORD: "${DISCOURSE_SMTP_PASSWORD}"
+  
+  logrotate: 
+    image: blacklabelops/logrotate
+    volumes:
+      - ./log:/var/lib/discourse
+    environment: 
+      LOGS_DIRECTORIES: "/var/lib/discourse"
+      LOGROTATE_SIZE: "10M"
+      LOGROTATE_INTERVAL: "hourly"
+      LOGROTATE_COPIES: "10"
