@@ -68,12 +68,13 @@ services:
   mail:
     image: namshi/smtp
     restart: always
+    volumes:
+      - ./log:/var/log/exim4
     environment: 
-      SMARTHOST_ADDRESS: "${DISCOURSE_SMTP_ADDRESS}"
-      SMARTHOST_PORT: "${DISCOURSE_SMTP_PORT}"
-      SMARTHOST_USER: "${DISCOURSE_SMTP_USER_NAME}"
-      SMARTHOST_PASSWORD: "${DISCOURSE_SMTP_PASSWORD}"
-  
+      SES_USER: "${DISCOURSE_SMTP_USER_NAME}"
+      SES_PASSWORD: "${DISCOURSE_SMTP_PASSWORD}"
+      SES_REGION: "${AWS_REGION}"
+
   logrotate: 
     image: blacklabelops/logrotate
     volumes:
