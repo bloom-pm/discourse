@@ -120,6 +120,11 @@ const ApplicationRoute = DiscourseRoute.extend(OpenComposer, {
       I18n.t("read_only_mode.login_disabled")
     ),
 
+    showLoginNoSso: unlessReadOnly(
+      "handleShowLoginNoSso",
+      I18n.t("read_only_mode.login_disabled")
+    ),
+
     showCreateAccount: unlessReadOnly(
       "handleShowCreateAccount",
       I18n.t("read_only_mode.login_disabled")
@@ -260,6 +265,12 @@ const ApplicationRoute = DiscourseRoute.extend(OpenComposer, {
         notAuto: () => this.controllerFor("login").resetForm(),
       });
     }
+  },
+
+  handleShowLoginNoSso() {    
+    this._autoLogin("login", "login-modal", {
+      notAuto: () => this.controllerFor("login").resetForm(),
+    });    
   },
 
   handleShowCreateAccount() {
