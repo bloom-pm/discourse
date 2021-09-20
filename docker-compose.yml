@@ -42,6 +42,7 @@ services:
       DISCOURSE_PUMA_BIND: "${DISCOURSE_PUMA_BIND}"
       DISCOURSE_APP_ROOT: "${DISCOURSE_APP_ROOT}"
       UNICORN_SIDEKIQS: "${UNICORN_SIDEKIQS}"
+      DISCOURSE_SECRET_KEY_BASE: "${DISCOURSE_SECRET_KEY_BASE}"
     #entrypoint: ["/bin/sh", "sleep", "10000"]
     command: ["no-compile"]
   
