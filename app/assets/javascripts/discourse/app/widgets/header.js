@@ -312,14 +312,6 @@ createWidget("header-buttons", {
         icon: "user",
       })
     );
-    buttons.push(
-      this.attach("button", {
-        label: "log_in",
-        className: "btn-primary btn-small login-button",
-        action: "showLoginNoSso",
-        icon: "user",
-      })
-    );
     return buttons;
   },
 });
