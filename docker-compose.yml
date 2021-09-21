@@ -11,7 +11,7 @@ services:
       - "9293:9293"
     volumes:
       - ./assets:/var/www/discourse/public/assets
-      - ./uploads:/usr/src/app/public/uploads
+      - ./uploads:/var/www/discourse/public/uploads
       - ./log:/home/discourse/discourse/log
       - ./log:/var/www/discourse/log
       - ./backups:/usr/src/app/public/backups
