@@ -66,6 +66,8 @@ services:
   
   cache:
     image: redis
+    ports:
+      - 6379:6379
   
   mail:
     image: namshi/smtp
