@@ -64,6 +64,30 @@ class Upload < ActiveRecord::Base
     )
   end
 
+  def self.add_unused_callback(&block)
+    (@unused_callbacks ||= []) << block
+  end
+
+  def self.unused_callbacks
+    @unused_callbacks
+  end
+
+  def self.reset_unused_callbacks
+    @unused_callbacks = []
+  end
+
+  def self.add_in_use_callback(&block)
+    (@in_use_callbacks ||= []) << block
+  end
+
+  def self.in_use_callbacks
+    @in_use_callbacks
+  end
+
+  def self.reset_in_use_callbacks
+    @in_use_callbacks = []
+  end
+
   def self.with_no_non_post_relations
     scope = self
       .joins(<<~SQL)
@@ -90,6 +114,12 @@ class Upload < ActiveRecord::Base
       .where("g.flair_upload_id IS NULL")
       .joins("LEFT JOIN badges b ON b.image_upload_id = uploads.id")
       .where("b.image_upload_id IS NULL")
+      .joins(<<~SQL)
+        LEFT JOIN theme_settings ts
+        ON NULLIF(ts.value, '')::integer = uploads.id
+        AND ts.data_type = #{ThemeSetting.types[:upload].to_i}
+      SQL
+      .where("ts.value IS NULL")
 
     if SiteSetting.selectable_avatars.present?
       scope = scope.where.not(id: SiteSetting.selectable_avatars.map(&:id))
@@ -513,7 +543,7 @@ end
 #  id                           :integer          not null, primary key
 #  user_id                      :integer          not null
 #  original_filename            :string           not null
-#  filesize                     :integer          not null
+#  filesize                     :bigint           not null
 #  width                        :integer
 #  height                       :integer
 #  url                          :string           not null

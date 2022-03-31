@@ -103,7 +103,11 @@ class PostAction < ActiveRecord::Base
   end
 
   def self.act(created_by, post, post_action_type_id, opts = {})
-    Discourse.deprecate("PostAction.act is deprecated. Use `PostActionCreator` instead.", output_in_test: true)
+    Discourse.deprecate(
+      "PostAction.act is deprecated. Use `PostActionCreator` instead.",
+      output_in_test: true,
+      drop_from: '2.9.0',
+    )
 
     result = PostActionCreator.new(
       created_by,
@@ -131,7 +135,8 @@ class PostAction < ActiveRecord::Base
   def self.remove_act(user, post, post_action_type_id)
     Discourse.deprecate(
       "PostAction.remove_act is deprecated. Use `PostActionDestroyer` instead.",
-      output_in_test: true
+      output_in_test: true,
+      drop_from: '2.9.0',
     )
 
     PostActionDestroyer.new(user, post, post_action_type_id).perform
@@ -172,8 +177,8 @@ class PostAction < ActiveRecord::Base
       if public_send("is_#{type}?")
         limit = SiteSetting.get("max_#{type}s_per_day")
 
-        if is_like? && user && user.trust_level >= 2
-          multiplier = SiteSetting.get("tl#{user.trust_level}_additional_likes_per_day_multiplier").to_f
+        if (is_flag? || is_like?) && user && user.trust_level >= 2
+          multiplier = SiteSetting.get("tl#{user.trust_level}_additional_#{type}s_per_day_multiplier").to_f
           multiplier = 1.0 if multiplier < 1.0
 
           limit = (limit * multiplier).to_i
@@ -234,8 +239,7 @@ class PostAction < ActiveRecord::Base
     end
 
     if column == "like_count"
-      topic_count = Post.where(topic_id: topic_id).sum(column)
-      Topic.where(id: topic_id).update_all ["#{column} = ?", topic_count]
+      Topic.find_by(id: topic_id)&.update_action_counts
     end
 
   end

@@ -486,6 +486,17 @@ button {
     }
   }
 
+  .mfp-ready {
+    .mfp-content {
+      min-width: 300px;
+    }
+  }
+
+  .mfp-title,
+  .mfp-title .image-source-link {
+    display: inline-block;
+  }
+
   .mfp-image-holder {
     .mfp-content {
       max-width: 100%;
@@ -584,7 +595,9 @@ button {
   /* start state */
   .mfp-content {
     opacity: 0;
-    transition: all 0.2s;
+    @media screen and (prefers-reduced-motion: no-preference) {
+      transition: all 0.2s;
+    }
     -webkit-transform: scale(0.8);
     -ms-transform: scale(0.8);
     transform: scale(0.8);

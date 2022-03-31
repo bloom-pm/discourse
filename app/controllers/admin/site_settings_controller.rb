@@ -7,7 +7,7 @@ class Admin::SiteSettingsController < Admin::AdminController
 
   def index
     render_json_dump(
-      site_settings: SiteSetting.all_settings(sanitize_plain_text_settings: true),
+      site_settings: SiteSetting.all_settings,
       diags: SiteSetting.diags
     )
   end
@@ -34,7 +34,7 @@ class Admin::SiteSettingsController < Admin::AdminController
     end
 
     update_existing_users = params[:update_existing_user].present?
-    previous_value = SiteSetting.send(id) || "" if update_existing_users
+    previous_value = SiteSetting.public_send(id) || "" if update_existing_users
 
     SiteSetting.set_and_log(id, value, current_user)
 

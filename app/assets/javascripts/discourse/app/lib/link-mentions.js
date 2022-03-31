@@ -1,3 +1,4 @@
+import deprecated from "discourse-common/lib/deprecated";
 import { ajax } from "discourse/lib/ajax";
 import { formatUsername } from "discourse/lib/utilities";
 import getURL from "discourse-common/lib/get-url";
@@ -5,10 +6,9 @@ import { userPath } from "discourse/lib/url";
 
 let maxGroupMention;
 
-function replaceSpan($e, username, opts) {
+function replaceSpan(element, username, opts) {
   let extra = {};
   let extraClass = [];
-  const element = $e[0];
   const a = document.createElement("a");
 
   if (opts && opts.group) {
@@ -46,32 +46,43 @@ const found = {};
 const foundGroups = {};
 const mentionableGroups = {};
 const checked = {};
-const cannotSee = [];
+export const cannotSee = {};
 
-function updateFound($mentions, usernames) {
-  $mentions.each((i, e) => {
-    const $e = $(e);
-    const username = usernames[i];
+function updateFound(mentions, usernames) {
+  mentions.forEach((mention, index) => {
+    const username = usernames[index];
     if (found[username.toLowerCase()]) {
-      replaceSpan($e, username, { cannot_see: cannotSee[username] });
+      replaceSpan(mention, username, { cannot_see: cannotSee[username] });
     } else if (mentionableGroups[username]) {
-      replaceSpan($e, username, {
+      replaceSpan(mention, username, {
         group: true,
         mentionable: mentionableGroups[username],
       });
     } else if (foundGroups[username]) {
-      replaceSpan($e, username, { group: true });
+      replaceSpan(mention, username, { group: true });
     } else if (checked[username]) {
-      $e.addClass("mention-tested");
+      mention.classList.add("mention-tested");
     }
   });
 }
 
-export function linkSeenMentions($elem, siteSettings) {
-  const $mentions = $("span.mention:not(.mention-tested)", $elem);
-  if ($mentions.length) {
-    const usernames = [...$mentions.map((_, e) => $(e).text().substr(1))];
-    updateFound($mentions, usernames);
+export function linkSeenMentions(elem, siteSettings) {
+  // eslint-disable-next-line no-undef
+  if (elem instanceof jQuery) {
+    elem = elem[0];
+
+    deprecated("linkSeenMentions now expects a DOM node as first parameter", {
+      since: "2.8.0.beta7",
+      dropFrom: "2.9.0.beta1",
+    });
+  }
+
+  const mentions = [
+    ...elem.querySelectorAll("span.mention:not(.mention-tested)"),
+  ];
+  if (mentions.length) {
+    const usernames = mentions.map((m) => m.innerText.substr(1));
+    updateFound(mentions, usernames);
     return usernames
       .uniq()
       .filter(
@@ -90,7 +101,9 @@ export function fetchUnseenMentions(usernames, topic_id) {
     r.valid.forEach((v) => (found[v] = true));
     r.valid_groups.forEach((vg) => (foundGroups[vg] = true));
     r.mentionable_groups.forEach((mg) => (mentionableGroups[mg.name] = mg));
-    r.cannot_see.forEach((cs) => (cannotSee[cs] = true));
+    Object.entries(r.cannot_see).forEach(
+      ([username, reason]) => (cannotSee[username] = reason)
+    );
     maxGroupMention = r.max_users_notified_per_group_mention;
     usernames.forEach((u) => (checked[u] = true));
     return r;

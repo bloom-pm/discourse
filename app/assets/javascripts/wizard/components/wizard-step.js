@@ -5,22 +5,6 @@ import getUrl from "discourse-common/lib/get-url";
 import { htmlSafe } from "@ember/template";
 import { schedule } from "@ember/runloop";
 
-jQuery.fn.wiggle = function (times, duration) {
-  if (times > 0) {
-    this.animate(
-      {
-        marginLeft: times-- % 2 === 0 ? -15 : 15,
-      },
-      duration,
-      0,
-      () => this.wiggle(times, duration)
-    );
-  } else {
-    this.animate({ marginLeft: 0 }, duration, 0);
-  }
-  return this;
-};
-
 const alreadyWarned = {};
 
 export default Component.extend({
@@ -120,18 +104,11 @@ export default Component.extend({
     });
   },
 
-  animateInvalidFields() {
-    schedule("afterRender", () =>
-      $(".invalid input[type=text], .invalid textarea").wiggle(2, 100)
-    );
-  },
-
   advance() {
     this.set("saving", true);
     this.step
       .save()
       .then((response) => this.goNext(response))
-      .catch(() => this.animateInvalidFields())
       .finally(() => this.set("saving", false));
   },
 
@@ -154,10 +131,8 @@ export default Component.extend({
         step
           .save()
           .then(() => this.send("quit"))
-          .catch(() => this.animateInvalidFields())
           .finally(() => this.set("saving", false));
       } else {
-        this.animateInvalidFields();
         this.autoFocus();
       }
     },
@@ -198,7 +173,6 @@ export default Component.extend({
       if (step.get("valid")) {
         this.advance();
       } else {
-        this.animateInvalidFields();
         this.autoFocus();
       }
     },

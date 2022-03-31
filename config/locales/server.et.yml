@@ -481,17 +481,6 @@ et:
       title: "Laigi"
       description: "Laigi seda postitust"
       short_description: "Laigi seda postitust"
-  user_activity:
-    no_default:
-      others: "Tegevusi pole."
-    no_bookmarks:
-      self: "Sul pole järjehoidjatesse lisatud postitusi; järjehoidjad võimaldavad kiiresti konkreetsetele postitustele viidata."
-      others: "Järjehoidjad puuduvad."
-    no_likes_given:
-      self: "Sa pole oma meeldimist ühelegi postitusele andnud."
-      others: "Meeldimisega postitusi veel pole."
-    no_replies:
-      others: "Vastuseid pole."
   topic_flag_types:
     spam:
       title: "Spämm"
@@ -735,6 +724,18 @@ et:
       labels:
         filename: Faili nimi
         author: Autor
+    top_users_by_likes_received:
+      labels:
+        user: Kasutaja
+        qtt_like: Meeldimisi saadud
+    top_users_by_likes_received_from_inferior_trust_level:
+      labels:
+        user: Kasutaja
+        qtt_like: Meeldimisi saadud
+    top_users_by_likes_received_from_a_variety_of_people:
+      labels:
+        user: Kasutaja
+        qtt_like: Meeldimisi saadud
   dashboard:
     host_names_warning: "Sinu config/database.yml fail kasutab vaikimisi hostinime localhost. Kirjuta sinna oma saidi hostinimi."
   site_settings:
@@ -1031,7 +1032,6 @@ et:
             label: "Sinu kogukonna nimi"
             placeholder: "Jane ajaviitenurgake"
           site_description:
-            label: "Kirjelda oma kogukonda ühe lühikese lausega"
             placeholder: "Koht Janele ja tema sõpradele lahedate arutelude jaoks"
       introduction:
         title: "Sissejuhatus"
@@ -1131,6 +1131,7 @@ et:
           title: "Kustuta kasutaja"
       reject:
         title: "Lükka tagasi"
+  fallback_username: "kasutaja"
   activemodel:
     errors:
       <<: *errors

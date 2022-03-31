@@ -16,6 +16,7 @@ describe 'posts' do
 
     get 'List latest posts across topics' do
       tags 'Posts'
+      operationId 'listPosts'
       parameter name: 'Api-Key', in: :header, type: :string, required: true
       parameter name: 'Api-Username', in: :header, type: :string, required: true
       produces 'application/json'
@@ -98,6 +99,7 @@ describe 'posts' do
 
     post 'Creates a new topic, a new post, or a private message' do
       tags 'Posts', 'Topics', 'Private Messages'
+      operationId 'createTopicPostPM'
       consumes 'application/json'
       expected_request_schema = load_spec_schema('topic_create_request')
       parameter name: :params, in: :body, schema: expected_request_schema
@@ -121,6 +123,7 @@ describe 'posts' do
 
     get 'Retrieve a single post' do
       tags 'Posts'
+      operationId 'getPost'
       parameter name: 'Api-Key', in: :header, type: :string, required: true
       parameter name: 'Api-Username', in: :header, type: :string, required: true
       parameter name: :id, in: :path, schema: { type: :string }
@@ -194,6 +197,7 @@ describe 'posts' do
 
     put 'Update a single post' do
       tags 'Posts'
+      operationId 'updatePost'
       consumes 'application/json'
       parameter name: 'Api-Key', in: :header, type: :string, required: true
       parameter name: 'Api-Username', in: :header, type: :string, required: true
@@ -287,11 +291,64 @@ describe 'posts' do
         end
       end
     end
+
+    delete 'delete a single post' do
+      tags 'Posts'
+      operationId 'deletePost'
+      consumes 'application/json'
+      expected_request_schema = load_spec_schema('post_delete_request')
+      parameter name: :id, in: :path, schema: { type: :integer }
+      parameter name: :params, in: :body, schema: expected_request_schema
+
+      produces 'application/json'
+      response '200', 'success response' do
+        expected_response_schema = nil
+        schema expected_response_schema
+
+        let(:topic) { Fabricate(:topic) }
+        let(:post) { Fabricate(:post, topic_id: topic.id, post_number: 3) }
+        let(:id) { post.id }
+        let(:params) { { 'force_destroy' => false } }
+
+        it_behaves_like "a JSON endpoint", 200 do
+          let(:expected_response_schema) { expected_response_schema }
+          let(:expected_request_schema) { expected_request_schema }
+        end
+      end
+    end
+  end
+
+  path '/posts/{id}/replies.json' do
+    get 'List replies to a post' do
+      tags 'Posts'
+      operationId 'postReplies'
+      consumes 'application/json'
+      expected_request_schema = nil
+      parameter name: :id, in: :path, schema: { type: :string }
+
+      produces 'application/json'
+      response '200', 'post replies' do
+        expected_response_schema = load_spec_schema('post_replies_response')
+        schema expected_response_schema
+
+        fab!(:user) { Fabricate(:user) }
+        fab!(:topic) { Fabricate(:topic) }
+        fab!(:post) { Fabricate(:post, topic: topic, user: user) }
+        let!(:reply) { PostCreator.new(user, raw: "this is some text for my post", topic_id: topic.id, reply_to_post_number: post.post_number).create }
+        let!(:id) { post.id }
+
+        it_behaves_like "a JSON endpoint", 200 do
+          let(:expected_response_schema) { expected_response_schema }
+          let(:expected_request_schema) { expected_request_schema }
+        end
+      end
+    end
   end
 
   path '/posts/{id}/locked.json' do
     put 'Lock a post from being edited' do
       tags 'Posts'
+      operationId 'lockPost'
       consumes 'application/json'
       parameter name: 'Api-Key', in: :header, type: :string, required: true
       parameter name: 'Api-Username', in: :header, type: :string, required: true
@@ -324,6 +381,7 @@ describe 'posts' do
   path '/post_actions.json' do
     post 'Like a post and other actions' do
       tags 'Posts'
+      operationId 'performPostAction'
       consumes 'application/json'
       parameter name: 'Api-Key', in: :header, type: :string, required: true
       parameter name: 'Api-Username', in: :header, type: :string, required: true

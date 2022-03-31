@@ -5,6 +5,7 @@ import Permalink from "admin/models/permalink";
 import bootbox from "bootbox";
 import discourseDebounce from "discourse-common/lib/debounce";
 import { observes } from "discourse-common/utils/decorators";
+import { clipboardCopy } from "discourse/lib/utilities";
 
 export default Controller.extend({
   loading: false,
@@ -29,15 +30,10 @@ export default Controller.extend({
 
     copyUrl(pl) {
       let linkElement = document.querySelector(`#admin-permalink-${pl.id}`);
-      let textArea = document.createElement("textarea");
-      textArea.value = linkElement.textContent;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand("Copy");
-      textArea.remove();
+      clipboardCopy(linkElement.textContent);
     },
 
-    destroy: function (record) {
+    destroy(record) {
       return bootbox.confirm(
         I18n.t("admin.permalink.delete_confirm"),
         I18n.t("no_value"),

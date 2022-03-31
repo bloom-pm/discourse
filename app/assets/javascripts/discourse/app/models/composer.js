@@ -24,6 +24,15 @@ import { isEmpty } from "@ember/utils";
 import { propertyNotEqual } from "discourse/lib/computed";
 import { throwAjaxError } from "discourse/lib/ajax-error";
 
+let _customizations = [];
+export function registerCustomizationCallback(cb) {
+  _customizations.push(cb);
+}
+
+export function resetComposerCustomizations() {
+  _customizations = [];
+}
+
 // The actions the composer can take
 export const CREATE_TOPIC = "createTopic",
   CREATE_SHARED_DRAFT = "createSharedDraft",
@@ -148,26 +157,9 @@ const Composer = RestModel.extend({
     return categoryId ? this.site.categories.findBy("id", categoryId) : null;
   },
 
-  @discourseComputed("category")
-  minimumRequiredTags(category) {
-    if (category) {
-      if (category.required_tag_groups) {
-        return category.min_tags_from_required_group;
-      } else {
-        return category.minimum_required_tags > 0
-          ? category.minimum_required_tags
-          : null;
-      }
-    }
-
-    return null;
-  },
-
-  @discourseComputed("category")
-  requiredTagGroups(category) {
-    return category && category.required_tag_groups
-      ? category.required_tag_groups
-      : null;
+  @discourseComputed("category.minimumRequiredTags")
+  minimumRequiredTags(minimumRequiredTags) {
+    return minimumRequiredTags || 0;
   },
 
   creatingTopic: equal("action", CREATE_TOPIC),
@@ -219,12 +211,14 @@ const Composer = RestModel.extend({
 
     if (this.composeState === OPEN) {
       this.set("composerOpened", oldOpen || new Date());
+      elem.classList.add("composer-open");
     } else {
       if (oldOpen) {
         const oldTotal = this.composerTotalOpened || 0;
         this.set("composerTotalOpened", oldTotal + (new Date() - oldOpen));
       }
       this.set("composerOpened", null);
+      elem.classList.remove("composer-open");
     }
   },
 
@@ -663,6 +657,14 @@ const Composer = RestModel.extend({
       }
       if (after.length > 0 && !after[0].match(/\s/)) {
         after = " " + after;
+      }
+    }
+
+    if (opts && opts.new_line) {
+      if (before.length > 0) {
+        text = "\n\n" + text.trim();
+      } else {
+        text = text.trim();
       }
     }
 
@@ -1231,16 +1233,19 @@ const Composer = RestModel.extend({
       data.originalText = this.originalText;
     }
 
+    const draftSequence = this.draftSequence;
+    this.set("draftSequence", this.draftSequence + 1);
+
     return Draft.save(
       this.draftKey,
-      this.draftSequence,
+      draftSequence,
       data,
       this.messageBus.clientId,
       { forceSave: this.draftForceSave }
     )
       .then((result) => {
-        if (result.draft_sequence) {
-          this.draftSequence = result.draft_sequence;
+        if ("draft_sequence" in result) {
+          this.set("draftSequence", result.draft_sequence);
         }
         if (result.conflict_user) {
           this.setProperties({
@@ -1304,6 +1309,18 @@ const Composer = RestModel.extend({
       .finally(() => {
         this.set("draftSaving", false);
       });
+  },
+
+  customizationFor(type) {
+    for (let i = 0; i < _customizations.length; i++) {
+      let cb = _customizations[i][type];
+      if (cb) {
+        let result = cb(this);
+        if (result) {
+          return result;
+        }
+      }
+    }
   },
 });
 

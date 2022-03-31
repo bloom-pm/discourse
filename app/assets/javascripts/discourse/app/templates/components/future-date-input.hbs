@@ -9,7 +9,6 @@
       includeDateTime=includeDateTime
       includeWeekend=includeWeekend
       includeFarFuture=includeFarFuture
-      includeMidFuture=includeMidFuture
       includeNow=includeNow
       clearable=clearable
       onChangeInput=onChangeInput
@@ -21,7 +20,7 @@
   </div>
 
   {{#if displayDateAndTimePicker}}
-    <div class="control-group">
+    <div class="control-group future-date-input-date-picker">
       {{d-icon "calendar-alt"}}
       {{date-picker-future
         value=_date
@@ -30,7 +29,7 @@
       }}
     </div>
 
-    <div class="control-group">
+    <div class="control-group future-date-input-time-picker">
       {{d-icon "far-clock"}}
       {{input
         placeholder="--:--"

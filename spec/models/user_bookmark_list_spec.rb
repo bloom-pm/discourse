@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'rails_helper'
-
 RSpec.describe UserBookmarkList do
   let(:params) { {} }
   fab!(:user) { Fabricate(:user) }
@@ -9,7 +7,8 @@ RSpec.describe UserBookmarkList do
 
   before do
     22.times do
-      Fabricate(:bookmark, user: user)
+      bookmark = Fabricate(:bookmark, user: user)
+      Fabricate(:topic_user, topic: bookmark.topic, user: user)
     end
   end
 

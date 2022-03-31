@@ -29,7 +29,7 @@ module Middleware
         method << "|#{k}=#\{h.#{v}}"
       end
       method << "\"\nend"
-      eval(method)
+      eval(method) # rubocop:disable Security/Eval
       @@compiled = true
     end
 
@@ -49,9 +49,15 @@ module Middleware
       ACCEPT_ENCODING  = "HTTP_ACCEPT_ENCODING"
       DISCOURSE_RENDER = "HTTP_DISCOURSE_RENDER"
 
-      def initialize(env)
+      REDIS_STORE_SCRIPT = DiscourseRedis::EvalHelper.new <<~LUA
+        local current = redis.call("incr", KEYS[1])
+        redis.call("expire",KEYS[1],ARGV[1])
+        return current
+      LUA
+
+      def initialize(env, request = nil)
         @env = env
-        @request = Rack::Request.new(@env)
+        @request = request || Rack::Request.new(@env)
       end
 
       def blocked_crawler?
@@ -171,6 +177,7 @@ module Middleware
       def force_anonymous!
         @env[Auth::DefaultCurrentUserProvider::USER_API_KEY] = nil
         @env['HTTP_COOKIE'] = nil
+        @env['HTTP_DISCOURSE_LOGGED_IN'] = nil
         @env['rack.request.cookie.hash'] = {}
         @env['rack.request.cookie.string'] = ''
         @env['_bypass_cache'] = nil
@@ -258,11 +265,7 @@ module Middleware
         if status == 200 && cache_duration
 
           if GlobalSetting.anon_cache_store_threshold > 1
-            count = Discourse.redis.eval(<<~REDIS, [cache_key_count], [cache_duration])
-              local current = redis.call("incr", KEYS[1])
-              redis.call("expire",KEYS[1],ARGV[1])
-              return current
-            REDIS
+            count = REDIS_STORE_SCRIPT.eval(Discourse.redis, [cache_key_count], [cache_duration])
 
             # technically lua will cast for us, but might as well be
             # prudent here, hence the to_i
@@ -314,7 +317,7 @@ module Middleware
       if PAYLOAD_INVALID_REQUEST_METHODS.include?(env[Rack::REQUEST_METHOD]) &&
         env[Rack::RACK_INPUT].size > 0
 
-        return [413, {}, []]
+        return [413, { "Cache-Control" => "private, max-age=0, must-revalidate" }, []]
       end
 
       helper = Helper.new(env)

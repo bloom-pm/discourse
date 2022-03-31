@@ -159,13 +159,7 @@ module PostGuardian
 
       return false if @user.silenced?
 
-      if post.hidden?
-        return false if post.hidden_at.present? &&
-                        post.hidden_at >= SiteSetting.cooldown_minutes_after_hiding_posts.minutes.ago
-
-        # If it's your own post and it's hidden, you can still edit it
-        return true
-      end
+      return can_edit_hidden_post?(post) if post.hidden?
 
       if post.is_first_post? && post.topic.category_allows_unlimited_owner_edits_on_first_post?
         return true
@@ -179,6 +173,11 @@ module PostGuardian
     end
 
     false
+  end
+
+  def can_edit_hidden_post?(post)
+    return false if post.nil?
+    post.hidden_at.nil? || post.hidden_at < SiteSetting.cooldown_minutes_after_hiding_posts.minutes.ago
   end
 
   def can_delete_post_or_topic?(post)
@@ -203,6 +202,16 @@ module PostGuardian
     end
 
     false
+  end
+
+  def can_permanently_delete_post?(post)
+    return false if !SiteSetting.can_permanently_delete
+    return false if !post
+    return false if post.is_first_post?
+    return false if !is_admin? || !can_edit_post?(post)
+    return false if !post.deleted_at
+    return false if post.deleted_by_id == @user.id && post.deleted_at >= Post::PERMANENT_DELETE_TIMER.ago
+    true
   end
 
   def can_recover_post?(post)

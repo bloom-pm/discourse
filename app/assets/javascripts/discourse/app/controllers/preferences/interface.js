@@ -1,11 +1,6 @@
 import Controller, { inject as controller } from "@ember/controller";
 import Session from "discourse/models/session";
-import {
-  iOSWithVisualViewport,
-  isiPad,
-  safariHacksDisabled,
-  setDefaultHomepage,
-} from "discourse/lib/utilities";
+import { setDefaultHomepage } from "discourse/lib/utilities";
 import {
   listColorSchemes,
   loadColorSchemeStylesheet,
@@ -26,6 +21,7 @@ const USER_HOMES = {
   4: "new",
   5: "top",
   6: "bookmarks",
+  7: "unseen",
 };
 
 const TEXT_SIZES = ["smallest", "smaller", "normal", "larger", "largest"];
@@ -69,18 +65,6 @@ export default Controller.extend({
     }
 
     return attrs;
-  },
-
-  @discourseComputed()
-  isiPad() {
-    // TODO: remove this preference checkbox when iOS adoption > 90%
-    // (currently only applies to iOS 12 and below)
-    return isiPad() && !iOSWithVisualViewport();
-  },
-
-  @discourseComputed()
-  disableSafariHacks() {
-    return safariHacksDisabled();
   },
 
   @discourseComputed()
@@ -242,12 +226,12 @@ export default Controller.extend({
         return;
       }
 
-      const defaultTheme = this.site.user_themes?.findBy("default", true);
+      const theme = this.userSelectableThemes?.findBy("id", this.themeId);
 
       // we don't want to display the numeric ID of a scheme
       // when it is set by the theme but not marked as user selectable
       if (
-        defaultTheme?.color_scheme_id === this.session.userColorSchemeId &&
+        theme?.color_scheme_id === this.session.userColorSchemeId &&
         !this.userSelectableColorSchemes.findBy(
           "id",
           this.session.userColorSchemeId
@@ -340,16 +324,6 @@ export default Controller.extend({
           }
 
           this.homeChanged();
-
-          if (this.isiPad) {
-            if (safariHacksDisabled() !== this.disableSafariHacks) {
-              this.session.requiresRefresh = true;
-            }
-            localStorage.setItem(
-              "safari-hacks-disabled",
-              this.disableSafariHacks.toString()
-            );
-          }
 
           if (this.themeId !== this.currentThemeId) {
             reload();

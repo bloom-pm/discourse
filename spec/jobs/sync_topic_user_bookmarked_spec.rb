@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'rails_helper'
-
 RSpec.describe Jobs::SyncTopicUserBookmarked do
   it "corrects all topic_users.bookmarked records for the topic" do
     topic = Fabricate(:topic)
@@ -15,8 +13,8 @@ RSpec.describe Jobs::SyncTopicUserBookmarked do
     tu4 = Fabricate(:topic_user, topic: topic, bookmarked: true)
     tu5 = Fabricate(:topic_user, bookmarked: false)
 
-    Fabricate(:bookmark, user: tu1.user, topic: topic, post: topic.posts.sample)
-    Fabricate(:bookmark, user: tu4.user, topic: topic, post: topic.posts.sample)
+    Fabricate(:bookmark, user: tu1.user, post: topic.posts.sample)
+    Fabricate(:bookmark, user: tu4.user, post: topic.posts.sample)
 
     subject.execute(topic_id: topic.id)
 
@@ -34,8 +32,8 @@ RSpec.describe Jobs::SyncTopicUserBookmarked do
     tu1 = Fabricate(:topic_user, topic: topic, bookmarked: false)
     tu2 = Fabricate(:topic_user, topic: topic, bookmarked: true)
 
-    Fabricate(:bookmark, user: tu1.user, topic: topic, post: post1)
-    Fabricate(:bookmark, user: tu2.user, topic: topic, post: post1)
+    Fabricate(:bookmark, user: tu1.user, post: post1)
+    Fabricate(:bookmark, user: tu2.user, post: post1)
 
     post1.trash!
 
@@ -57,8 +55,8 @@ RSpec.describe Jobs::SyncTopicUserBookmarked do
     tu4 = Fabricate(:topic_user, topic: topic, bookmarked: true)
     tu5 = Fabricate(:topic_user, bookmarked: false)
 
-    Fabricate(:bookmark, user: tu1.user, topic: topic, post: topic.posts.sample)
-    Fabricate(:bookmark, user: tu4.user, topic: topic, post: topic.posts.sample)
+    Fabricate(:bookmark, user: tu1.user, post: topic.posts.sample)
+    Fabricate(:bookmark, user: tu4.user, post: topic.posts.sample)
 
     subject.execute
 

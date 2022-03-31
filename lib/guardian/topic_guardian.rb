@@ -32,10 +32,7 @@ module TopicGuardian
   end
 
   def can_see_shared_draft?
-    return is_admin? if SiteSetting.shared_drafts_min_trust_level.to_s == 'admin'
-    return is_staff? if SiteSetting.shared_drafts_min_trust_level.to_s == 'staff'
-
-    @user.has_trust_level?(SiteSetting.shared_drafts_min_trust_level.to_i)
+    @user.has_trust_level_or_staff?(SiteSetting.shared_drafts_min_trust_level)
   end
 
   def can_create_whisper?
@@ -88,7 +85,10 @@ module TopicGuardian
   def can_edit_topic?(topic)
     return false if Discourse.static_doc_topic_ids.include?(topic.id) && !is_admin?
     return false unless can_see?(topic)
-    return false if topic.first_post&.locked? && !is_staff?
+
+    first_post = topic.first_post
+
+    return false if first_post&.locked? && !is_staff?
 
     return true if is_admin?
     return true if is_moderator? && can_create_post?(topic)
@@ -133,9 +133,11 @@ module TopicGuardian
     )
 
     return false if topic.archived
+
     is_my_own?(topic) &&
       !topic.edit_time_limit_expired?(user) &&
-      !Post.where(topic_id: topic.id, post_number: 1).where.not(locked_by_id: nil).exists?
+      !first_post&.locked? &&
+      (!first_post&.hidden? || can_edit_hidden_post?(first_post))
   end
 
   def can_recover_topic?(topic)
@@ -151,6 +153,16 @@ module TopicGuardian
     (is_staff? || (is_my_own?(topic) && topic.posts_count <= 1 && topic.created_at && topic.created_at > 24.hours.ago) || is_category_group_moderator?(topic.category)) &&
     !topic.is_category_topic? &&
     !Discourse.static_doc_topic_ids.include?(topic.id)
+  end
+
+  def can_permanently_delete_topic?(topic)
+    return false if !SiteSetting.can_permanently_delete
+    return false if !topic
+    return false if topic.posts_count > 0
+    return false if !is_admin? || !can_see_topic?(topic)
+    return false if !topic.deleted_at
+    return false if topic.deleted_by_id == @user.id && topic.deleted_at >= Post::PERMANENT_DELETE_TIMER.ago
+    true
   end
 
   def can_toggle_topic_visibility?(topic)

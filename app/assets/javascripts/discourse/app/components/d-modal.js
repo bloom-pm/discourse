@@ -1,8 +1,7 @@
-import { computed } from "@ember/object";
 import Component from "@ember/component";
 import I18n from "I18n";
 import { next, schedule } from "@ember/runloop";
-import { bind, on } from "discourse-common/utils/decorators";
+import discourseComputed, { bind, on } from "discourse-common/utils/decorators";
 
 export default Component.extend({
   classNameBindings: [
@@ -21,6 +20,7 @@ export default Component.extend({
   submitOnEnter: true,
   dismissable: true,
   title: null,
+  titleAriaElementId: null,
   subtitle: null,
   role: "dialog",
   headerClass: null,
@@ -41,9 +41,17 @@ export default Component.extend({
   // Inform screenreaders of the modal
   "aria-modal": "true",
 
-  ariaLabelledby: computed("title", function () {
-    return this.title ? "discourse-modal-title" : null;
-  }),
+  @discourseComputed("title", "titleAriaElementId")
+  ariaLabelledby(title, titleAriaElementId) {
+    if (titleAriaElementId) {
+      return titleAriaElementId;
+    }
+    if (title) {
+      return "discourse-modal-title";
+    }
+
+    return;
+  },
 
   @on("didInsertElement")
   setUp() {
@@ -150,6 +158,7 @@ export default Component.extend({
     }
     if (event.key === "Enter" && this.triggerClickOnEnter(event)) {
       this.element?.querySelector(".modal-footer .btn-primary")?.click();
+      event.preventDefault();
     }
     if (event.key === "Tab") {
       this._trapTab(event);
@@ -177,9 +186,14 @@ export default Component.extend({
         !autofocusedElement ||
         document.activeElement !== autofocusedElement
       ) {
-        innerContainer
-          .querySelectorAll(focusableElements + ", button:not(.modal-close)")[0]
-          ?.focus();
+        // if there's not autofocus, or the activeElement, is not the autofocusable element
+        // attempt to focus the first of the focusable elements or just the modal-body
+        // to make it possible to scroll with arrow down/up
+        (
+          innerContainer.querySelector(
+            focusableElements + ", button:not(.modal-close)"
+          ) || innerContainer.querySelector(".modal-body")
+        )?.focus();
       }
 
       return;

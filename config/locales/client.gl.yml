@@ -115,6 +115,7 @@ gl:
       previous_month: "Mes anterior"
       next_month: "Mes seguinte"
       placeholder: data
+      to_placeholder: "ata a data"
     share:
       topic_html: 'Tema: <span class="topic-title">%{topicTitle}</span>'
       post: "publicación #%{postNumber}"
@@ -166,7 +167,6 @@ gl:
     bootstrap_mode_disabled: "O modo Bootstrap desactivarase nun prazo de 24 horas."
     themes:
       default_description: "Predeterminado"
-      broken_theme_alert: "Pode que o seu sitio non funcione porque o tema ou compoñente %{theme} contén erros. Desactíveo en %{path}."
     s3:
       regions:
         ap_northeast_1: "Asia Pacífico (Tokio)"
@@ -279,10 +279,7 @@ gl:
       list_permission_denied: "Non ten permiso para ver os marcadores deste usuario."
       no_user_bookmarks: "Non ten marcadores de publicacións; os marcadores permítenlle facer rapidamente referencia a publicacións específicas."
       auto_delete_preference:
-        label: "Eliminar automaticamente"
-        never: "Nunca"
-        when_reminder_sent: "Unha vez enviado o recordatorio"
-        on_owner_reply: "Despois de responder eu a este tema"
+        when_reminder_sent: "Eliminar marcador"
       search_placeholder: "Buscar marcadores por nome, título do tema ou contido da publicación"
       search: "Buscar"
       reminders:
@@ -303,6 +300,9 @@ gl:
         confirm: "Ten un borrador en curso neste tema. Que lle gustaría facer con iso?"
         yes_value: "Desbotar"
         no_value: "Retomar a edición"
+    topic_count_categories:
+      one: "Ver %{count} tema novo ou actualizado"
+      other: "Ver %{count} temas novos ou actualizados"
     topic_count_latest:
       one: "Ver %{count} tema novo ou actualizado"
       other: "Ver %{count} temas novos ou actualizados"
@@ -336,8 +336,8 @@ gl:
     switch_to_anon: "Entrar no modo anónimo"
     switch_from_anon: "Saír do modo anónimo"
     banner:
-      close: "Desbotar este báner."
-      edit: "Editar este báner »"
+      close: "Desbotar este báner"
+      edit: "Editar"
     pwa:
       install_banner: "Quere <a href>instalar %{title} neste dispositivo?</a>"
     choose_topic:
@@ -1314,11 +1314,9 @@ gl:
         every_month: "cada mes"
         every_six_months: "cada seis meses"
       email_level:
-        title: "Enviar un correo electrónico cando alguén me cite, responda a unha das miñas publicacións, mencione o meu @nomedeusuario ou me convide a un tema."
         always: "sempre"
         only_when_away: "só cando ausente"
         never: "nunca"
-      email_messages_level: "Enviar correo electrónico cando alguén me mande unha mensaxe"
       include_tl0_in_digests: "Incluír contido de novos usuarios nos correos electrónicos de resumo"
       email_in_reply_to: "Incluír nos correos un extracto das respostas á publicación"
       other_settings: "Outro"
@@ -1399,7 +1397,7 @@ gl:
         invite:
           new_title: "Crear convite"
           edit_title: "Editar convite"
-          instructions: "Compartir esta ligazón para conceder acceso a este sitio"
+          instructions: "Compartir esta ligazón para conceder acceso a este sitio:"
           copy_link: "copiar a ligazón"
           show_advanced: "Amosar opcións avanzadas"
           hide_advanced: "Agochar opcións avanzadas"
@@ -1804,9 +1802,6 @@ gl:
       group_mentioned:
         one: "Ao mencionar %{group}, vai enviar a notificación a <a href='%{group_link}'>%{count} persoa</a>. Está seguro de querelo facer?"
         other: "Ao mencionar %{group}, vai enviar a notificación a <a href='%{group_link}'>%{count} persoas</a>. Está seguro de querelo facer?"
-      cannot_see_mention:
-        category: "Mencionou a %{username}, mais non poden recibir notificacións porque non teñen acceso a esta categoría. Debe engadilos a un grupo con acceso a esta categoría."
-        private: "Mencionou a %{username}, mais non recibirán notificacións porque non poden ver esta mensaxe privada. Debe convidalos a esta mensaxe privada."
       duplicate_link: "Parece que a súa ligazón a <b>%{domain}</b> xa foi publicada no tema por <b>@%{username}</b> e <a href='%{post_url}'>nunha resposta sobre %{ago}</a> Confirma que quere publicala de novo?"
       reference_topic_title: "RE: %{title}"
       error:
@@ -1838,7 +1833,6 @@ gl:
       create_whisper: "Rumor"
       create_shared_draft: "Crear borrador compartido"
       edit_shared_draft: "Editar o borrador compartido"
-      title: "Ou prema Ctrl+Intro"
       users_placeholder: "Engadir un usuario"
       title_placeholder: "Sobre que trata a discusión, nunha soa frase?"
       title_or_link_placeholder: "Escriba o título ou pegue unha ligazón aquí"
@@ -1971,6 +1965,9 @@ gl:
       reaction: "<span>%{username}</span> %{description}"
       reaction_2: "<span>%{username}, %{username2}</span> %{description}"
       votes_released: "%{description} - completado"
+      dismiss_confirmation:
+        dismiss: "Desbotar"
+        cancel: "Cancelar"
       group_message_summary:
         one: "%{count} mensaxe na caixa %{group_name}"
         other: "%{count} mensaxes na caixa %{group_name}"
@@ -2028,8 +2025,8 @@ gl:
       result_count:
         one: "<span>%{count} resultado de</span><span class='term'>%{term}</span>"
         other: "<span>%{count}%{plus} resultados de</span><span class='term'>%{term}</span>"
-      title: "buscar temas, publicacións, usuarios ou categorías"
-      full_page_title: "buscar temas ou publicacións"
+      title: "Buscar"
+      full_page_title: "Buscar"
       no_results: "Non se atoparon resultados."
       no_more_results: "Non se atoparon máis resultados."
       post_format: "#%{post_number} de %{username}"
@@ -2041,6 +2038,11 @@ gl:
       search_google: "Probe a buscar con Google:"
       search_google_button: "Google"
       search_button: "Buscar"
+      categories: "Categorías"
+      tags: "Etiquetas"
+      type:
+        users: "Usuarios"
+        categories: "Categorías"
       context:
         user: "Buscar publicacións de @%{username}"
         category: "Buscar na categoría #%{category}"
@@ -2048,7 +2050,6 @@ gl:
         topic: "Buscar neste tema"
         private_messages: "Buscar mensaxes"
       advanced:
-        title: Busca avanzada
         posted_by:
           label: Publicado por
         in_category:
@@ -2101,7 +2102,6 @@ gl:
           placeholder: mínimo
         max_views:
           placeholder: máximo
-    hamburger_menu: "ir a outra lista de temas ou categoría"
     new_item: "novo"
     go_back: "volver"
     not_logged_in_user: "páxina do usuario cun resumo das actividades e preferencias actuais"
@@ -2114,7 +2114,7 @@ gl:
         clear_all: "Borrar todo"
         unlist_topics: "Retirar temas da listaxe"
         relist_topics: "Refacer a listaxe de temas"
-        reset_read: "Restabelecer os lidos"
+        defer: "Adiar"
         delete: "Eliminar temas"
         dismiss: "Desbotar"
         dismiss_read: "Desbotar os non lidos"
@@ -2259,6 +2259,7 @@ gl:
         time_frame_required: "Seleccione un marco temporal"
         min_duration: "A duración debe ser superior a 0"
         max_duration: "A duración debe de ser menor de 20 anos"
+        duration: "Duración"
       auto_update_input:
         none: "Seleccione un marco temporal"
         now: "Agora"
@@ -2320,20 +2321,13 @@ gl:
         replies_short: "%{current} / %{total}"
       progress:
         title: progreso do tema
-        go_top: "principio"
-        go_bottom: "final"
-        go: "ir"
-        jump_bottom: "saltar á última publicación"
         jump_prompt: "saltar a..."
         jump_prompt_of:
           one: "de %{count} publicación"
           other: "de %{count} publicacións"
         jump_prompt_long: "Saltar a..."
-        jump_bottom_with_number: "ir á publicación %{post_number}"
         jump_prompt_to_date: "ata a data"
         jump_prompt_or: "ou"
-        total: publicacións totais
-        current: publicación actual
       notifications:
         title: cambiar a frecuencia coa que recibe notificacións sobre este tema
         reasons:
@@ -2403,7 +2397,6 @@ gl:
         title: "Responder"
         help: "escribir unha resposta a este tema"
       share:
-        title: "Compartir"
         extended_title: "Compartir unha ligazón"
         help: "compartir unha ligazón a este tema"
         invite_users: "Convidar"
@@ -2576,6 +2569,7 @@ gl:
           other: "Seleccionou <b>%{count}</b> publicacións."
     post:
       quote_reply: "Cita"
+      quote_edit: "Editar"
       quote_share: "Compartir"
       edit_reason: "Razón: "
       post_number: "publicación %{number}"
@@ -2666,6 +2660,7 @@ gl:
             other: "Si, e as %{count} respostas"
           just_the_post: "Non, só esta publicación"
         admin: "accións admin. nas publicacións"
+        permanently_delete: "Eliminar definitivamente"
         wiki: "Crear wiki"
         unwiki: "Eliminar wiki"
         convert_to_moderator: "Engadir cor do equipo"
@@ -2859,7 +2854,6 @@ gl:
       default_list_filter: "Filtro de listaxe predeterminado:"
       allow_badges_label: "Permitir adxudicar insignias nesta categoría"
       edit_permissions: "Editar permisos"
-      reviewable_by_group: "Ademais do equipo, o contido desta categoría tamén pode ser revisado por:"
       review_group_name: "nome do grupo"
       require_topic_approval: "Require a aprobación de todos os temas novos polo moderador"
       require_reply_approval: "Require a aprobación de todas as respostas novas polo moderador"
@@ -3008,6 +3002,9 @@ gl:
         title: "Este tema é unha mensaxe privada"
         help: "Este tema é unha mensaxe privada"
     posts: "Publicacións"
+    pending_posts:
+      label: "Pendente"
+      label_with_count: "Pendentes (%{count})"
     posts_likes_MF: |
       Este tema ten {count, plural, one {# resposta} other {# respostas}} {ratio, select,
         low {cun alto nivel de valoración da publicación}
@@ -3235,6 +3232,8 @@ gl:
           name: Outro
         posting:
           name: Publicación
+    download_calendar:
+      download: "Descargar"
     tagging:
       all_tags: "Todas as etiquetas"
       other_tags: "Outras etiquetas"
@@ -3244,6 +3243,7 @@ gl:
       tags: "Etiquetas"
       choose_for_topic: "etiquetas opcionais"
       info: "Información"
+      default_info: "Esta etiqueta non se restrinxe a ningunha categoría e non ten sinónimos."
       category_restricted: "Esta etiqueta restrínxese ás categorías ás que non ten permiso para acceder."
       synonyms: "Sinónimos"
       synonyms_description: "Cando se usen as seguintes etiquetas, substituílas por <b>%{base_tag_name}</b>."
@@ -3253,7 +3253,6 @@ gl:
       category_restrictions:
         one: "Só pode usarse nesta categoría:"
         other: "Só pode usarse nestas categorías:"
-      edit_synonyms: "Xestionar sinónimos"
       add_synonyms_label: "Engadir sinónimos:"
       add_synonyms: "Engadir"
       add_synonyms_explanation:
@@ -3270,8 +3269,7 @@ gl:
       delete_confirm_synonyms:
         one: "Tamén se eliminará o seu sinónimo."
         other: "Tamén se eliminarán os seus %{count} sinónimos."
-      rename_tag: "Renomear etiqueta"
-      rename_instructions: "Seleccione un novo nome para a etiqueta:"
+      description: "Descrición"
       sort_by: "Ordenar por:"
       sort_by_count: "número"
       sort_by_name: "nome"
@@ -3370,6 +3368,10 @@ gl:
         member: "membro"
         regular: "habitual"
         leader: "líder"
+    user_activity:
+      no_activity_others: "Sen actividade."
+      no_replies_others: "Sen respostas."
+      no_likes_others: "Ningún Gústame en publicacións."
   admin_js:
     type_to_filter: "escriba para filtrar..."
     admin:
@@ -3569,7 +3571,6 @@ gl:
         delete: Eliminar definitivamente
         not_shown_again: Esta clave non se amosará de novo. Asegúrese de ter unha copia antes de continuar.
         continue: Continuar
-        use_global_key: Clave global (permite todas as accións)
         scopes:
           description: |
             Ao utilizar ámbitos, pode restrinxir unha clave API a un conxunto específico de resultados.
@@ -3786,7 +3787,6 @@ gl:
         delete_confirm: 'Confirma a eliminación de «%{theme_name}»?'
         color: "Cor"
         opacity: "Opacidade"
-        copy: "Copiar"
         copy_to_clipboard: "Copiar ao portapapeis"
         copied_to_clipboard: "Copiado ao portapapeis"
         copy_to_clipboard_error: "Erro ao copiar os datos ao portapapeis"
@@ -3955,12 +3955,8 @@ gl:
               }
 
               Prefixar os nomes da propiedade resulta altamente recomendábel para evitarmos conflitos con complementos e/ou o núcleo.
-          head_tag:
-            text: "</head>"
-            title: "HTML que se inserirá antes da etiqueta </head>"
           body_tag:
-            text: "</body>"
-            title: "HTML que se inserirá antes da etiqueta </body>"
+            text: "Corpo"
           yaml:
             text: "YAML"
             title: "Definir os axustes do tema en formato YAML"
@@ -4250,9 +4246,6 @@ gl:
           title: "IP controlados"
           description: 'Enderezos IP observados. Use «Permitir» para crear listas de enderezos IP.'
           delete_confirm: "Confirma a eliminación da regra para %{ip_address}?"
-          roll_up_confirm: "Confirma que quere agrupar en subredes os enderezos IP controlados comunmente?"
-          rolled_up_some_subnets: "Agrupáronse correctamente en subredes as entradas de IP para bloquear: %{subnets}."
-          rolled_up_no_subnet: "Non hai nada que agrupar."
           actions:
             block: "Bloquear"
             do_nothing: "Permitir"
@@ -4769,7 +4762,6 @@ gl:
           replace_owners: Retirar a insignia dos propietarios anteriores
       emoji:
         title: "Emoji"
-        help: "Engada un novo emoji que estará dispoñíbel para todos. (Suxestión: arrastre e solte múltiples ficheiros dunha vez)"
         add: "Engadir novo emoji"
         uploading: "Cargando..."
         name: "Nome"
@@ -4780,7 +4772,6 @@ gl:
       embedding:
         get_started: "Se quere incorporar o Discourse noutro sitio web, comece engadindo o seu servidor."
         confirm_delete: "Confirma a eliminación deste servidor?"
-        sample: "Utilice o seguinte código HTML no seu sitio para crear e incorporar temas do Discourse. Substitúa <b>REPLACE_ME</b> polo URL canónico da páxina na que o está a incorporar."
         title: "Incorporando"
         host: "Servidores permitidos"
         class_name: "Nome da clase"

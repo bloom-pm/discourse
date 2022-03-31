@@ -42,6 +42,19 @@ const Category = RestModel.extend({
     }
   },
 
+  @discourseComputed(
+    "required_tag_groups",
+    "min_tags_from_required_group",
+    "minimum_required_tags"
+  )
+  minimumRequiredTags() {
+    if (this.required_tag_groups) {
+      return this.min_tags_from_required_group;
+    } else {
+      return this.minimum_required_tags > 0 ? this.minimum_required_tags : null;
+    }
+  },
+
   @discourseComputed
   availablePermissions() {
     return [
@@ -212,12 +225,19 @@ const Category = RestModel.extend({
         all_topics_wiki: this.all_topics_wiki,
         allow_unlimited_owner_edits_on_first_post: this
           .allow_unlimited_owner_edits_on_first_post,
-        allowed_tags: this.allowed_tags,
-        allowed_tag_groups: this.allowed_tag_groups,
+        allowed_tags:
+          this.allowed_tags && this.allowed_tags.length > 0
+            ? this.allowed_tags
+            : null,
+        allowed_tag_groups:
+          this.allowed_tag_groups && this.allowed_tag_groups.length > 0
+            ? this.allowed_tag_groups
+            : null,
         allow_global_tags: this.allow_global_tags,
-        required_tag_group_name: this.required_tag_groups
-          ? this.required_tag_groups[0]
-          : null,
+        required_tag_group_name:
+          this.required_tag_groups && this.required_tag_groups.length > 0
+            ? this.required_tag_groups[0]
+            : null,
         min_tags_from_required_group: this.min_tags_from_required_group,
         sort_order: this.sort_order,
         sort_ascending: this.sort_ascending,
@@ -304,8 +324,6 @@ const Category = RestModel.extend({
   },
 
   setNotification(notification_level) {
-    this.set("notification_level", notification_level);
-
     User.currentProp(
       "muted_category_ids",
       User.current().calculateMutedIds(
@@ -316,7 +334,16 @@ const Category = RestModel.extend({
     );
 
     const url = `/category/${this.id}/notifications`;
-    return ajax(url, { data: { notification_level }, type: "POST" });
+    return ajax(url, { data: { notification_level }, type: "POST" }).then(
+      (data) => {
+        User.current().set(
+          "indirectly_muted_category_ids",
+          data.indirectly_muted_category_ids
+        );
+        this.set("notification_level", notification_level);
+        this.notifyPropertyChange("notification_level");
+      }
+    );
   },
 
   @discourseComputed("id")
@@ -522,12 +549,16 @@ Category.reopenClass({
 
   search(term, opts) {
     let limit = 5;
+    let parentCategoryId;
 
     if (opts) {
       if (opts.limit === 0) {
         return [];
       } else if (opts.limit) {
         limit = opts.limit;
+      }
+      if (opts.parentCategoryId) {
+        parentCategoryId = opts.parentCategoryId;
       }
     }
 
@@ -549,13 +580,21 @@ Category.reopenClass({
       return data.length === limit;
     };
 
+    const validCategoryParent = (category) => {
+      return (
+        !parentCategoryId ||
+        category.get("parent_category_id") === parentCategoryId
+      );
+    };
+
     for (i = 0; i < length && !done(); i++) {
       const category = categories[i];
       if (
-        (emptyTerm && !category.get("parent_category_id")) ||
-        (!emptyTerm &&
-          (category.get("name").toLowerCase().indexOf(term) === 0 ||
-            category.get("slug").toLowerCase().indexOf(slugTerm) === 0))
+        ((emptyTerm && !category.get("parent_category_id")) ||
+          (!emptyTerm &&
+            (category.get("name").toLowerCase().indexOf(term) === 0 ||
+              category.get("slug").toLowerCase().indexOf(slugTerm) === 0))) &&
+        validCategoryParent(category)
       ) {
         data.push(category);
       }
@@ -566,9 +605,10 @@ Category.reopenClass({
         const category = categories[i];
 
         if (
-          !emptyTerm &&
-          (category.get("name").toLowerCase().indexOf(term) > 0 ||
-            category.get("slug").toLowerCase().indexOf(slugTerm) > 0)
+          ((!emptyTerm &&
+            category.get("name").toLowerCase().indexOf(term) > 0) ||
+            category.get("slug").toLowerCase().indexOf(slugTerm) > 0) &&
+          validCategoryParent(category)
         ) {
           if (data.indexOf(category) === -1) {
             data.push(category);

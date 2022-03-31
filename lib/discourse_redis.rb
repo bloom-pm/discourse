@@ -37,9 +37,9 @@ class DiscourseRedis
   end
 
   # prefix the key with the namespace
-  def method_missing(meth, *args, &block)
+  def method_missing(meth, *args, **kwargs, &block)
     if @redis.respond_to?(meth)
-      DiscourseRedis.ignore_readonly { @redis.public_send(meth, *args, &block) }
+      DiscourseRedis.ignore_readonly { @redis.public_send(meth, *args, **kwargs, &block) }
     else
       super
     end
@@ -53,10 +53,11 @@ class DiscourseRedis
    :msetnx, :persist, :pexpire, :pexpireat, :psetex, :pttl, :rename, :renamenx, :rpop, :rpoplpush, :rpush, :rpushx, :sadd, :scard,
    :sdiff, :set, :setbit, :setex, :setnx, :setrange, :sinter, :sismember, :smembers, :sort, :spop, :srandmember, :srem, :strlen,
    :sunion, :ttl, :type, :watch, :zadd, :zcard, :zcount, :zincrby, :zrange, :zrangebyscore, :zrank, :zrem, :zremrangebyrank,
-   :zremrangebyscore, :zrevrange, :zrevrangebyscore, :zrevrank, :zrangebyscore ].each do |m|
-    define_method m do |*args|
+   :zremrangebyscore, :zrevrange, :zrevrangebyscore, :zrevrank, :zrangebyscore,
+   :dump, :restore].each do |m|
+    define_method m do |*args, **kwargs|
       args[0] = "#{namespace}:#{args[0]}" if @namespace
-      DiscourseRedis.ignore_readonly { @redis.public_send(m, *args) }
+      DiscourseRedis.ignore_readonly { @redis.public_send(m, *args, **kwargs) }
     end
   end
 
@@ -75,10 +76,11 @@ class DiscourseRedis
     DiscourseRedis.ignore_readonly { @redis.mget(*args) }
   end
 
-  def del(k)
+  def del(*keys)
     DiscourseRedis.ignore_readonly do
-      k = "#{namespace}:#{k}"  if @namespace
-      @redis.del k
+      keys = keys.flatten(1)
+      keys.map! { |k| "#{namespace}:#{k}" } if @namespace
+      @redis.del(*keys)
     end
   end
 
@@ -94,12 +96,12 @@ class DiscourseRedis
         end
 
       if block
-        @redis.scan_each(options) do |key|
+        @redis.scan_each(**options) do |key|
           key = remove_namespace(key) if @namespace
           block.call(key)
         end
       else
-        @redis.scan_each(options).map do |key|
+        @redis.scan_each(**options).map do |key|
           key = remove_namespace(key) if @namespace
           key
         end
@@ -144,11 +146,6 @@ class DiscourseRedis
     RailsMultisite::ConnectionManagement.current_db
   end
 
-  def self.namespace
-    Rails.logger.warn("DiscourseRedis.namespace is going to be deprecated, do not use it!")
-    RailsMultisite::ConnectionManagement.current_db
-  end
-
   def self.new_redis_store
     Cache.new
   end
@@ -159,4 +156,20 @@ class DiscourseRedis
     key[(namespace.length + 1)..-1]
   end
 
+  class EvalHelper
+    def initialize(script)
+      @script = script
+      @sha1 = Digest::SHA1.hexdigest(script)
+    end
+
+    def eval(redis, *args, **kwargs)
+      redis.evalsha @sha1, *args, **kwargs
+    rescue ::Redis::CommandError => e
+      if e.to_s =~ /^NOSCRIPT/
+        redis.eval @script, *args, **kwargs
+      else
+        raise
+      end
+    end
+  end
 end

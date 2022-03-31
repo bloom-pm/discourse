@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "rails_helper"
-
 describe UserAnonymizer do
   let(:admin) { Fabricate(:admin) }
 
@@ -153,6 +151,8 @@ describe UserAnonymizer do
 
       topic = Fabricate(:topic, user: user)
       quoted_post = create_post(user: user, topic: topic, post_number: 1, raw: "quoted post")
+
+      stub_image_size
       post = create_post(raw: <<~RAW)
         Lorem ipsum
 
@@ -201,12 +201,10 @@ describe UserAnonymizer do
     it "removes external auth associations" do
       user.user_associated_accounts = [UserAssociatedAccount.create(user_id: user.id, provider_uid: "example", provider_name: "facebook")]
       user.single_sign_on_record = SingleSignOnRecord.create(user_id: user.id, external_id: "example", last_payload: "looks good")
-      user.oauth2_user_infos = [Oauth2UserInfo.create(user_id: user.id, uid: "example", provider: "example")]
       make_anonymous
       user.reload
       expect(user.user_associated_accounts).to be_empty
       expect(user.single_sign_on_record).to eq(nil)
-      expect(user.oauth2_user_infos).to be_empty
     end
 
     it "removes api key" do

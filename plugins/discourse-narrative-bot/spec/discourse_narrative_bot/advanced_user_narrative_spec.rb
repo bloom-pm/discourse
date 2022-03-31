@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'rails_helper'
-
 RSpec.describe DiscourseNarrativeBot::AdvancedUserNarrative do
   fab!(:narrative_bot) { ::DiscourseNarrativeBot::Base.new }
   fab!(:discobot_user) { narrative_bot.discobot_user }
@@ -26,6 +24,7 @@ RSpec.describe DiscourseNarrativeBot::AdvancedUserNarrative do
   fab!(:reset_trigger) { DiscourseNarrativeBot::TrackSelector.reset_trigger }
 
   before do
+    stub_image_size
     Jobs.run_immediately!
     SiteSetting.discourse_narrative_bot_enabled = true
   end

@@ -2,15 +2,35 @@ import Service from "@ember/service";
 import EmberObject, { computed, defineProperty } from "@ember/object";
 import { readOnly } from "@ember/object/computed";
 import { ajax } from "discourse/lib/ajax";
-import { cancel, debounce, later, throttle } from "@ember/runloop";
+import {
+  cancel,
+  debounce,
+  later,
+  next,
+  once,
+  run,
+  throttle,
+} from "@ember/runloop";
 import Session from "discourse/models/session";
 import { Promise } from "rsvp";
-import { isTesting } from "discourse-common/config/environment";
+import { isLegacyEmber, isTesting } from "discourse-common/config/environment";
 import User from "discourse/models/user";
+import userPresent, {
+  onPresenceChange,
+  removeOnPresenceChange,
+} from "discourse/lib/user-presence";
+import { bind } from "discourse-common/utils/decorators";
 
 const PRESENCE_INTERVAL_S = 30;
 const PRESENCE_DEBOUNCE_MS = isTesting() ? 0 : 500;
-const PRESENCE_THROTTLE_MS = isTesting() ? 0 : 5000;
+const PRESENCE_THROTTLE_MS = isTesting() ? 0 : 1000;
+
+const PRESENCE_GET_RETRY_MS = 5000;
+
+const DEFAULT_ACTIVE_OPTIONS = {
+  userUnseenTime: 60000,
+  browserHiddenTime: 10000,
+};
 
 function createPromiseProxy() {
   const promiseProxy = {};
@@ -41,7 +61,22 @@ class PresenceChannel extends EmberObject {
   }
 
   // Mark the current user as 'present' in this channel
-  async enter() {
+  // By default, the user will temporarily 'leave' the channel when
+  // the current tab is in the background, or has no interaction for more than 60 seconds.
+  // To override this behaviour, set onlyWhileActive: false
+  // To specify custom thresholds, set `activeOptions`. See `lib/user-presence.js` for options.
+  async enter({ onlyWhileActive = true, activeOptions = null } = {}) {
+    if (onlyWhileActive && activeOptions) {
+      for (const key in DEFAULT_ACTIVE_OPTIONS) {
+        if (activeOptions[key] < DEFAULT_ACTIVE_OPTIONS[key]) {
+          throw `${key} cannot be less than ${DEFAULT_ACTIVE_OPTIONS[key]} (given ${activeOptions[key]})`;
+        }
+      }
+    } else if (onlyWhileActive && !activeOptions) {
+      activeOptions = DEFAULT_ACTIVE_OPTIONS;
+    }
+
+    this.setProperties({ activeOptions });
     await this.presenceService._enter(this);
     this.set("present", true);
   }
@@ -121,21 +156,7 @@ class PresenceChannelState extends EmberObject {
     }
 
     if (!initialData) {
-      try {
-        initialData = await ajax("/presence/get", {
-          data: {
-            channel: this.name,
-          },
-        });
-      } catch (e) {
-        if (e.jqXHR?.status === 404) {
-          throw new PresenceChannelNotFound(
-            `PresenceChannel '${this.name}' not found`
-          );
-        } else {
-          throw e;
-        }
-      }
+      initialData = await this.presenceService._getInitialData(this.name);
     }
 
     this.set("count", initialData.count);
@@ -149,9 +170,8 @@ class PresenceChannelState extends EmberObject {
 
     this.lastSeenId = initialData.last_message_id;
 
-    let callback = (data, global_id, message_id) => {
-      this._processMessage(data, global_id, message_id);
-    };
+    let callback = (data, global_id, message_id) =>
+      run(() => this._processMessage(data, global_id, message_id));
     this.presenceService.messageBus.subscribe(
       `/presence${this.name}`,
       callback,
@@ -226,14 +246,29 @@ class PresenceChannelState extends EmberObject {
 export default class PresenceService extends Service {
   init() {
     super.init(...arguments);
-    this._presentChannels = new Set();
     this._queuedEvents = [];
     this._presenceChannelStates = EmberObject.create();
-    this._presentProxies = {};
-    this._subscribedProxies = {};
-    window.addEventListener("beforeunload", () => {
-      this._beaconLeaveAll();
-    });
+    this._presentProxies = new Map();
+    this._subscribedProxies = new Map();
+    this._initialDataRequests = new Map();
+
+    if (this.currentUser) {
+      window.addEventListener("beforeunload", this._beaconLeaveAll);
+      onPresenceChange({
+        ...DEFAULT_ACTIVE_OPTIONS,
+        callback: this._throttledUpdateServer,
+      });
+    }
+  }
+
+  get _presentChannels() {
+    return new Set(this._presentProxies.keys());
+  }
+
+  willDestroy() {
+    super.willDestroy(...arguments);
+    window.removeEventListener("beforeunload", this._beaconLeaveAll);
+    removeOnPresenceChange(this._throttledUpdateServer);
   }
 
   // Get a PresenceChannel object representing a single channel
@@ -244,33 +279,100 @@ export default class PresenceService extends Service {
     });
   }
 
+  _getInitialData(channelName) {
+    let promiseProxy = this._initialDataRequests[channelName];
+    if (!promiseProxy) {
+      promiseProxy = this._initialDataRequests[
+        channelName
+      ] = createPromiseProxy();
+    }
+
+    once(this, this._makeInitialDataRequest);
+
+    return promiseProxy.promise;
+  }
+
+  async _makeInitialDataRequest() {
+    if (this._initialDataAjax) {
+      // try again next runloop
+      next(this, () => once(this, this._makeInitialDataRequest));
+      return;
+    }
+
+    if (Object.keys(this._initialDataRequests).length === 0) {
+      // Nothing to request
+      return;
+    }
+
+    this._initialDataAjax = ajax("/presence/get", {
+      data: {
+        channels: Object.keys(this._initialDataRequests).slice(0, 50),
+      },
+    });
+
+    let result;
+    try {
+      result = await this._initialDataAjax;
+    } catch (e) {
+      later(this, this._makeInitialDataRequest, PRESENCE_GET_RETRY_MS);
+      throw e;
+    } finally {
+      this._initialDataAjax = null;
+    }
+
+    for (const channel in result) {
+      if (!result.hasOwnProperty(channel)) {
+        continue;
+      }
+
+      const state = result[channel];
+      if (state) {
+        this._initialDataRequests[channel].resolve(state);
+      } else {
+        const error = new PresenceChannelNotFound(
+          `PresenceChannel '${channel}' not found`
+        );
+        this._initialDataRequests[channel].reject(error);
+      }
+      delete this._initialDataRequests[channel];
+    }
+  }
+
   _addPresent(channelProxy) {
-    let present = this._presentProxies[channelProxy.name];
+    let present = this._presentProxies.get(channelProxy.name);
     if (!present) {
-      present = this._presentProxies[channelProxy.name] = new Set();
+      present = new Set();
+      this._presentProxies.set(channelProxy.name, present);
     }
     present.add(channelProxy);
     return present.size;
   }
 
   _removePresent(channelProxy) {
-    let present = this._presentProxies[channelProxy.name];
+    let present = this._presentProxies.get(channelProxy.name);
     present?.delete(channelProxy);
+    if (present?.size === 0) {
+      this._presentProxies.delete(channelProxy.name);
+    }
     return present?.size || 0;
   }
 
   _addSubscribed(channelProxy) {
-    let subscribed = this._subscribedProxies[channelProxy.name];
+    let subscribed = this._subscribedProxies.get(channelProxy.name);
     if (!subscribed) {
-      subscribed = this._subscribedProxies[channelProxy.name] = new Set();
+      subscribed = new Set();
+      this._subscribedProxies.set(channelProxy.name, subscribed);
     }
     subscribed.add(channelProxy);
     return subscribed.size;
   }
 
   _removeSubscribed(channelProxy) {
-    let subscribed = this._subscribedProxies[channelProxy.name];
+    let subscribed = this._subscribedProxies.get(channelProxy.name);
     subscribed?.delete(channelProxy);
+    if (subscribed?.size === 0) {
+      this._subscribedProxies.delete(channelProxy.name);
+    }
     return subscribed?.size || 0;
   }
 
@@ -279,20 +381,17 @@ export default class PresenceService extends Service {
       throw "Must be logged in to enter presence channel";
     }
 
-    this._addPresent(channelProxy);
-
-    const channelName = channelProxy.name;
-    if (this._presentChannels.has(channelName)) {
+    const newCount = this._addPresent(channelProxy);
+    if (newCount > 1) {
       return;
     }
 
     const promiseProxy = createPromiseProxy();
 
-    this._presentChannels.add(channelName);
     this._queuedEvents.push({
-      channel: channelName,
+      channel: channelProxy.name,
       type: "enter",
-      promiseProxy: promiseProxy,
+      promiseProxy,
     });
 
     this._scheduleNextUpdate();
@@ -310,18 +409,12 @@ export default class PresenceService extends Service {
       return;
     }
 
-    const channelName = channelProxy.name;
-    if (!this._presentChannels.has(channelName)) {
-      return;
-    }
-
     const promiseProxy = createPromiseProxy();
 
-    this._presentChannels.delete(channelName);
     this._queuedEvents.push({
-      channel: channelName,
+      channel: channelProxy.name,
       type: "leave",
-      promiseProxy: promiseProxy,
+      promiseProxy,
     });
 
     this._scheduleNextUpdate();
@@ -330,6 +423,10 @@ export default class PresenceService extends Service {
   }
 
   async _subscribe(channelProxy, initialData = null) {
+    if (this.siteSettings.login_required && !this.currentUser) {
+      throw "Presence is only available to authenticated users on login-required sites";
+    }
+
     this._addSubscribed(channelProxy);
     const channelName = channelProxy.name;
     let state = this._presenceChannelStates[channelName];
@@ -352,6 +449,7 @@ export default class PresenceService extends Service {
     }
   }
 
+  @bind
   _beaconLeaveAll() {
     if (isTesting()) {
       return;
@@ -361,9 +459,14 @@ export default class PresenceService extends Service {
       .filter((e) => e.type === "leave")
       .map((e) => e.channel);
 
+    channelsToLeave.push(...this._presentChannels);
+
+    if (channelsToLeave.length === 0) {
+      return;
+    }
+
     const data = new FormData();
     data.append("client_id", this.messageBus.clientId);
-    this._presentChannels.forEach((ch) => data.append("leave_channels[]", ch));
     channelsToLeave.forEach((ch) => data.append("leave_channels[]", ch));
 
     data.append("authenticity_token", Session.currentProp("csrfToken"));
@@ -392,14 +495,31 @@ export default class PresenceService extends Service {
     this._queuedEvents = [];
 
     try {
+      const presentChannels = [];
       const channelsToLeave = queue
         .filter((e) => e.type === "leave")
         .map((e) => e.channel);
 
+      for (const [channelName, proxies] of this._presentProxies) {
+        if (
+          Array.from(proxies).some((p) => {
+            return !p.activeOptions || userPresent(p.activeOptions);
+          })
+        ) {
+          presentChannels.push(channelName);
+        } else {
+          channelsToLeave.push(channelName);
+        }
+      }
+
+      if (queue.length === 0 && presentChannels.length === 0) {
+        return;
+      }
+
       const response = await ajax("/presence/update", {
         data: {
           client_id: this.messageBus.clientId,
-          present_channels: [...this._presentChannels],
+          present_channels: presentChannels,
           leave_channels: channelsToLeave,
         },
         type: "POST",
@@ -417,8 +537,14 @@ export default class PresenceService extends Service {
         }
       });
     } catch (e) {
-      // Updating server failed. Put the failed events
-      // back in the queue for next time
+      if (e.jqXHR?.status === 403 && isTesting() && isLegacyEmber()) {
+        // Legacy testing environment will remove the User.current() value before disposing of controllers/components.
+        // Presence often involves making HTTP calls during disposal of components, so this can cause issues.
+        // Modern Ember-CLI environment does not require this hack
+        return;
+      }
+
+      // Put the failed events back in the queue for next time
       this._queuedEvents.unshift(...queue);
       if (e.jqXHR?.status === 429) {
         // Rate limited. No need to raise, we'll try again later
@@ -435,6 +561,7 @@ export default class PresenceService extends Service {
   // in a sequence of calls. We want both. We want the first event, to make
   // things very responsive. Then if things are happening too frequently, we
   // drop back to the last event via the regular throttle function.
+  @bind
   _throttledUpdateServer() {
     if (
       !this._lastUpdate ||
@@ -459,7 +586,11 @@ export default class PresenceService extends Service {
     } else if (this._queuedEvents.length > 0) {
       this._cancelTimer();
       debounce(this, this._throttledUpdateServer, PRESENCE_DEBOUNCE_MS);
-    } else if (!this._nextUpdateTimer && !isTesting()) {
+    } else if (
+      !this._nextUpdateTimer &&
+      this._presentChannels.length > 0 &&
+      !isTesting()
+    ) {
       this._nextUpdateTimer = later(
         this,
         this._throttledUpdateServer,

@@ -18,12 +18,11 @@ export default Controller.extend(BulkTopicSelection, {
   showPosters: false,
   channel: null,
   tagsForUser: null,
-  pmTopicTrackingState: null,
   incomingCount: reads("pmTopicTrackingState.newIncoming.length"),
 
-  @discourseComputed("emptyState", "model.topics.length", "incomingCount")
-  showEmptyStatePlaceholder(emptyState, topicsLength, incomingCount) {
-    return emptyState && topicsLength === 0 && incomingCount === 0;
+  @discourseComputed("model.topics.length", "incomingCount")
+  noContent(topicsLength, incomingCount) {
+    return topicsLength === 0 && incomingCount === 0;
   },
 
   saveScrollPosition() {
@@ -46,15 +45,11 @@ export default Controller.extend(BulkTopicSelection, {
   },
 
   subscribe() {
-    this.pmTopicTrackingState?.trackIncoming(
-      this.inbox,
-      this.filter,
-      this.group
-    );
+    this.pmTopicTrackingState.trackIncoming(this.inbox, this.filter);
   },
 
   unsubscribe() {
-    this.pmTopicTrackingState?.resetTracking();
+    this.pmTopicTrackingState.stopIncomingTracking();
   },
 
   @action
@@ -65,15 +60,18 @@ export default Controller.extend(BulkTopicSelection, {
 
     const opts = {
       inbox: this.inbox,
-      topicIds: topicIds,
+      topicIds,
     };
 
     if (this.group) {
       opts.groupName = this.group.name;
     }
 
-    Topic.pmResetNew(opts).then(() => {
-      this.send("refresh");
+    Topic.pmResetNew(opts).then((result) => {
+      if (result && result.topic_ids.length > 0) {
+        this.pmTopicTrackingState.removeTopics(result.topic_ids);
+        this.send("refresh");
+      }
     });
   },
 
@@ -85,7 +83,12 @@ export default Controller.extend(BulkTopicSelection, {
   @action
   showInserted() {
     this.model.loadBefore(this.pmTopicTrackingState.newIncoming);
-    this.pmTopicTrackingState.resetTracking();
+    this.pmTopicTrackingState.resetIncomingTracking();
     return false;
+  },
+
+  @action
+  refresh() {
+    this.send("triggerRefresh");
   },
 });

@@ -28,6 +28,7 @@ class CurrentUserSerializer < BasicUserSerializer
              :redirected_to_top,
              :custom_fields,
              :muted_category_ids,
+             :indirectly_muted_category_ids,
              :regular_category_ids,
              :tracked_category_ids,
              :watched_first_post_category_ids,
@@ -41,7 +42,7 @@ class CurrentUserSerializer < BasicUserSerializer
              :dismissed_banner_key,
              :is_anonymous,
              :reviewable_count,
-             :read_faq,
+             :read_faq?,
              :automatically_unpin_topics,
              :mailing_list_mode,
              :treat_as_new_topic_start_date,
@@ -66,11 +67,17 @@ class CurrentUserSerializer < BasicUserSerializer
              :has_topic_draft,
              :can_review,
              :draft_count,
+             :default_calendar,
+             :bookmark_auto_delete_preference,
+             :pending_posts_count
+
+  delegate :user_stat, to: :object, private: true
+  delegate :any_posts, :draft_count, :pending_posts_count, :read_faq?, to: :user_stat
 
   def groups
     owned_group_ids = GroupUser.where(user_id: id, owner: true).pluck(:group_id).to_set
-    object.visible_groups.pluck(:id, :name).map do |id, name|
-      group = { id: id, name: name }
+    object.visible_groups.pluck(:id, :name, :has_messages).map do |id, name, has_messages|
+      group = { id: id, name: name, has_messages: has_messages }
       group[:owner] = true if owned_group_ids.include?(id)
       group
     end
@@ -90,14 +97,6 @@ class CurrentUserSerializer < BasicUserSerializer
 
   def include_can_create_group?
     scope.can_create_group?
-  end
-
-  def read_faq
-    object.user_stat.read_faq?
-  end
-
-  def any_posts
-    object.user_stat.any_posts
   end
 
   def hide_profile_and_presence
@@ -138,6 +137,14 @@ class CurrentUserSerializer < BasicUserSerializer
 
   def timezone
     object.user_option.timezone
+  end
+
+  def default_calendar
+    object.user_option.default_calendar
+  end
+
+  def bookmark_auto_delete_preference
+    object.user_option.bookmark_auto_delete_preference
   end
 
   def can_send_private_email_messages
@@ -199,6 +206,10 @@ class CurrentUserSerializer < BasicUserSerializer
 
   def muted_category_ids
     categories_with_notification_level(:muted)
+  end
+
+  def indirectly_muted_category_ids
+    CategoryUser.indirectly_muted_category_ids(object)
   end
 
   def regular_category_ids
@@ -315,9 +326,5 @@ class CurrentUserSerializer < BasicUserSerializer
 
   def include_has_topic_draft?
     Draft.has_topic_draft(object)
-  end
-
-  def draft_count
-    object.user_stat.draft_count
   end
 end

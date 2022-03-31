@@ -22,27 +22,26 @@ acceptance("Search - Mobile", function (needs) {
 
     assert.ok(!exists(".search-results .fps-topic"), "no results by default");
 
-    await click(".search-advanced-title");
+    await click(".advanced-filters summary");
 
-    assert.equal(
-      count(".search-advanced-filters"),
-      1,
+    assert.ok(
+      exists(".advanced-filters[open]"),
       "it should expand advanced search filters"
     );
 
     await fillIn(".search-query", "discourse");
     await click(".search-cta");
 
-    assert.equal(count(".fps-topic"), 1, "has one post");
+    assert.strictEqual(count(".fps-topic"), 1, "has one post");
 
-    assert.ok(
-      !exists(".search-advanced-filters"),
+    assert.notOk(
+      exists(".advanced-filters[open]"),
       "it should collapse advanced search filters"
     );
 
     await click("#search-button");
 
-    assert.equal(
+    assert.strictEqual(
       queryAll("input.full-page-search").val(),
       "discourse",
       "it does not reset input when hitting search icon again"

@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-require 'rails_helper'
-require 'jobs/regular/pull_hotlinked_images'
-
 describe Jobs::PullHotlinkedImages do
 
   let(:image_url) { "http://wiki.mozilla.org/images/2/2e/Longcat1.png" }
@@ -31,7 +28,6 @@ describe Jobs::PullHotlinkedImages do
       "#{Discourse.base_url}/#{upload_path}/original/1X/c530c06cf89c410c0355d7852644a73fc3ec8c04.png"
     )
 
-    SiteSetting.crawl_images = true
     SiteSetting.download_remote_images_to_local = true
     SiteSetting.max_image_size_kb = 2
     SiteSetting.download_remote_images_threshold = 0
@@ -62,17 +58,19 @@ describe Jobs::PullHotlinkedImages do
 
     it 'replaces images' do
       post = Fabricate(:post, raw: "<img src='#{image_url}'>")
+      stub_image_size
 
       expect do
         Jobs::PullHotlinkedImages.new.execute(post_id: post.id)
       end.to change { Upload.count }.by(1) &
              change { UserHistory.count }.by(0) # Should not add to the staff log
 
-      expect(post.reload.raw).to eq("![](#{Upload.last.short_url})")
+      expect(post.reload.raw).to eq("<img src=\"#{Upload.last.short_url}\">")
     end
 
     it 'removes downloaded images when they are no longer needed' do
       post = Fabricate(:post, raw: "<img src='#{image_url}'>")
+      stub_image_size
       post.rebake!
       post.reload
       expect(post.post_uploads.count).to eq(1)
@@ -85,12 +83,13 @@ describe Jobs::PullHotlinkedImages do
 
     it 'replaces images again after edit' do
       post = Fabricate(:post, raw: "<img src='#{image_url}'>")
+      stub_image_size
 
       expect do
         post.rebake!
       end.to change { Upload.count }.by(1)
 
-      expect(post.reload.raw).to eq("![](#{Upload.last.short_url})")
+      expect(post.reload.raw).to eq("<img src=\"#{Upload.last.short_url}\">")
 
       # Post raw is updated back to the old value (e.g. by wordpress integration)
       post.update(raw: "<img src='#{image_url}'>")
@@ -99,19 +98,20 @@ describe Jobs::PullHotlinkedImages do
         post.rebake!
       end.to change { Upload.count }.by(0) # We alread have the upload
 
-      expect(post.reload.raw).to eq("![](#{Upload.last.short_url})")
+      expect(post.reload.raw).to eq("<img src=\"#{Upload.last.short_url}\">")
     end
 
     it 'replaces encoded image urls' do
       post = Fabricate(:post, raw: "<img src='#{encoded_image_url}'>")
+      stub_image_size
       expect do
         Jobs::PullHotlinkedImages.new.execute(post_id: post.id)
       end.to change { Upload.count }.by(1)
 
-      expect(post.reload.raw).to eq("![](#{Upload.last.short_url})")
+      expect(post.reload.raw).to eq("<img src=\"#{Upload.last.short_url}\">")
     end
 
-    xit 'replaces images in an anchor tag with weird indentation' do
+    it 'replaces images in an anchor tag with weird indentation' do
       # Skipped pending https://meta.discourse.org/t/152801
       # This spec was previously passing, even though the resulting markdown was invalid
       # Now the spec has been improved, and shows the issue
@@ -119,12 +119,12 @@ describe Jobs::PullHotlinkedImages do
       stub_request(:get, "http://test.localhost/uploads/short-url/z2QSs1KJWoj51uYhDjb6ifCzxH6.gif")
         .to_return(status: 200, body: "")
 
-      post = Fabricate(:post, raw: <<~RAW)
+      post = Fabricate(:post, raw: <<~MD)
       <h1></h1>
                                 <a href="https://somelink.com">
-                                    <img alt="somelink" src="#{image_url}" />
+                                    <img alt="somelink" src="#{image_url}">
                                 </a>
-      RAW
+      MD
 
       expect do
         Jobs::PullHotlinkedImages.new.execute(post_id: post.id)
@@ -132,17 +132,18 @@ describe Jobs::PullHotlinkedImages do
 
       upload = post.uploads.last
 
-      expect(post.reload.raw).to eq(<<~RAW.chomp)
+      expect(post.reload.raw).to eq(<<~MD.chomp)
       <h1></h1>
                                 <a href="https://somelink.com">
-                                    ![somelink](#{upload.short_url})
+                                    <img alt="somelink" src="#{upload.short_url}">
                                 </a>
-      RAW
+      MD
     end
 
     it 'replaces correct image URL' do
       url = image_url.sub("/2e/Longcat1.png", '')
       post = Fabricate(:post, raw: "[Images](#{url})\n![](#{image_url})")
+      stub_image_size
 
       expect do
         Jobs::PullHotlinkedImages.new.execute(post_id: post.id)
@@ -154,24 +155,26 @@ describe Jobs::PullHotlinkedImages do
     it 'replaces images without protocol' do
       url = image_url.sub(/^https?\:/, '')
       post = Fabricate(:post, raw: "<img alt='test' src='#{url}'>")
+      stub_image_size
 
       expect do
         Jobs::PullHotlinkedImages.new.execute(post_id: post.id)
       end.to change { Upload.count }.by(1)
 
-      expect(post.reload.raw).to eq("![test](#{Upload.last.short_url})")
+      expect(post.reload.raw).to eq("<img alt=\"test\" src=\"#{Upload.last.short_url}\">")
     end
 
     it 'replaces images without extension' do
       url = image_url.sub(/\.[a-zA-Z0-9]+$/, '')
       stub_request(:get, url).to_return(body: png, headers: { "Content-Type" => "image/png" })
       post = Fabricate(:post, raw: "<img src='#{url}'>")
+      stub_image_size
 
       expect do
         Jobs::PullHotlinkedImages.new.execute(post_id: post.id)
       end.to change { Upload.count }.by(1)
 
-      expect(post.reload.raw).to eq("![](#{Upload.last.short_url})")
+      expect(post.reload.raw).to eq("<img src=\"#{Upload.last.short_url}\">")
     end
 
     it 'replaces optimized images' do
@@ -182,6 +185,7 @@ describe Jobs::PullHotlinkedImages do
         .to_return(status: 200, body: file_from_fixtures("smallest.png"))
 
       post = Fabricate(:post, raw: "<img src='#{url}'>")
+      stub_image_size
 
       expect { Jobs::PullHotlinkedImages.new.execute(post_id: post.id) }
         .to change { Upload.count }.by(1)
@@ -189,7 +193,7 @@ describe Jobs::PullHotlinkedImages do
       upload = Upload.last
       post.reload
 
-      expect(post.raw).to eq("![](#{upload.short_url})")
+      expect(post.raw).to eq("<img src=\"#{Upload.last.short_url}\">")
       expect(post.uploads).to contain_exactly(upload)
     end
 
@@ -261,6 +265,7 @@ describe Jobs::PullHotlinkedImages do
       ![abcde](#{image_url} 'some test')
       ![](#{image_url} 'some test')
       MD
+      stub_image_size
 
       expect { Jobs::PullHotlinkedImages.new.execute(post_id: post.id) }
         .to change { Upload.count }.by(1)
@@ -281,6 +286,7 @@ describe Jobs::PullHotlinkedImages do
       ![some test](#{image_url})
       ![some test 2]("#{image_url})
       MD
+      stub_image_size
 
       expect { Jobs::PullHotlinkedImages.new.execute(post_id: post.id) }
         .to change { Upload.count }.by(1)
@@ -296,6 +302,7 @@ describe Jobs::PullHotlinkedImages do
       #{image_url}
       [/img]
       MD
+      stub_image_size
 
       expect { Jobs::PullHotlinkedImages.new.execute(post_id: post.id) }
         .to change { Upload.count }.by(1)
@@ -336,6 +343,8 @@ describe Jobs::PullHotlinkedImages do
 
       it 'replaces image src' do
         post = Fabricate(:post, raw: "#{url}")
+        stub_image_size
+
         post.rebake!
         post.reload
 
@@ -345,6 +354,7 @@ describe Jobs::PullHotlinkedImages do
 
       it 'associates uploads correctly' do
         post = Fabricate(:post, raw: "#{url}")
+        stub_image_size
         post.rebake!
         post.reload
 
@@ -358,12 +368,13 @@ describe Jobs::PullHotlinkedImages do
       end
 
       it 'all combinations' do
-        post = Fabricate(:post, raw: <<~BODY)
+        post = Fabricate(:post, raw: <<~MD)
         <img src='#{image_url}'>
         #{url}
         <img src='#{broken_image_url}'>
         <a href='#{url}'><img src='#{large_image_url}'></a>
-        BODY
+        MD
+        stub_image_size
 
         2.times do
           post.rebake!
@@ -372,7 +383,7 @@ describe Jobs::PullHotlinkedImages do
         post.reload
 
         expect(post.raw).to eq(<<~MD.chomp)
-        ![](upload://z2QSs1KJWoj51uYhDjb6ifCzxH6.gif)
+        <img src="upload://z2QSs1KJWoj51uYhDjb6ifCzxH6.gif">
         https://commons.wikimedia.org/wiki/File:Brisbane_May_2013201.jpg
         <img src='#{broken_image_url}'>
         <a href='#{url}'><img src='#{large_image_url}'></a>
@@ -512,7 +523,7 @@ describe Jobs::PullHotlinkedImages do
 
       post.reload
 
-      expect(post.raw).to eq("![](#{Upload.last.short_url})")
+      expect(post.raw).to eq("<img src=\"#{Upload.last.short_url}\">")
       expect(post.uploads.count).to eq(1)
     end
 

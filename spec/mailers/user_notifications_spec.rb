@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "rails_helper"
-
 describe UserNotifications do
 
   let(:user) { Fabricate(:admin) }
@@ -121,7 +119,7 @@ describe UserNotifications do
   end
 
   describe '.email_login' do
-    let(:email_token) { user.email_tokens.create!(email: user.email).token }
+    let(:email_token) { Fabricate(:email_token, user: user, scope: EmailToken.scopes[:email_login]).token }
     subject { UserNotifications.email_login(user, email_token: email_token) }
 
     it "generates the right email" do
@@ -591,14 +589,14 @@ describe UserNotifications do
       expect(mail.subject).to include("[PM] ")
     end
 
-    it "includes a list of participants, groups first with member lists" do
+    it "includes a list of participants (except for the destination user), groups first with member lists" do
       group1 = Fabricate(:group, name: "group1")
       group2 = Fabricate(:group, name: "group2")
 
       user1 = Fabricate(:user, username: "one", groups: [group1, group2])
       user2 = Fabricate(:user, username: "two", groups: [group1])
 
-      topic.allowed_users = [user1, user2]
+      topic.allowed_users = [user, user1, user2]
       topic.allowed_groups = [group1, group2]
 
       mail = UserNotifications.user_private_message(
@@ -902,6 +900,20 @@ describe UserNotifications do
   describe "user mentioned email" do
     include_examples "notification email building" do
       let(:notification_type) { :mentioned }
+      include_examples "respect for private_email"
+      include_examples "supports reply by email"
+      include_examples "sets user locale"
+    end
+  end
+
+  describe "group mentioned email" do
+    include_examples "notification email building" do
+      let(:notification_type) { :group_mentioned }
+      let(:post) { Fabricate(:private_message_post) }
+      let(:user) { post.user }
+      let(:mail_type) { "group_mentioned" }
+      let(:mail_template) { "user_notifications.user_#{notification_type}_pm" }
+
       include_examples "respect for private_email"
       include_examples "supports reply by email"
       include_examples "sets user locale"

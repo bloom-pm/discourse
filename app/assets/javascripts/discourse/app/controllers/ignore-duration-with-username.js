@@ -13,14 +13,18 @@ export default Controller.extend(ModalFunctionality, {
       if (!this.ignoredUntil || !this.ignoredUsername) {
         this.flash(
           I18n.t("user.user_notifications.ignore_duration_time_frame_required"),
-          "alert-error"
+          "error"
         );
         return;
       }
       this.set("loading", true);
       User.findByUsername(this.ignoredUsername).then((user) => {
         user
-          .updateNotificationLevel("ignore", this.ignoredUntil)
+          .updateNotificationLevel({
+            level: "ignore",
+            expiringAt: this.ignoredUntil,
+            actingUser: this.model,
+          })
           .then(() => {
             this.onUserIgnored(this.ignoredUsername);
             this.send("closeModal");

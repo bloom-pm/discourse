@@ -57,9 +57,12 @@ addBulkButton("showNotificationLevel", "notification_level", {
   icon: "d-regular",
   class: "btn-default",
 });
-addBulkButton("resetRead", "reset_read", {
-  icon: "backward",
+addBulkButton("deletePostTiming", "defer", {
+  icon: "circle",
   class: "btn-default",
+  buttonVisible() {
+    return this.currentUser.enable_defer;
+  },
 });
 addBulkButton("unlistTopics", "unlist_topics", {
   icon: "far-eye-slash",
@@ -77,7 +80,7 @@ addBulkButton("showTagTopics", "change_tags", {
   icon: "tag",
   class: "btn-default",
   enabledSetting: "tagging_enabled",
-  buttonVisible: function () {
+  buttonVisible() {
     return this.currentUser.staff;
   },
 });
@@ -85,7 +88,7 @@ addBulkButton("showAppendTagTopics", "append_tags", {
   icon: "tag",
   class: "btn-default",
   enabledSetting: "tagging_enabled",
-  buttonVisible: function () {
+  buttonVisible() {
     return this.currentUser.staff;
   },
 });
@@ -93,14 +96,14 @@ addBulkButton("removeTags", "remove_tags", {
   icon: "tag",
   class: "btn-default",
   enabledSetting: "tagging_enabled",
-  buttonVisible: function () {
+  buttonVisible() {
     return this.currentUser.staff;
   },
 });
 addBulkButton("deleteTopics", "delete", {
   icon: "trash-alt",
-  class: "btn-danger",
-  buttonVisible: function () {
+  class: "btn-danger delete-topics",
+  buttonVisible() {
     return this.currentUser.staff;
   },
 });
@@ -299,8 +302,8 @@ export default Controller.extend(ModalFunctionality, {
       );
     },
 
-    resetRead() {
-      this.performAndRefresh({ type: "reset_read" });
+    deletePostTiming() {
+      this.performAndRefresh({ type: "destroy_post_timing" });
     },
 
     removeTags() {

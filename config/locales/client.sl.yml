@@ -159,6 +159,7 @@ sl:
       previous_month: "Prejšnji mesec"
       next_month: "Naslednji mesec"
       placeholder: datum
+      to_placeholder: "na datum"
     share:
       topic_html: 'Tema: <span class="topic-title">%{topicTitle}</span>'
       post: "prispevek #%{postNumber}"
@@ -207,7 +208,6 @@ sl:
     bootstrap_mode_disabled: "Zagonski način bo onemogočen v 24 urah."
     themes:
       default_description: "Privzeto"
-      broken_theme_alert: "Vaše spletno mesto morda ne bo delovalo, ker ima tema / komponenta %{theme} napake. Onemogočite jo na %{path}."
     s3:
       regions:
         ap_northeast_1: "Asia Pacific (Tokyo)"
@@ -327,11 +327,6 @@ sl:
       invalid_custom_datetime: "Datum in čas, ki ste ju navedli, sta neveljavna. Poskusite znova."
       list_permission_denied: "Nimate dovoljenja za ogled zaznamkov tega uporabnika."
       no_user_bookmarks: "Nimate nobenega zaznamka; zaznamki vam omogočajo, da se hitro sklicujete na določene objave."
-      auto_delete_preference:
-        label: "Samodejno izbriši"
-        never: "Nikoli"
-        when_reminder_sent: "Ko je opomnik poslan"
-        on_owner_reply: "Ko odgovorim na to temo"
       search_placeholder: "Iščite zaznamke po imenu, naslovu teme ali vsebini objave"
       search: "Išči"
       reminders:
@@ -350,6 +345,11 @@ sl:
       topic_reply: "Osnutek odgovora"
       abandon:
         yes_value: "Zavrzi"
+    topic_count_categories:
+      one: "Poglej %{count} novo ali posodobljeno temo"
+      two: "Poglej %{count} novi ali posodobljeni temi"
+      few: "Poglej %{count} nove ali posodobljene teme"
+      other: "Poglej %{count} novih ali posodobljenih tem"
     topic_count_latest:
       one: "Poglej %{count} novo ali posodobljeno temo"
       two: "Poglej %{count} novi ali posodobljeni temi"
@@ -391,8 +391,8 @@ sl:
     switch_to_anon: "Vklopi anonimni način"
     switch_from_anon: "Izklopi anonimni način"
     banner:
-      close: "Opusti ta oglasni trak."
-      edit: "Uredi ta oglasni trak >>"
+      close: "Opusti ta oglasni trak"
+      edit: "Uredi"
     pwa:
       install_banner: "Ali želite <a href>namestiti %{title} na to napravo?</a>"
     choose_topic:
@@ -1343,11 +1343,9 @@ sl:
         every_month: "vsak mesec"
         every_six_months: "vsakih 6 mesecev"
       email_level:
-        title: "Pošlji mi e-sporočilo, ko me nekdo citira, odgovori na moj prispevek, omeni moje @ime ali me povabi v temo."
         always: "vedno"
         only_when_away: "samo ko sem odsoten"
         never: "nikoli"
-      email_messages_level: "Pošlji mi e-sporočilo, ko mi nekdo pošlje zasebno sporočilo"
       include_tl0_in_digests: "V e-sporočilo s povzetki vključi vsebino, ki so jo dodali novi uporabniki"
       email_in_reply_to: "Vključi povzetek prispevka v e-sporočilo"
       other_settings: "Ostalo"
@@ -1421,7 +1419,7 @@ sl:
           expires_at: "Kdaj bo ta povezava povabila potekla?"
         invite:
           new_title: "Ustvari povabilo"
-          instructions: "Delite to povezavo in takoj omogočite dostop do te strani"
+          instructions: "Delite to povezavo in takoj omogočite dostop do te strani:"
           show_advanced: "Pokaži dodatne možnosti"
           add_to_groups: "Dodaj v skupine"
           expires_at: "Poteče po"
@@ -1617,6 +1615,7 @@ sl:
       title: "Zamenjava gesla"
       action: "Pozabil sem geslo"
       invite: "Vpišite uporabniško ime ali e-naslov in poslali vam bomo e-sporočilo za zamenjavo gesla."
+      invite_no_username: "Vpišite naslov elektronske pošte in poslali vam bomo sporočilo za zamenjavo gesla."
       reset: "Zamenjaj geslo"
       complete_username: "Če obstaja račun za uporabniško ime <b>%{username}</b>, boste kmalu prejeli e-sporočilo z navodili za zamenjavo gesla."
       complete_email: "Če račun ustreza <b>%{email}</b>, boste v kratkem prejeli e-sporočilo z navodili za zamenjavo gesla."
@@ -1806,9 +1805,6 @@ sl:
         two: "Z omembo %{group}boste obvestili <a href='%{group_link}'>%{count} osebi</a> – ali ste prepričani?"
         few: "Z omembo %{group} boste obvestili <a href='%{group_link}'>%{count} osebe</a> – ali ste prepričani?"
         other: "Z omembo %{group} boste obvestili <a href='%{group_link}'>%{count} oseb</a> – ali ste prepričani?"
-      cannot_see_mention:
-        category: "Omenil si uporabnika %{username}, a ta ne bo obveščen saj nima dostopa do te kategorije. Dodati ga je potrebno v skupino ki lahko dostopa do kategorije."
-        private: "Omenili ste uporabnika %{username}, a ta ne bo obveščen, ker ne more videti tega zasebnega sporočila. Morali ga boste povabiti v to zasebno sporočilo."
       duplicate_link: "Povezava do <b>%{domain}</b> bila že objavljena v temi od <b>@%{username}</b> v <a href='%{post_url}'>odgovoru %{ago}</a> – ali ste prepričani, da jo želite objaviti še enkrat?"
       reference_topic_title: "RE: %{title}"
       error:
@@ -1848,7 +1844,6 @@ sl:
       create_whisper: "Šepet"
       create_shared_draft: "Ustvari skupni osnutek"
       edit_shared_draft: "Uredi skupni osnutek"
-      title: "Ali pritisnite Ctrl+Enter"
       users_placeholder: "Dodaj uporabnika"
       title_placeholder: "Kaj je tema prispevka v kratkem stavku?"
       title_or_link_placeholder: "vpiši naslov ali prilepi povezavo"
@@ -1978,6 +1973,9 @@ sl:
       membership_request_accepted: "Sprejeti v članstvo v '%{group_name}'"
       reaction: "<span>%{username}</span> %{description}"
       reaction_2: "<span>%{username}, %{username2}</span> %{description}"
+      dismiss_confirmation:
+        dismiss: "Opusti"
+        cancel: "Prekliči"
       group_message_summary:
         one: "%{count} sporočilo v%{group_name} predalu"
         two: "%{count} sporočili v %{group_name} predalu"
@@ -2034,8 +2032,8 @@ sl:
         two: "<span>%{count}%{plus} zadetka za</span><span class='term'>%{term}</span>"
         few: "<span>%{count}%{plus} zadetki za</span><span class='term'>%{term}</span>"
         other: "<span>%{count}%{plus} zadetkov za</span><span class='term'>%{term}</span>"
-      title: "išči po temah, prispevkih, uporabnikih ali kategorijah"
-      full_page_title: "išči teme ali prispevke"
+      title: "Išči"
+      full_page_title: "Išči"
       no_results: "Iskanje nima zadetkov."
       no_more_results: "Ni več zadetkov iskanja."
       post_format: "#%{post_number} od %{username}"
@@ -2047,13 +2045,17 @@ sl:
       search_google: "Poskusite iskati z Googlom:"
       search_google_button: "Google"
       search_button: "Išči"
+      categories: "Kategorije"
+      tags: "Oznake"
+      type:
+        users: "Uporabniki"
+        categories: "Kategorije"
       context:
         user: "Išči prispevke od @%{username}"
         category: "Išči po #%{category} kategoriji"
         topic: "Išči po tej temi"
         private_messages: "Išči po zasebnih sporočilih"
       advanced:
-        title: Napredno iskanje
         posted_by:
           label: Avtor
         in_category:
@@ -2105,7 +2107,6 @@ sl:
           placeholder: najmanj
         max_views:
           placeholder: največ
-    hamburger_menu: "pojdi na drug seznam tem ali kategorijo"
     new_item: "nov"
     go_back: "pojdi nazaj"
     not_logged_in_user: "stran uporabnika s povzetkom trenutnih aktivnosti in nastavitev"
@@ -2117,7 +2118,7 @@ sl:
         clear_all: "Počisti vse"
         unlist_topics: "Izloči temo iz seznamov"
         relist_topics: "Postavi temo nazaj na seznam"
-        reset_read: "Ponastavi prebrano"
+        defer: "Preloži"
         delete: "Izbriši teme"
         dismiss: "Opusti"
         dismiss_read: "Opusti vse neprebrane"
@@ -2268,6 +2269,7 @@ sl:
         time_frame_required: "Izberite časovni okvir"
         min_duration: "Trajanje mora biti večje od 0"
         max_duration: "Trajanje mora biti krajše od 20 let"
+        duration: "Trajanje"
       auto_update_input:
         none: "Izberi časovni okvir"
         now: "Zdaj"
@@ -2321,10 +2323,6 @@ sl:
         replies_short: "%{current} / %{total}"
       progress:
         title: napredek teme
-        go_top: "na vrh"
-        go_bottom: "dno"
-        go: "pojdi"
-        jump_bottom: "skoči na zadnji prispevek"
         jump_prompt: "skoči na..."
         jump_prompt_of:
           one: "od %{count} prispevka"
@@ -2332,11 +2330,8 @@ sl:
           few: "od %{count} prispevkov"
           other: "od %{count} prispevkov"
         jump_prompt_long: "Skoči na..."
-        jump_bottom_with_number: "skoči na prispevek %{post_number}"
         jump_prompt_to_date: "na datum"
         jump_prompt_or: "ali"
-        total: število prispevkov
-        current: trenutni prispevek
       notifications:
         title: spremenite kako pogosto želite biti obveščeni o tej temi
         reasons:
@@ -2406,7 +2401,6 @@ sl:
         title: "Odgovori"
         help: "sestavi odgovor na to temo"
       share:
-        title: "Deli"
         extended_title: "Deli povezavo"
         help: "deli povezavo do te teme"
         invite_users: "Povabi"
@@ -2587,6 +2581,7 @@ sl:
           other: "Izbrali ste <b>%{count}</b> prispevkov."
     post:
       quote_reply: "Citiraj"
+      quote_edit: "Uredi"
       quote_share: "Deli"
       edit_reason: "Razlog: "
       post_number: "prispevek %{number}"
@@ -2681,6 +2676,7 @@ sl:
             other: "Da, in vseh %{count} odgovorov"
           just_the_post: "Ne, samo ta prispevek"
         admin: "ukrepi administratorja"
+        permanently_delete: "Trajno izbriši"
         wiki: "Naredi wiki"
         unwiki: "Odstrani wiki"
         convert_to_moderator: "Dodaj barvo osebja"
@@ -2828,8 +2824,8 @@ sl:
         toggle_full: "Preklopi dovoljenje za ustvarjanje"
         inherited: 'To dovoljenje je podedovano od "vsi"'
       special_warning: "Ta kategorija je prednastavljena, zato varnostnih nastavitev ni mogoče urejati. Če ne želite uporabljati te kategorije jo raje izbrišite kot uporabljajte v drug namen."
-      uncategorized_security_warning: "Ta kategorija je posebna. Namenjena je za shranjevanje tem, ki nimajo kategorije. Zato ne more imeti varnostnih nastavitev."
-      uncategorized_general_warning: 'Ta kategorija je posebna. Uporabi se kot privzeta kategorija za teme brez kategorije. Če hočete onemogočiti takšen način in hočete obvezno izbiro kategorije, <a href="%{settingLink}">potem onemogočite nastavitev tukaj</a>. Če hočete spremeniti ime ali opis, pojdite <a href="%{customizeLink}">Prilagodi / Vsebina besedila</a>.'
+      uncategorized_security_warning: "Ta kategorija je posebna. Namenjena je shranjevanju tem, ki nimajo kategorije, zato ne more imeti varnostnih nastavitev."
+      uncategorized_general_warning: 'Ta kategorija je posebna. Uporablja se kot privzeta kategorija za nove teme, ki nimajo izbrane kategorije. Če želite onemogočiti takšen način in vsiliti obvezno izbiro kategorije, <a href="%{settingLink}">potem onemogočite nastavitev tukaj</a>. Če želite spremeniti ime ali opis, pojdite <a href="%{customizeLink}">Prilagodi / Vsebina besedila</a>.'
       pending_permission_change_alert: "Niste dodali %{group} v to kategorijo; kliknite ta gumb za dodajanje."
       images: "Slike"
       email_in: "Dohodni e-naslov po meri:"
@@ -2994,6 +2990,9 @@ sl:
         title: "Ta tema je zasebno sporočilo"
         help: "Ta tema je zasebno sporočilo"
     posts: "Prispevki"
+    pending_posts:
+      label: "Za potrditev"
+      label_with_count: "V teku (%{count})"
     original_post: "Izvirni prispevek"
     views: "Ogledi"
     views_lowercase:
@@ -3242,6 +3241,8 @@ sl:
           name: Druge
         posting:
           name: Prispevki
+    download_calendar:
+      download: "Naloži"
     tagging:
       all_tags: "Vse oznake"
       other_tags: "Druge oznake"
@@ -3250,6 +3251,7 @@ sl:
       changed: "spremenjene oznake:"
       tags: "Oznake"
       choose_for_topic: "neobvezne oznake"
+      default_info: "Ta oznaka ni omejena na nobeno kategorijo in nima sopomenk."
       category_restricted: "Ta oznaka je omejena na kategorije, do katerih nimate dovoljenja za dostop."
       synonyms: "Sopomenke"
       synonyms_description: "Ko bodo uporabljene naslednje oznake, bodo nadomeščene z <b>%{base_tag_name}</b>."
@@ -3263,7 +3265,6 @@ sl:
         two: "Uporablja se lahko le v teh dveh kategorijah:"
         few: "Uporablja se lahko le v teh kategorijah:"
         other: "Uporablja se lahko le v teh kategorijah:"
-      edit_synonyms: "Upravljanje sopomenk"
       add_synonyms_label: "Dodajte sopomenke:"
       add_synonyms: "Dodaj"
       add_synonyms_explanation:
@@ -3286,8 +3287,7 @@ sl:
         two: "Izbrisani bosta tudi njeni %{count} sopomenki."
         few: "Izbrisane bodo tudi njene %{count} sopomenke."
         other: "Izbrisanih bo tudi njenih %{count} sopomenk."
-      rename_tag: "Preimenuj oznako"
-      rename_instructions: "Izberite novo ime za oznako:"
+      description: "Opis"
       sort_by: "Uredi po:"
       sort_by_count: "številu"
       sort_by_name: "imenu"
@@ -3563,7 +3563,6 @@ sl:
         delete: Trajno izbriši
         not_shown_again: Ta ključ ne bo več prikazan. Preden nadaljujete, si ustvarite kopijo.
         continue: Nadaljuj
-        use_global_key: Globalni ključ (omogoča vsa dejanja)
         scopes:
           action: Dejanje
           descriptions:
@@ -3654,7 +3653,6 @@ sl:
         delete: "Izbriši"
         color: "Barva"
         opacity: "Transparentnost"
-        copy: "Kopiraj"
         copy_to_clipboard: "Kopiraj v odložišče"
         copied_to_clipboard: "Kopirano v odložišče"
         copy_to_clipboard_error: "Prišlo je do napake pri kopiranju v odložišče"
@@ -3708,12 +3706,6 @@ sl:
             text: "CSS"
           header:
             text: "Glava"
-          head_tag:
-            text: "</head>"
-            title: "HTML, ki bo vstavljen pred </head> oznako"
-          body_tag:
-            text: "</body>"
-            title: "HTML, ki bo vstavljen pred </body> oznako"
         colors:
           title: "Barve"
           copy_name_prefix: "Kopija od"
@@ -4262,7 +4254,6 @@ sl:
           badge_query_examples_title: "Primeri poizvedb SQL za značke"
       emoji:
         title: "Emoji"
-        help: "Dodaj nov emoji, ki bo na voljo vsem. (lahko prestavite in spustite več datotek naenkrat)"
         add: "Dodaj nov emoji"
         uploading: "Nalagam..."
         name: "Ime"

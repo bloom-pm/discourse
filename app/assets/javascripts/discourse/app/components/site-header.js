@@ -5,8 +5,9 @@ import PanEvents, {
 import { cancel, later, schedule } from "@ember/runloop";
 import Docking from "discourse/mixins/docking";
 import MountWidget from "discourse/components/mount-widget";
-import Mousetrap from "mousetrap";
+import ItsATrap from "@discourse/itsatrap";
 import RerenderOnDoNotDisturbChange from "discourse/mixins/rerender-on-do-not-disturb-change";
+import { headerOffset } from "discourse/lib/offset-calculator";
 import { observes } from "discourse-common/utils/decorators";
 import { topicTitleDecorators } from "discourse/components/topic-title";
 
@@ -24,7 +25,7 @@ const SiteHeaderComponent = MountWidget.extend(
     _panMenuOffset: 0,
     _scheduledRemoveAnimate: null,
     _topic: null,
-    _mousetrap: null,
+    _itsatrap: null,
 
     @observes(
       "currentUser.unread_notifications",
@@ -172,7 +173,7 @@ const SiteHeaderComponent = MountWidget.extend(
       }
     },
 
-    dockCheck(info) {
+    dockCheck() {
       const header = document.querySelector("header.d-header");
 
       if (this.docAt === null) {
@@ -182,7 +183,22 @@ const SiteHeaderComponent = MountWidget.extend(
         this.docAt = header.offsetTop;
       }
 
-      const offset = info.offset();
+      const headerRect = header.getBoundingClientRect();
+      let headerOffsetCalc = headerRect.top + headerRect.height;
+
+      if (window.scrollY < 0) {
+        headerOffsetCalc += window.scrollY;
+      }
+
+      const newValue = `${headerOffsetCalc}px`;
+      if (newValue !== this.currentHeaderOffsetValue) {
+        this.currentHeaderOffsetValue = newValue;
+        document.documentElement.style.setProperty("--header-offset", newValue);
+      }
+
+      const main = document.querySelector("#main");
+      const offsetTop = main ? main.offsetTop : 0;
+      const offset = window.pageYOffset - offsetTop;
       if (offset >= this.docAt) {
         if (!this.dockedHeader) {
           document.body.classList.add("docked");
@@ -258,8 +274,8 @@ const SiteHeaderComponent = MountWidget.extend(
       }
 
       const header = document.querySelector("header.d-header");
-      this._mousetrap = new Mousetrap(header);
-      this._mousetrap.bind(["right", "left"], (e) => {
+      this._itsatrap = new ItsATrap(header);
+      this._itsatrap.bind(["right", "left"], (e) => {
         const activeTab = document.querySelector(".glyphs .menu-link.active");
 
         if (activeTab) {
@@ -294,7 +310,8 @@ const SiteHeaderComponent = MountWidget.extend(
 
       cancel(this._scheduledRemoveAnimate);
 
-      this._mousetrap.reset();
+      this._itsatrap?.destroy();
+      this._itsatrap = null;
 
       document.removeEventListener("click", this._dismissFirstNotification);
     },
@@ -323,11 +340,7 @@ const SiteHeaderComponent = MountWidget.extend(
       }
 
       const windowWidth = document.body.offsetWidth;
-      const headerWidth =
-        document.querySelector("#main-outlet .container").offsetWidth || 1100;
-      const remaining = (windowWidth - headerWidth) / 2;
-      const viewMode =
-        this.site.mobileView || remaining < 50 ? "slide-in" : "drop-down";
+      const viewMode = this.site.mobileView ? "slide-in" : "drop-down";
 
       menuPanels.forEach((panel) => {
         const headerCloak = document.querySelector(".header-cloak");
@@ -380,7 +393,7 @@ const SiteHeaderComponent = MountWidget.extend(
             headerCloak.style.display = "block";
           }
 
-          const menuTop = this.site.mobileView ? headerTop() : headerHeight();
+          const menuTop = this.site.mobileView ? headerTop() : headerOffset();
 
           const winHeightOffset = 16;
           let initialWinHeight = window.innerHeight;
@@ -428,18 +441,6 @@ const SiteHeaderComponent = MountWidget.extend(
 export default SiteHeaderComponent.extend({
   classNames: ["d-header-wrap"],
 });
-
-export function headerHeight() {
-  const header = document.querySelector("header.d-header");
-
-  // Header may not exist in tests (e.g. in the user menu component test).
-  if (!header) {
-    return 0;
-  }
-
-  const headerOffsetTop = header.offsetTop ? header.offsetTop : 0;
-  return header.offsetHeight + headerOffsetTop - document.body.scrollTop;
-}
 
 export function headerTop() {
   const header = document.querySelector("header.d-header");

@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'rails_helper'
-
 describe TranslationOverride do
   context 'validations' do
     describe '#value' do
@@ -113,6 +111,16 @@ describe TranslationOverride do
     ovr = TranslationOverride.where(locale: 'en', translation_key: 'some.key').first
     expect(ovr).to be_present
     expect(ovr.value).to eq('some value')
+  end
+
+  it 'sanitizes values before upsert' do
+    xss = "<a href='%{url}' data-auto-route='true'>setup wizard</a> ✨<script>alert('TEST');</script>"
+
+    TranslationOverride.upsert!('en', 'js.wizard_required', xss)
+
+    ovr = TranslationOverride.where(locale: 'en', translation_key: 'js.wizard_required').first
+    expect(ovr).to be_present
+    expect(ovr.value).to eq("<a href=\"%{url}\" data-auto-route=\"true\">setup wizard</a> ✨alert('TEST');")
   end
 
   it "stores js for a message format key" do

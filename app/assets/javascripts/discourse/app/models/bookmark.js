@@ -1,4 +1,4 @@
-import Category from "discourse/models/category";
+import categoryFromId from "discourse-common/utils/category-macro";
 import I18n from "I18n";
 import { Promise } from "rsvp";
 import RestModel from "discourse/models/rest";
@@ -14,6 +14,7 @@ import { none } from "@ember/object/computed";
 
 export const AUTO_DELETE_PREFERENCES = {
   NEVER: 0,
+  CLEAR_REMINDER: 3,
   WHEN_REMINDER_SENT: 1,
   ON_OWNER_REPLY: 2,
 };
@@ -34,6 +35,21 @@ const Bookmark = RestModel.extend({
     return ajax(this.url, {
       type: "DELETE",
     });
+  },
+
+  attachedTo() {
+    if (this.siteSettings.use_polymorphic_bookmarks) {
+      return {
+        target: this.bookmarkable_type.toLowerCase(),
+        targetId: this.bookmarkable_id,
+      };
+    }
+
+    // TODO (martin) [POLYBOOK] Not relevant once polymorphic bookmarks are implemented.
+    if (this.for_topic) {
+      return { target: "topic", targetId: this.topic_id };
+    }
+    return { target: "post", targetId: this.post_id };
   },
 
   togglePin() {
@@ -112,10 +128,7 @@ const Bookmark = RestModel.extend({
     return newTags;
   },
 
-  @discourseComputed("category_id")
-  category(categoryId) {
-    return Category.findById(categoryId);
-  },
+  category: categoryFromId("category_id"),
 
   @discourseComputed("reminder_at", "currentUser")
   formattedReminder(bookmarkReminderAt, currentUser) {
@@ -125,43 +138,25 @@ const Bookmark = RestModel.extend({
     ).capitalize();
   },
 
-  @discourseComputed("linked_post_number", "fancy_title", "topic_id")
-  topicLink(linked_post_number, fancy_title, id) {
-    return Topic.create({ id, fancy_title, linked_post_number });
+  @discourseComputed("reminder_at")
+  reminderAtExpired(bookmarkReminderAt) {
+    return moment(bookmarkReminderAt) < moment();
   },
 
-  loadItems(params) {
-    let url = `/u/${this.user.username}/bookmarks.json`;
+  @discourseComputed()
+  topicForList() {
+    // for topic level bookmarks we want to jump to the last unread post URL,
+    // which the topic-link helper does by default if no linked post number is
+    // provided
+    const linkedPostNumber = this.for_topic ? null : this.linked_post_number;
 
-    if (params) {
-      url += "?" + $.param(params);
-    }
-
-    return ajax(url);
-  },
-
-  loadMore(additionalParams) {
-    if (!this.more_bookmarks_url) {
-      return Promise.resolve();
-    }
-
-    let moreUrl = this.more_bookmarks_url;
-    if (moreUrl) {
-      let [url, params] = moreUrl.split("?");
-      moreUrl = url;
-      if (params) {
-        moreUrl += "?" + params;
-      }
-      if (additionalParams) {
-        if (moreUrl.includes("?")) {
-          moreUrl += "&" + $.param(additionalParams);
-        } else {
-          moreUrl += "?" + $.param(additionalParams);
-        }
-      }
-    }
-
-    return ajax({ url: moreUrl });
+    return Topic.create({
+      id: this.topic_id,
+      fancy_title: this.fancy_title,
+      linked_post_number: linkedPostNumber,
+      last_read_post_number: this.last_read_post_number,
+      highest_post_number: this.highest_post_number,
+    });
   },
 
   @discourseComputed(
@@ -173,7 +168,7 @@ const Bookmark = RestModel.extend({
     return User.create({
       username: post_user_username,
       avatar_template: avatarTemplate,
-      name: name,
+      name,
     });
   },
 });

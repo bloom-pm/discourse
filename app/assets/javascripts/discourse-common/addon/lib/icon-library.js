@@ -20,6 +20,8 @@ const REPLACEMENTS = {
   "d-drop-collapsed": "caret-right",
   "d-unliked": "far-heart",
   "d-liked": "heart",
+  "d-post-share": "link",
+  "d-topic-share": "link",
   "notification.mentioned": "at",
   "notification.group_mentioned": "users",
   "notification.quoted": "quote-right",
@@ -46,6 +48,7 @@ const REPLACEMENTS = {
   "notification.membership_request_consolidated": "users",
   "notification.reaction": "bell",
   "notification.votes_released": "plus",
+  "notification.chat_quoted": "quote-right",
 };
 
 export function replaceIcon(source, destination) {
@@ -147,7 +150,7 @@ registerIconRenderer({
     if (params.label) {
       html += " aria-hidden='true'";
     }
-    html += ` xmlns="${SVG_NAMESPACE}"><use xlink:href="#${id}" /></svg>`;
+    html += ` xmlns="${SVG_NAMESPACE}"><use href="#${id}" /></svg>`;
     if (params.label) {
       html += `<span class='sr-only'>${escape(params.label)}</span>`;
     }
@@ -176,10 +179,7 @@ registerIconRenderer({
       },
       [
         h("use", {
-          "xlink:href": attributeHook(
-            "http://www.w3.org/1999/xlink",
-            `#${escape(id)}`
-          ),
+          href: attributeHook("http://www.w3.org/1999/xlink", `#${escape(id)}`),
           namespace: SVG_NAMESPACE,
         }),
       ]

@@ -21,6 +21,8 @@ import { prioritizeNameInUx } from "discourse/lib/settings";
 import { relativeAgeMediumSpan } from "discourse/lib/formatter";
 import { transformBasicPost } from "discourse/lib/transform-post";
 import autoGroupFlairForUser from "discourse/lib/avatar-flair";
+import showModal from "discourse/lib/show-modal";
+import { nativeShare } from "discourse/lib/pwa-utils";
 
 function transformWithCallbacks(post) {
   let transformed = transformBasicPost(post);
@@ -58,6 +60,7 @@ export function avatarImg(wanted, attrs) {
       src: getURLWithCDN(url),
       title,
       "aria-label": title,
+      loading: "lazy",
     },
     className,
   };
@@ -172,6 +175,8 @@ createWidget("post-avatar", {
 
   html(attrs) {
     let body;
+    let hideFromAnonUser =
+      this.siteSettings.hide_user_profiles_from_public && !this.currentUser;
     if (!attrs.user_id) {
       body = iconNode("far-trash-alt", { class: "deleted-user-avatar" });
     } else {
@@ -180,23 +185,24 @@ createWidget("post-avatar", {
         username: attrs.username,
         name: attrs.name,
         url: attrs.usernameUrl,
-        className: "main-avatar",
+        className: `main-avatar ${hideFromAnonUser ? "non-clickable" : ""}`,
         hideTitle: true,
       });
     }
 
-    const result = [body];
+    const postAvatarBody = [body];
 
     if (attrs.flair_url || attrs.flair_bg_color) {
-      result.push(this.attach("avatar-flair", attrs));
+      postAvatarBody.push(this.attach("avatar-flair", attrs));
     } else {
       const autoFlairAttrs = autoGroupFlairForUser(this.site, attrs);
+
       if (autoFlairAttrs) {
-        result.push(this.attach("avatar-flair", autoFlairAttrs));
+        postAvatarBody.push(this.attach("avatar-flair", autoFlairAttrs));
       }
     }
 
-    result.push(h("div.poster-avatar-extra"));
+    const result = [h("div.post-avatar", postAvatarBody)];
 
     if (this.settings.displayPosterName) {
       result.push(this.attach("post-avatar-user-info", attrs));
@@ -274,21 +280,6 @@ createWidget("post-meta-data", {
       );
     }
 
-    const lastWikiEdit =
-      attrs.wiki && attrs.lastWikiEdit && new Date(attrs.lastWikiEdit);
-    const createdAt = new Date(attrs.created_at);
-    const date = lastWikiEdit ? dateNode(lastWikiEdit) : dateNode(createdAt);
-    const attributes = {
-      class: "post-date",
-      href: attrs.shareUrl,
-      "data-share-url": attrs.shareUrl,
-      "data-post-number": attrs.post_number,
-    };
-
-    if (lastWikiEdit) {
-      attributes["class"] += " last-wiki-edit";
-    }
-
     if (attrs.via_email) {
       postInfo.push(this.attach("post-email-indicator", attrs));
     }
@@ -309,7 +300,7 @@ createWidget("post-meta-data", {
       postInfo.push(this.attach("reply-to-tab", attrs));
     }
 
-    postInfo.push(h("div.post-info.post-date", h("a", { attributes }, date)));
+    postInfo.push(this.attach("post-date", attrs));
 
     postInfo.push(
       h(
@@ -343,6 +334,29 @@ createWidget("expand-hidden", {
 
   click() {
     this.sendWidgetAction("expandHidden");
+  },
+});
+
+createWidget("post-date", {
+  tagName: "div.post-info.post-date",
+
+  html(attrs) {
+    const attributes = { class: "post-date" };
+    let date;
+    if (attrs.wiki && attrs.lastWikiEdit) {
+      attributes["class"] += " last-wiki-edit";
+      date = new Date(attrs.lastWikiEdit);
+    } else {
+      date = new Date(attrs.created_at);
+    }
+    return h("a", { attributes }, dateNode(date));
+  },
+
+  click() {
+    const post = this.findAncestorModel();
+    const topic = post.topic;
+    const controller = showModal("share-topic", { model: topic.category });
+    controller.setProperties({ topic, post });
   },
 });
 
@@ -387,8 +401,20 @@ createWidget("post-group-request", {
 createWidget("post-contents", {
   buildKey: (attrs) => `post-contents-${attrs.id}`,
 
-  defaultState() {
-    return { expandedFirstPost: false, repliesBelow: [] };
+  defaultState(attrs) {
+    const defaultState = {
+      expandedFirstPost: false,
+      repliesBelow: [],
+    };
+
+    if (this.siteSettings.enable_filtered_replies_view) {
+      const topicController = this.register.lookup("controller:topic");
+
+      defaultState.filteredRepliesShown =
+        topicController.replies_to_post_number === attrs.post_number.toString();
+    }
+
+    return defaultState;
   },
 
   buildClasses(attrs) {
@@ -470,9 +496,11 @@ createWidget("post-contents", {
     ) {
       controller.send("cancelFilter", currentFilterPostNumber);
       this.state.filteredRepliesShown = false;
+      return Promise.resolve();
     } else {
       this.state.filteredRepliesShown = true;
-      post
+
+      return post
         .get("topic.postStream")
         .filterReplies(post.post_number, post.id)
         .then(() => {
@@ -518,6 +546,15 @@ createWidget("post-contents", {
   expandFirstPost() {
     const post = this.findAncestorModel();
     return post.expand().then(() => (this.state.expandedFirstPost = true));
+  },
+
+  share() {
+    const post = this.findAncestorModel();
+    nativeShare(this.capabilities, { url: post.shareUrl }).catch(() => {
+      const topic = post.topic;
+      const controller = showModal("share-topic", { model: topic.category });
+      controller.setProperties({ topic, post });
+    });
   },
 });
 

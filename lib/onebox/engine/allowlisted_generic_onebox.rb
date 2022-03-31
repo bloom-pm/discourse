@@ -65,8 +65,8 @@ module Onebox
       def placeholder_html
         return article_html if (is_article? || force_article_html?)
         return image_html if is_image?
-        return Onebox::Helpers.video_placeholder_html if is_video? || is_card?
-        return Onebox::Helpers.generic_placeholder_html if is_embedded?
+        return Onebox::Helpers.video_placeholder_html if !SiteSetting.enable_diffhtml_preview? && (is_video? || is_card?)
+        return Onebox::Helpers.generic_placeholder_html if !SiteSetting.enable_diffhtml_preview? && is_embedded?
         to_html
       end
 
@@ -218,14 +218,14 @@ module Onebox
       def card_html
         escaped_url = ::Onebox::Helpers.normalize_url_for_output(data[:player])
 
-        <<~RAW
+        <<~HTML
         <iframe src="#{escaped_url}"
                 width="#{data[:player_width] || "100%"}"
                 height="#{data[:player_height]}"
                 scrolling="no"
                 frameborder="0">
         </iframe>
-        RAW
+        HTML
       end
 
       def article_html

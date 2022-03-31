@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'rails_helper'
-
 describe User do
   let(:user) { Fabricate(:user) }
   let(:profile_page_url) { "#{Discourse.base_url}/users/#{user.username}" }
@@ -15,6 +13,7 @@ describe User do
   end
 
   before do
+    stub_image_size
     Jobs.run_immediately!
     SiteSetting.discourse_narrative_bot_enabled = true
   end

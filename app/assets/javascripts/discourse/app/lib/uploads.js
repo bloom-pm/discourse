@@ -116,11 +116,18 @@ export function validateUploadedFile(file, opts) {
     }
   }
 
+  if (file.size === 0) {
+    /* eslint-disable no-console */
+    console.warn("File with a 0 byte size detected, cancelling upload.", file);
+    bootbox.alert(I18n.t("post.errors.file_size_zero"));
+    return false;
+  }
+
   // everything went fine
   return true;
 }
 
-const IMAGES_EXTENSIONS_REGEX = /(png|jpe?g|gif|svg|ico|heic|heif|webp)/i;
+export const IMAGES_EXTENSIONS_REGEX = /(png|jpe?g|gif|svg|ico|heic|heif|webp)/i;
 
 function extensionsToArray(exts) {
   return exts
@@ -202,7 +209,11 @@ export function authorizesOneOrMoreExtensions(staff, siteSettings) {
 
   return (
     siteSettings.authorized_extensions.split("|").filter((ext) => ext).length >
-    0
+      0 ||
+    (siteSettings.authorized_extensions_for_staff
+      .split("|")
+      .filter((ext) => ext).length > 0 &&
+      staff)
   );
 }
 
@@ -218,7 +229,7 @@ export function isImage(path) {
 }
 
 export function isVideo(path) {
-  return /\.(mov|mp4|webm|m4v|3gp|ogv|avi|mpeg|ogv)$/i.test(path);
+  return /\.(mov|mp4|webm|m4v|3gp|ogv|avi|mpeg)$/i.test(path);
 }
 
 export function isAudio(path) {
@@ -328,7 +339,11 @@ function displayErrorByResponseStatus(status, body, fileName, siteSettings) {
     case 413:
       const type = uploadTypeFromFileName(fileName);
       const max_size_kb = siteSettings[`max_${type}_size_kb`];
-      bootbox.alert(I18n.t("post.errors.file_too_large", { max_size_kb }));
+      bootbox.alert(
+        I18n.t("post.errors.file_too_large_humanized", {
+          max_size: I18n.toHumanSize(max_size_kb * 1024),
+        })
+      );
       return true;
 
     // the error message is provided by the server

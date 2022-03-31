@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'rails_helper'
-
 RSpec.describe Admin::GroupsController do
   fab!(:admin) { Fabricate(:admin) }
   fab!(:user) { Fabricate(:user) }
@@ -74,6 +72,31 @@ RSpec.describe Admin::GroupsController do
         expect(response.status).to eq(200)
         expect(group.custom_fields['test']).to be_blank
         expect(group.custom_fields['test2']).to be_blank
+      end
+    end
+
+    context 'with Group.plugin_permitted_params' do
+      after do
+        DiscoursePluginRegistry.reset!
+      end
+
+      it 'filter unpermitted params' do
+        params = group_params
+        params[:group].merge!(allow_unknown_sender_topic_replies: true)
+
+        post "/admin/groups.json", params: params
+        expect(Group.last.allow_unknown_sender_topic_replies).to eq(false)
+      end
+
+      it 'allows plugin to allow custom params' do
+        params = group_params
+        params[:group].merge!(allow_unknown_sender_topic_replies: true)
+
+        plugin = Plugin::Instance.new
+        plugin.register_group_param :allow_unknown_sender_topic_replies
+
+        post "/admin/groups.json", params: params
+        expect(Group.last.allow_unknown_sender_topic_replies).to eq(true)
       end
     end
   end

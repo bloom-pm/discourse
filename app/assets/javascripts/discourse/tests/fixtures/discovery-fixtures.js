@@ -1,4 +1,3 @@
-/*jshint maxlen:10000000 */
 export default {
   "/latest.json": {
     users: [
@@ -6406,6 +6405,7 @@ export default {
           bookmarked: false,
           liked: false,
           tags: ["test", "test-tag"],
+          tags_description: { test: "test description", "test-tag": "test tag description" },
           views: 6,
           like_count: 0,
           has_summary: false,

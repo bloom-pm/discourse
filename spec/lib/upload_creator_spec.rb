@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require 'rails_helper'
 require 'file_store/s3_store'
 
 RSpec.describe UploadCreator do
@@ -111,6 +110,21 @@ RSpec.describe UploadCreator do
           expect(File.extname(upload.url)).to eq('.bin')
           expect(upload.original_filename).to eq('tiff_as.bin')
         end
+      end
+    end
+
+    context "when image is too big" do
+      let(:filename) { 'logo.png' }
+      let(:file) { file_from_fixtures(filename) }
+
+      it "adds an error to the upload" do
+        SiteSetting.max_image_size_kb = 1
+        upload = UploadCreator.new(
+          file, filename, force_optimize: true
+        ).create_for(Discourse.system_user.id)
+        expect(upload.errors.full_messages.first).to eq(
+          "#{I18n.t("upload.images.too_large_humanized", max_size: "1 KB")}"
+        )
       end
     end
 
@@ -532,6 +546,23 @@ RSpec.describe UploadCreator do
     end
   end
 
+  describe '#convert_favicon_to_png!' do
+    let(:filename) { "smallest.ico" }
+    let(:file) { file_from_fixtures(filename, "images") }
+
+    before do
+      SiteSetting.authorized_extensions = 'png|jpg|ico'
+    end
+
+    it 'converts to png' do
+      upload = UploadCreator.new(file, filename).create_for(user.id)
+
+      expect(upload.persisted?).to eq(true)
+      expect(upload.extension).to eq('png')
+    end
+
+  end
+
   describe '#clean_svg!' do
     let(:b64) do
       Base64.encode64('<svg onmouseover="alert(alert)" />')
@@ -546,10 +577,10 @@ RSpec.describe UploadCreator do
             <path id="pathdef" d="m0 0h100v100h-77z" stroke="#000" />
           </defs>
           <g>
-            <use id="valid-use" x="123" xlink:href="#pathdef" />
+            <use id="valid-use" x="123" href="#pathdef" />
           </g>
           <use id="invalid-use1" href="https://svg.example.com/evil.svg" />
-          <use id="invalid-use2" xlink:href="data:image/svg+xml;base64,#{b64}" />
+          <use id="invalid-use2" href="data:image/svg+xml;base64,#{b64}" />
         </svg>
       XML
       file.rewind

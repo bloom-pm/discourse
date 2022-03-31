@@ -12,7 +12,7 @@ ru:
         tomorrow: Завтра %{time}
         yesterday: Вчера %{time}
         countdown:
-          passed: дата прошла
+          passed: прошедшая дата
       title: Дата / Время
       create:
         form:
@@ -31,6 +31,7 @@ ru:
           format_title: Формат даты
           timezone: Часовой пояс
           until: По...
+          current_timezone: "Текущий часовой пояс:"
           recurring:
             every_day: "Каждый день"
             every_week: "Каждую неделю"
@@ -40,3 +41,4 @@ ru:
             every_three_months: "Каждые три месяца"
             every_six_months: "Каждые шесть месяцев"
             every_year: "Каждый год"
+      default_title: "Событие на сайте %{site_name}"

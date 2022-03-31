@@ -24,7 +24,6 @@ discourseModule(
 
     componentTest("basics", {
       template: hbs`{{mount-widget widget="home-logo" args=args}}`,
-      skip: true,
       beforeEach() {
         this.siteSettings.site_logo_url = bigLogo;
         this.siteSettings.site_logo_small_url = smallLogo;
@@ -33,11 +32,11 @@ discourseModule(
       },
 
       test(assert) {
-        assert.equal(count(".title"), 1);
+        assert.strictEqual(count(".title"), 1);
 
-        assert.equal(count("img#site-logo.logo-big"), 1);
-        assert.equal(queryAll("#site-logo").attr("src"), bigLogo);
-        assert.equal(queryAll("#site-logo").attr("alt"), title);
+        assert.strictEqual(count("img#site-logo.logo-big"), 1);
+        assert.strictEqual(queryAll("#site-logo").attr("src"), bigLogo);
+        assert.strictEqual(queryAll("#site-logo").attr("alt"), title);
       },
     });
 
@@ -51,10 +50,10 @@ discourseModule(
       },
 
       test(assert) {
-        assert.equal(count("img.logo-small"), 1);
-        assert.equal(queryAll("img.logo-small").attr("src"), smallLogo);
-        assert.equal(queryAll("img.logo-small").attr("alt"), title);
-        assert.equal(queryAll("img.logo-small").attr("width"), 36);
+        assert.strictEqual(count("img.logo-small"), 1);
+        assert.strictEqual(queryAll("img.logo-small").attr("src"), smallLogo);
+        assert.strictEqual(queryAll("img.logo-small").attr("alt"), title);
+        assert.strictEqual(queryAll("img.logo-small").attr("width"), "36");
       },
     });
 
@@ -68,8 +67,8 @@ discourseModule(
       },
 
       test(assert) {
-        assert.equal(count("h1#site-text-logo.text-logo"), 1);
-        assert.equal(queryAll("#site-text-logo").text(), title);
+        assert.strictEqual(count("h1#site-text-logo.text-logo"), 1);
+        assert.strictEqual(queryAll("#site-text-logo").text(), title);
       },
     });
 
@@ -83,7 +82,7 @@ discourseModule(
       },
 
       test(assert) {
-        assert.equal(count(".d-icon-home"), 1);
+        assert.strictEqual(count(".d-icon-home"), 1);
       },
     });
 
@@ -96,8 +95,8 @@ discourseModule(
       },
 
       test(assert) {
-        assert.equal(count("img#site-logo.logo-mobile"), 1);
-        assert.equal(queryAll("#site-logo").attr("src"), mobileLogo);
+        assert.strictEqual(count("img#site-logo.logo-mobile"), 1);
+        assert.strictEqual(queryAll("#site-logo").attr("src"), mobileLogo);
       },
     });
 
@@ -109,8 +108,8 @@ discourseModule(
       },
 
       test(assert) {
-        assert.equal(count("img#site-logo.logo-big"), 1);
-        assert.equal(queryAll("#site-logo").attr("src"), bigLogo);
+        assert.strictEqual(count("img#site-logo.logo-big"), 1);
+        assert.strictEqual(queryAll("#site-logo").attr("src"), bigLogo);
       },
     });
 
@@ -126,15 +125,15 @@ discourseModule(
       },
 
       test(assert) {
-        assert.equal(count("img#site-logo.logo-big"), 1);
-        assert.equal(queryAll("#site-logo").attr("src"), bigLogo);
+        assert.strictEqual(count("img#site-logo.logo-big"), 1);
+        assert.strictEqual(queryAll("#site-logo").attr("src"), bigLogo);
 
-        assert.equal(
+        assert.strictEqual(
           queryAll("picture source").attr("media"),
           prefersDark,
           "includes dark mode media attribute"
         );
-        assert.equal(
+        assert.strictEqual(
           queryAll("picture source").attr("srcset"),
           darkLogo,
           "includes dark mode alternative logo source"
@@ -157,14 +156,14 @@ discourseModule(
       },
 
       test(assert) {
-        assert.equal(queryAll("#site-logo").attr("src"), mobileLogo);
+        assert.strictEqual(queryAll("#site-logo").attr("src"), mobileLogo);
 
-        assert.equal(
+        assert.strictEqual(
           queryAll("picture source").attr("media"),
           prefersDark,
           "includes dark mode media attribute"
         );
-        assert.equal(
+        assert.strictEqual(
           queryAll("picture source").attr("srcset"),
           darkLogo,
           "includes dark mode alternative logo source"
@@ -184,8 +183,8 @@ discourseModule(
       },
 
       test(assert) {
-        assert.equal(count("img#site-logo.logo-big"), 1);
-        assert.equal(queryAll("#site-logo").attr("src"), bigLogo);
+        assert.strictEqual(count("img#site-logo.logo-big"), 1);
+        assert.strictEqual(queryAll("#site-logo").attr("src"), bigLogo);
         assert.ok(!exists("picture"), "does not include alternative logo");
       },
     });
@@ -198,8 +197,8 @@ discourseModule(
       },
 
       test(assert) {
-        assert.equal(count("img#site-logo.logo-big"), 1);
-        assert.equal(queryAll("#site-logo").attr("src"), bigLogo);
+        assert.strictEqual(count("img#site-logo.logo-big"), 1);
+        assert.strictEqual(queryAll("#site-logo").attr("src"), bigLogo);
         assert.ok(!exists("picture"), "does not include alternative logo");
       },
     });
@@ -215,8 +214,8 @@ discourseModule(
         Session.currentProp("defaultColorSchemeIsDark", null);
       },
       test(assert) {
-        assert.equal(count("img#site-logo.logo-big"), 1);
-        assert.equal(
+        assert.strictEqual(count("img#site-logo.logo-big"), 1);
+        assert.strictEqual(
           queryAll("#site-logo").attr("src"),
           darkLogo,
           "uses dark logo"
@@ -236,8 +235,8 @@ discourseModule(
         Session.currentProp("defaultColorSchemeIsDark", null);
       },
       test(assert) {
-        assert.equal(count("img#site-logo.logo-big"), 1);
-        assert.equal(
+        assert.strictEqual(count("img#site-logo.logo-big"), 1);
+        assert.strictEqual(
           queryAll("#site-logo").attr("src"),
           bigLogo,
           "uses regular logo on dark scheme if no dark logo"

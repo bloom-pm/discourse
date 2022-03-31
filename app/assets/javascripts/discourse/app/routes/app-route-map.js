@@ -144,11 +144,6 @@ export default function () {
           this.route("unread");
           this.route("archive");
           this.route("sent");
-          this.route("personal");
-          this.route("personalSent", { path: "personal/sent" });
-          this.route("personalNew", { path: "personal/new" });
-          this.route("personalUnread", { path: "personal/unread" });
-          this.route("personalArchive", { path: "personal/archive" });
           this.route("warnings");
           this.route("group", { path: "group/:name" });
           this.route("groupArchive", { path: "group/:name/archive" });
@@ -196,6 +191,7 @@ export default function () {
   this.route("signup", { path: "/signup" });
   this.route("login", { path: "/login" });
   this.route("email-login", { path: "/session/email-login/:token" });
+  this.route("second-factor-auth", { path: "/session/2fa" });
   this.route("associate-account", { path: "/associate/:token" });
   this.route("login-preferences");
   this.route("forgot-password", { path: "/password-reset" });
@@ -229,6 +225,9 @@ export default function () {
     this.route("showCategory", {
       path: "/c/*category_slug_path_with_id/:tag_id",
     });
+    this.route("showCategoryAll", {
+      path: "/c/*category_slug_path_with_id/all/:tag_id",
+    });
     this.route("showCategoryNone", {
       path: "/c/*category_slug_path_with_id/none/:tag_id",
     });
@@ -236,6 +235,9 @@ export default function () {
     Site.currentProp("filters").forEach((filter) => {
       this.route("showCategory" + filter.capitalize(), {
         path: "/c/*category_slug_path_with_id/:tag_id/l/" + filter,
+      });
+      this.route("showCategoryAll" + filter.capitalize(), {
+        path: "/c/*category_slug_path_with_id/all/:tag_id/l/" + filter,
       });
       this.route("showCategoryNone" + filter.capitalize(), {
         path: "/c/*category_slug_path_with_id/none/:tag_id/l/" + filter,

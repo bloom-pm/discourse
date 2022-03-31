@@ -28,7 +28,7 @@ function preferencesPretender(server, helper) {
   server.post("/u/create_second_factor_totp.json", () => {
     return helper.response({
       key: "rcyryaqage3jexfj",
-      qr: '<div id="test-qr">qr-code</div>',
+      qr: "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=",
     });
   });
 
@@ -82,7 +82,7 @@ acceptance("User Preferences", function (needs) {
     await visit("/u/eviltrout/preferences");
 
     assert.ok($("body.user-preferences-page").length, "has the body class");
-    assert.equal(
+    assert.strictEqual(
       currentURL(),
       "/u/eviltrout/preferences/account",
       "defaults to account tab"
@@ -151,7 +151,7 @@ acceptance("User Preferences", function (needs) {
 
     await fillIn("#change-email", "invalidemail");
 
-    assert.equal(
+    assert.strictEqual(
       queryAll(".tip.bad").text().trim(),
       I18n.t("user.email.invalid"),
       "it should display invalid email tip"
@@ -207,7 +207,7 @@ acceptance("User Preferences", function (needs) {
     assert.notOk(exists("#password"), "it hides the password input");
 
     await click(".new-totp");
-    assert.ok(exists("#test-qr"), "shows qr code");
+    assert.ok(exists(".qr-code img"), "shows qr code image");
 
     await click(".add-totp");
 
@@ -252,7 +252,7 @@ acceptance("User Preferences", function (needs) {
 
     await click(".avatar-selector-refresh-gravatar");
 
-    assert.equal(
+    assert.strictEqual(
       User.currentProp("gravatar_avatar_upload_id"),
       6543,
       "it should set the gravatar_avatar_upload_id property"
@@ -299,7 +299,7 @@ acceptance(
   "Avatar selector when selectable avatars is enabled",
   function (needs) {
     needs.user();
-    needs.settings({ selectable_avatars_enabled: true });
+    needs.settings({ selectable_avatars_mode: "no_one" });
     needs.pretender((server, helper) => {
       server.get("/site/selectable-avatars.json", () =>
         helper.response([
@@ -315,6 +315,134 @@ acceptance(
       assert.ok(
         exists(".selectable-avatars", "opens the avatar selection modal")
       );
+      assert.notOk(
+        exists(
+          "#uploaded-avatar",
+          "avatar selection modal does not include option to upload"
+        )
+      );
+    });
+  }
+);
+acceptance(
+  "Avatar selector when selectable avatars allows staff to upload",
+  function (needs) {
+    needs.user();
+    needs.settings({ selectable_avatars_mode: "staff" });
+    needs.pretender((server, helper) => {
+      server.get("/site/selectable-avatars.json", () =>
+        helper.response([
+          "https://www.discourse.org",
+          "https://meta.discourse.org",
+        ])
+      );
+    });
+
+    test("allows staff to upload", async function (assert) {
+      await updateCurrentUser({
+        trust_level: 3,
+        moderator: true,
+        admin: false,
+      });
+      await visit("/u/eviltrout/preferences");
+      await click(".pref-avatar .btn");
+      assert.ok(
+        exists(".selectable-avatars", "opens the avatar selection modal")
+      );
+      assert.ok(
+        exists(
+          "#uploaded-avatar",
+          "avatar selection modal includes option to upload"
+        )
+      );
+    });
+    test("disallow nonstaff", async function (assert) {
+      await visit("/u/eviltrout/preferences");
+      await updateCurrentUser({
+        trust_level: 3,
+        moderator: false,
+        admin: false,
+      });
+      await click(".pref-avatar .btn");
+      assert.ok(
+        exists(".selectable-avatars", "opens the avatar selection modal")
+      );
+      assert.notOk(
+        exists(
+          "#uploaded-avatar",
+          "avatar selection modal does not include option to upload"
+        )
+      );
+    });
+  }
+);
+acceptance(
+  "Avatar selector when selectable avatars allows trust level 3+ to upload",
+  function (needs) {
+    needs.user();
+    needs.settings({ selectable_avatars_mode: "tl3" });
+    needs.pretender((server, helper) => {
+      server.get("/site/selectable-avatars.json", () =>
+        helper.response([
+          "https://www.discourse.org",
+          "https://meta.discourse.org",
+        ])
+      );
+    });
+
+    test("with a tl3 user", async function (assert) {
+      await visit("/u/eviltrout/preferences");
+      await updateCurrentUser({
+        trust_level: 3,
+        moderator: false,
+        admin: false,
+      });
+      await click(".pref-avatar .btn");
+      assert.ok(
+        exists(".selectable-avatars", "opens the avatar selection modal")
+      );
+      assert.ok(
+        exists(
+          "#uploaded-avatar",
+          "avatar selection modal does includes option to upload"
+        )
+      );
+    });
+    test("with a tl2 user", async function (assert) {
+      await visit("/u/eviltrout/preferences");
+      await updateCurrentUser({
+        trust_level: 2,
+        moderator: false,
+        admin: false,
+      });
+      await click(".pref-avatar .btn");
+      assert.ok(
+        exists(".selectable-avatars", "opens the avatar selection modal")
+      );
+      assert.notOk(
+        exists(
+          "#uploaded-avatar",
+          "avatar selection modal does not include option to upload"
+        )
+      );
+    });
+    test("always allow staff to upload", async function (assert) {
+      await visit("/u/eviltrout/preferences");
+      await updateCurrentUser({
+        trust_level: 2,
+        moderator: true,
+        admin: false,
+      });
+      await click(".pref-avatar .btn");
+      assert.ok(
+        exists(".selectable-avatars", "opens the avatar selection modal")
+      );
+      assert.ok(
+        exists(
+          "#uploaded-avatar",
+          "avatar selection modal includes option to upload"
+        )
+      );
     });
   }
 );
@@ -327,7 +455,7 @@ acceptance("User Preferences when badges are disabled", function (needs) {
   test("visit my preferences", async function (assert) {
     await visit("/u/eviltrout/preferences");
     assert.ok($("body.user-preferences-page").length, "has the body class");
-    assert.equal(
+    assert.strictEqual(
       currentURL(),
       "/u/eviltrout/preferences/account",
       "defaults to account tab"
@@ -418,7 +546,7 @@ acceptance("Custom User Fields", function (needs) {
     );
     await field.expand();
     await field.selectRowByValue("Cat");
-    assert.equal(
+    assert.strictEqual(
       field.header().value(),
       "Cat",
       "it sets the value of the field"
@@ -444,7 +572,7 @@ acceptance(
       await click(".save-changes");
       await visit("/");
       assert.ok(exists(".topic-list"), "The list of topics was rendered");
-      assert.equal(
+      assert.strictEqual(
         currentRouteName(),
         "discovery.bookmarks",
         "it navigates to bookmarks"
@@ -487,7 +615,7 @@ acceptance("Security", function (needs) {
   test("recently connected devices", async function (assert) {
     await visit("/u/eviltrout/preferences/security");
 
-    assert.equal(
+    assert.strictEqual(
       queryAll(".auth-tokens > .auth-token:nth-of-type(1) .auth-token-device")
         .text()
         .trim(),
@@ -495,12 +623,12 @@ acceptance("Security", function (needs) {
       "it should display active token first"
     );
 
-    assert.equal(
+    assert.strictEqual(
       queryAll(".pref-auth-tokens > a:nth-of-type(1)").text().trim(),
       I18n.t("user.auth_tokens.show_all", { count: 3 }),
       "it should display two tokens"
     );
-    assert.equal(
+    assert.strictEqual(
       count(".pref-auth-tokens .auth-token"),
       2,
       "it should display two tokens"
@@ -508,7 +636,7 @@ acceptance("Security", function (needs) {
 
     await click(".pref-auth-tokens > a:nth-of-type(1)");
 
-    assert.equal(
+    assert.strictEqual(
       count(".pref-auth-tokens .auth-token"),
       3,
       "it should display three tokens"
@@ -518,11 +646,11 @@ acceptance("Security", function (needs) {
     await authTokenDropdown.expand();
     await authTokenDropdown.selectRowByValue("notYou");
 
-    assert.equal(count(".d-modal:visible"), 1, "modal should appear");
+    assert.strictEqual(count(".d-modal:visible"), 1, "modal should appear");
 
     await click(".modal-footer .btn-primary");
 
-    assert.equal(
+    assert.strictEqual(
       count(".pref-password.highlighted"),
       1,
       "it should highlight password preferences"
@@ -543,7 +671,7 @@ acceptance(
       await visit("/u/staged/preferences");
 
       assert.ok($("body.user-preferences-page").length, "has the body class");
-      assert.equal(
+      assert.strictEqual(
         currentURL(),
         "/u/staged/preferences/account",
         "defaults to account tab"

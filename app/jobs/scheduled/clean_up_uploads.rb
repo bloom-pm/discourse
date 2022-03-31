@@ -26,6 +26,8 @@ module Jobs
       s3_cdn_hostname = URI.parse(SiteSetting.Upload.s3_cdn_url || "").hostname
 
       result = Upload.by_users
+      Upload.unused_callbacks&.each { |handler| result = handler.call(result) }
+      result = result
         .where("uploads.retain_hours IS NULL OR uploads.created_at < current_timestamp - interval '1 hour' * uploads.retain_hours")
         .where("uploads.created_at < ?", grace_period.hour.ago)
         .where("uploads.access_control_post_id IS NULL")
@@ -38,7 +40,10 @@ module Jobs
           encoded_sha = Base62.encode(upload.sha1.hex)
           next if ReviewableQueuedPost.pending.where("payload->>'raw' LIKE '%#{upload.sha1}%' OR payload->>'raw' LIKE '%#{encoded_sha}%'").exists?
           next if Draft.where("data LIKE '%#{upload.sha1}%' OR data LIKE '%#{encoded_sha}%'").exists?
-          next if ThemeSetting.where(data_type: ThemeSetting.types[:upload]).where("value LIKE ?", "%#{upload.sha1}%").exists?
+          next if UserProfile.where("bio_raw LIKE '%#{upload.sha1}%' OR bio_raw LIKE '%#{encoded_sha}%'").exists?
+
+          next if Upload.in_use_callbacks&.any? { |callback| callback.call(upload) }
+
           upload.destroy
         else
           upload.delete

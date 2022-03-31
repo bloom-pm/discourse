@@ -231,12 +231,13 @@ sw:
       remove: "Ondoa Alamisho"
       confirm_clear: "Una uhakika unataka kuondoa mialamisho ya mada hii?"
       save: "hifadhi"
-      auto_delete_preference:
-        never: "Kamwe"
       search: "Tafuta"
     drafts:
       remove: "Ondoa"
       new_topic: "Mswadajaribio wa mada mpya"
+    topic_count_categories:
+      one: "Angalia Topiki Mpya au Masahisho %{count}"
+      other: "Angalia Topiki Mpya au Masahisho %{count}"
     topic_count_latest:
       one: "Angalia Topiki Mpya au Masahisho %{count}"
       other: "Angalia Topiki Mpya au Masahisho %{count}"
@@ -268,8 +269,8 @@ sw:
     switch_to_anon: "Ingia Hali-tumizi Isiyojulikana"
     switch_from_anon: "Ondoka kwenye Hali-tumizi Isiyojulikana"
     banner:
-      close: "Puuzia bango hili."
-      edit: "Hariri bango hili >>"
+      close: "Puuzia bango hili"
+      edit: "Hariri"
     choose_topic:
       none_found: "Hakuna mada zilizopatikana."
     review:
@@ -849,10 +850,8 @@ sw:
         daily: "kila siku"
         weekly: "kila wiki"
       email_level:
-        title: "Tuma barua pepe mtu akinukulu, akijibu chapisho langu, akitaja @jina langu, au akinialika kwenye mada."
         always: "mara kwa mara"
         never: "kamwe"
-      email_messages_level: "Nitumie barua pepe mtu akinitumia ujumbe"
       include_tl0_in_digests: "Tia ndani maandishi kutoka kwa watumiaji wapya kwenye muhtasari wa barua pepe"
       email_in_reply_to: "Jumuisha dhana ya majibu ya posti kwenye barua pepe"
       other_settings: "Zingine"
@@ -1206,9 +1205,6 @@ sw:
       group_mentioned:
         one: "Kwa kutaja %{group}, utamjulisha <a href='%{group_link}'>mtu mmoja</a> – una uhakika?"
         other: "Kwa kutaja %{group}, utawajulisha <a href='%{group_link}'>%{count} watu</a> – una uhakika?"
-      cannot_see_mention:
-        category: "Umetaja %{username} ila hawatajulishwa kwa kuwa hawapo kwenye kundi hili. Itabidi waongezwe kwenye kundi ambalo lina fursa ya kusoma maudhui ya kundi hili."
-        private: "Umetaja %{username} lakini hawatajulishwa kwa sababu hawana uwezo wa kuona hii meseji binafsi. Unahitaji kuwaalika kuona hii mesaji binafsi."
       duplicate_link: "Inaonekana linki yako <b>%{domain}</b> imechapishwa tayari kwenye topiki na <b>@%{username}</b> kwenye <a href='%{post_url}'>jibu la %{ago}</a> – una uhakina unataka kuchapisha tena?"
       error:
         title_missing: "Kichwa cha habari ni muhimu"
@@ -1223,7 +1219,6 @@ sw:
       create_whisper: "Mluzi"
       create_shared_draft: "Unda mgawanyo wa mswadajaribio"
       edit_shared_draft: "Hariri mgawanyo wa mswadajaribio"
-      title: "Au bonyeza Ctrl+Enter"
       users_placeholder: "Ongeza mtumiaji"
       title_placeholder: "Kwa kifupi majadiliano haya yanahusu nini?"
       title_or_link_placeholder: "Andika kichwa cha habari, au bandika kiungo hapa"
@@ -1324,6 +1319,9 @@ sw:
       topic_reminder: "<span>%{jina la mtumiaji}</span> %{maelezo}"
       watching_first_post: "<span>Mada Mpya</span> %{maelezo}"
       reaction_2: "<span>%{username}, %{username2}</span> %{description}"
+      dismiss_confirmation:
+        dismiss: "Ondosha"
+        cancel: "Ghairi"
       group_message_summary:
         one: "Kuna meseji %{count} kwenye %{group_name} inbox"
         other: "kuna meseji %{count} kwenye %{group_name} inbox"
@@ -1357,8 +1355,8 @@ sw:
       result_count:
         one: "<span>jibu kwa</span><span class='term'>%{term}</span>"
         other: "<span>%{count}%{plus} majibu kwa</span><span class='term'>%{term}</span>"
-      title: "Tafuta mada, machapisho, watumiaji, au kategoria"
-      full_page_title: "tafuta mada au machapisho"
+      title: "Tafuta"
+      full_page_title: "Tafuta"
       no_results: "Hakuna Majibu Yaliyopatikana."
       no_more_results: "Hakuna majibu zaidi yaliyopatikana."
       post_format: "#%{post_number} za %{username}"
@@ -1370,13 +1368,17 @@ sw:
       search_google: "Jaribu kutafuta kwa kutumia Google kama njia mbadala:"
       search_google_button: "Google"
       search_button: "Tafuta"
+      categories: "Vikundi"
+      tags: "Lebo"
+      type:
+        users: "Watumiaji"
+        categories: "Vikundi"
       context:
         user: "Tafuta machapisho kwa kutumia @%{jina la mtumiaji}"
         category: "Tafuta kategoria #%{category} "
         topic: "Tafuta hii mada"
         private_messages: "Tafuta ujumbe"
       advanced:
-        title: Utafiti wa Hali ya juu
         posted_by:
           label: Imechapishwa na
         in_category:
@@ -1419,7 +1421,6 @@ sw:
             after: baada
         views:
           label: Imeonwa
-    hamburger_menu: "nenda kwenye orodha ya mada au kategoria nyingine"
     new_item: "mpya"
     go_back: "rudi nyuma"
     not_logged_in_user: "karatasi ya kwanza yenye muhtasari wa shughuli na mapendekezo ya sasa"
@@ -1431,7 +1432,6 @@ sw:
         clear_all: "Ondoa Zote"
         unlist_topics: "Ondoa Mada kwenye listi"
         relist_topics: "Orodhesha Upya Mada"
-        reset_read: "Anzisha Upya Usomaji"
         delete: "Futa Mada"
         dismiss: "Ondosha..."
         dismiss_read: "Ondosha zote ambazo hazijasomwa"
@@ -1573,16 +1573,9 @@ sw:
         replies_short: "%{current} / %{total}"
       progress:
         title: maendeleo ya mada
-        go_top: "juu"
-        go_bottom: "chini"
-        go: "nenda"
-        jump_bottom: "fikia chapisho la mwisho"
         jump_prompt: "ruka kwenda..."
         jump_prompt_long: "Ruka kwenda..."
-        jump_bottom_with_number: "fikia chapisho %{post_number}"
         jump_prompt_or: "au"
-        total: jumla ya machapisho
-        current: chapisho la hivi karibuni
       notifications:
         title: badilisha mara ngapi utapata taarifa kuhusu mada hii
         reasons:
@@ -1650,7 +1643,6 @@ sw:
         title: "Jibu"
         help: "anza kuandika jibu lako kwenye mada hii"
       share:
-        title: "Gawiza"
         help: "gawiza kiungo kwenye mada hii"
         invite_users: "Mualiko"
       print:
@@ -1760,6 +1752,7 @@ sw:
           other: "Umechagua machapisho<b>%{count}</b>."
     post:
       quote_reply: "Nukulu"
+      quote_edit: "Hariri"
       quote_share: "Gawiza"
       edit_reason: "Sababu:"
       post_number: "%{namba} chapisho"
@@ -2022,6 +2015,9 @@ sw:
       unlisted:
         help: "Mada hii imeondolewa kwenye orodha. Haitaonyeshwa kwenye orodha za mada, na njia pekee ya kuifia ni kupitia kiungo chake"
     posts: "Machapisho"
+    pending_posts:
+      label: "subiria"
+      label_with_count: "(%{count}) zinasubiria"
     original_post: "Chapisho la Kwanza"
     views: "Imeonwa"
     views_lowercase:
@@ -2189,6 +2185,8 @@ sw:
           name: Nyingine
         posting:
           name: Kuchapisha
+    download_calendar:
+      download: "Pakua"
     tagging:
       all_tags: "Lebo Zote"
       other_tags: "Lebo Zingine"
@@ -2200,8 +2198,7 @@ sw:
       add_synonyms: "Ongeza"
       delete_tag: "futa lebo"
       delete_confirm_no_topics: "Una uhakika unataka kufuta lebo hii?"
-      rename_tag: "Badili jina la lebo"
-      rename_instructions: "Chagua jina jipya la lebo"
+      description: "Maelezo"
       sort_by: "Pangilia kwa:"
       sort_by_count: "hesabu"
       sort_by_name: "jina"
@@ -2265,6 +2262,10 @@ sw:
         member: "mwanachama"
         regular: "kawaida"
         leader: "kiongozi"
+    user_activity:
+      no_activity_others: "Hakuna shughuli."
+      no_replies_others: "Hakuna majibu."
+      no_likes_others: "Hakuna machapisho yaliyopendwa."
   admin_js:
     type_to_filter: "andika kuchuja..."
     admin:
@@ -2546,7 +2547,6 @@ sw:
         new_style: "Style Mpya"
         delete: "Ondoa"
         color: "Rangi"
-        copy: "Nakili"
         copy_to_clipboard: "Umenakili kwenye Ubao Nakili"
         copied_to_clipboard: "Umenakili kwenye Ubao Nakili"
         copy_to_clipboard_error: "Hitilafu imetokea wakati wa kunakili taarifa kwenye ubao nakili."
@@ -2620,12 +2620,8 @@ sw:
             title: "Ruhusu HTLM kuonekana kwenye ukurasa wa kijachini"
           embedded_scss:
             text: "CSS Iliyoambatanishwa"
-          head_tag:
-            text: "</head>"
-            title: "HTML itakayowekwa kabla ya lebo </head>"
           body_tag:
-            text: "</body>"
-            title: "HTML itakayowekwa kabla ya lebo </body>"
+            text: "Mwili"
           yaml:
             text: "YAML"
             title: "Tambulisha mipangilio ya mpango kwenye umbiza wa YAML"
@@ -3230,7 +3226,6 @@ sw:
             with_time: <span class="username">%{username}</span> kwenye %{time}<span class="time">
       emoji:
         title: "Emoji"
-        help: "Ongeza emoji mpya ambayo itapatikana kwa kila mtu. (USHAURI: unaweza kuweka zaidi ya faili moja mara moja)"
         add: "Ongeza Emoji Mpya"
         uploading: "Inaongezwa"
         name: "Jina"

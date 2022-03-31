@@ -1,11 +1,12 @@
 import EmberObject, { get } from "@ember/object";
-import discourseComputed, { on } from "discourse-common/utils/decorators";
+import discourseComputed, { bind, on } from "discourse-common/utils/decorators";
 import Category from "discourse/models/category";
 import { deepEqual, deepMerge } from "discourse-common/lib/object";
 import DiscourseURL from "discourse/lib/url";
 import { NotificationLevels } from "discourse/lib/notification-levels";
 import PreloadStore from "discourse/lib/preload-store";
 import User from "discourse/models/user";
+import Site from "discourse/models/site";
 import { isEmpty } from "@ember/utils";
 
 function isNew(topic) {
@@ -64,15 +65,13 @@ const TopicTrackingState = EmberObject.extend({
    * @method establishChannels
    */
   establishChannels() {
-    this.messageBus.subscribe("/new", this._processChannelPayload.bind(this));
-    this.messageBus.subscribe(
-      "/latest",
-      this._processChannelPayload.bind(this)
-    );
+    this.messageBus.subscribe("/latest", this._processChannelPayload);
     if (this.currentUser) {
+      this.messageBus.subscribe("/new", this._processChannelPayload);
+      this.messageBus.subscribe(`/unread`, this._processChannelPayload);
       this.messageBus.subscribe(
-        "/unread/" + this.currentUser.get("id"),
-        this._processChannelPayload.bind(this)
+        `/unread/${this.currentUser.id}`,
+        this._processChannelPayload
       );
     }
 
@@ -196,6 +195,7 @@ const TopicTrackingState = EmberObject.extend({
 
     const filter = this.filter;
     const filterCategory = this.filterCategory;
+    const filterTag = this.filterTag;
     const categoryId = data.payload && data.payload.category_id;
 
     // if we have a filter category currently and it is not the
@@ -209,6 +209,10 @@ const TopicTrackingState = EmberObject.extend({
       ) {
         return;
       }
+    }
+
+    if (filterTag && !data.payload.tags.includes(filterTag)) {
+      return;
     }
 
     // always count a new_topic as incoming
@@ -240,6 +244,17 @@ const TopicTrackingState = EmberObject.extend({
       this._addIncoming(data.topic_id);
     }
 
+    // Add incoming to the 'categories and latest topics' desktop view
+    if (
+      filter === "categories" &&
+      data.message_type === "latest" &&
+      !Site.current().mobileView &&
+      this.siteSettings.desktop_category_page_style ===
+        "categories_and_latest_topics"
+    ) {
+      this._addIncoming(data.topic_id);
+    }
+
     // hasIncoming relies on this count
     this.set("incomingCount", this.newIncoming.length);
   },
@@ -266,23 +281,34 @@ const TopicTrackingState = EmberObject.extend({
    * @method trackIncoming
    * @param {String} filter - Valid values are all, categories, and any topic list
    *                          filters e.g. latest, unread, new. As well as this
-   *                          specific category and tag URLs like /tag/test/l/latest
-   *                          or c/cat/subcat/6/l/latest.
+   *                          specific category and tag URLs like tag/test/l/latest,
+   *                          c/cat/subcat/6/l/latest or tags/c/cat/subcat/6/test/l/latest.
    */
   trackIncoming(filter) {
     this.newIncoming = [];
 
-    const split = filter.split("/");
-    if (split.length >= 4) {
+    let category, tag;
+
+    if (filter.startsWith("c/") || filter.startsWith("tags/c/")) {
+      const categoryId = filter.match(/\/(\d*)\//);
+      category = Category.findById(parseInt(categoryId[1], 10));
+      const split = filter.split("/");
+
+      if (filter.startsWith("tags/c/")) {
+        tag = split[split.indexOf(categoryId[1]) + 1];
+      }
+
+      if (split.length >= 4) {
+        filter = split[split.length - 1];
+      }
+    } else if (filter.startsWith("tag/")) {
+      const split = filter.split("/");
       filter = split[split.length - 1];
-      let category = Category.findSingleBySlug(
-        split.splice(1, split.length - 4).join("/")
-      );
-      this.set("filterCategory", category);
-    } else {
-      this.set("filterCategory", null);
+      tag = split[1];
     }
 
+    this.set("filterCategory", category);
+    this.set("filterTag", tag);
     this.set("filter", filter);
     this.set("incomingCount", 0);
   },
@@ -400,7 +426,7 @@ const TopicTrackingState = EmberObject.extend({
 
     // make sure all the state is up to date with what is accurate
     // from the server
-    list.topics.forEach(this._syncStateFromListTopic.bind(this));
+    list.topics.forEach(this._syncStateFromListTopic);
 
     // correct missing states, safeguard in case message bus is corrupt
     if (this._shouldCompensateState(list, filter, queryParams)) {
@@ -447,8 +473,10 @@ const TopicTrackingState = EmberObject.extend({
     const subcategoryIds = noSubcategories
       ? new Set([categoryId])
       : this.getSubCategoryIds(categoryId);
-    const mutedCategoryIds =
-      this.currentUser && this.currentUser.muted_category_ids;
+
+    const mutedCategoryIds = this.currentUser?.muted_category_ids?.concat(
+      this.currentUser.indirectly_muted_category_ids
+    );
     let filterFn = type === "new" ? isNew : isUnread;
 
     return Array.from(this.states.values()).filter(
@@ -478,7 +506,7 @@ const TopicTrackingState = EmberObject.extend({
   },
 
   /**
-   * Calls the provided callback for each of the currenty tracked topics
+   * Calls the provided callback for each of the currently tracked topics
    * we have in state.
    *
    * @method forEachTracked
@@ -637,6 +665,7 @@ const TopicTrackingState = EmberObject.extend({
   // this updates the topic in the state to match the
   // topic from the list (e.g. updates category, highest read post
   // number, tags etc.)
+  @bind
   _syncStateFromListTopic(topic) {
     const state = this.findState(topic.id) || {};
 
@@ -725,6 +754,7 @@ const TopicTrackingState = EmberObject.extend({
   },
 
   // processes the data sent via messageBus, called by establishChannels
+  @bind
   _processChannelPayload(data) {
     if (["muted", "unmuted"].includes(data.message_type)) {
       this.trackMutedOrUnmutedTopic(data);
@@ -745,10 +775,13 @@ const TopicTrackingState = EmberObject.extend({
     }
 
     if (["new_topic", "latest"].includes(data.message_type)) {
-      const muted_category_ids = User.currentProp("muted_category_ids");
+      const mutedCategoryIds = User.currentProp("muted_category_ids")?.concat(
+        User.currentProp("indirectly_muted_category_ids")
+      );
+
       if (
-        muted_category_ids &&
-        muted_category_ids.includes(data.payload.category_id)
+        mutedCategoryIds &&
+        mutedCategoryIds.includes(data.payload.category_id)
       ) {
         return;
       }
@@ -781,22 +814,34 @@ const TopicTrackingState = EmberObject.extend({
     if (["new_topic", "unread", "read"].includes(data.message_type)) {
       this.notifyIncoming(data);
       if (!deepEqual(old, data.payload)) {
-        if (data.message_type === "read") {
-          let mergeData = {};
+        // The 'unread' and 'read' payloads are deliberately incomplete
+        // for efficiency. We rebuild them by using any existing state
+        // we have, and then substitute inferred values for last_read_post_number
+        // and notification_level. Any errors will be corrected when a
+        // topic-list is loaded which includes the topic.
 
-          // we have to do this because the "read" event does not
-          // include tags; we don't want them to be overridden
-          if (old) {
-            mergeData = {
-              tags: old.tags,
-              topic_tag_ids: old.topic_tag_ids,
-            };
+        let payload = data.payload;
+
+        if (old) {
+          payload = deepMerge(old, data.payload);
+        }
+
+        if (data.message_type === "unread") {
+          if (payload.last_read_post_number === undefined) {
+            // If we didn't already have state for this topic,
+            // we're probably only 1 post behind.
+            payload.last_read_post_number = payload.highest_post_number - 1;
           }
 
-          this.modifyState(data, deepMerge(data.payload, mergeData));
-        } else {
-          this.modifyState(data, data.payload);
+          if (payload.notification_level === undefined) {
+            // /unread messages will only have been published to us
+            // if we are tracking or watching the topic.
+            // Let's guess TRACKING for now:
+            payload.notification_level = NotificationLevels.TRACKING;
+          }
         }
+
+        this.modifyState(data, payload);
         this.incrementMessageCount();
       }
     }

@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'rails_helper'
-
 describe Badge do
 
   it 'has a valid system attribute for new badges' do
@@ -49,6 +47,15 @@ describe Badge do
 
     b.reload
     expect(b.grant_count).to eq(1)
+  end
+
+  it 'sanitizes the description' do
+    xss = "<b onmouseover=alert('Wufff!')>click me!</b><script>alert('TEST');</script>"
+    badge = Fabricate(:badge)
+
+    badge.update!(description: xss)
+
+    expect(badge.description).to eq("<b>click me!</b>alert('TEST');")
   end
 
   describe '#manually_grantable?' do

@@ -9,6 +9,7 @@ class GroupSmtpMailer < ActionMailer::Base
     raise 'SMTP is disabled' if !SiteSetting.enable_smtp
 
     op_incoming_email = post.topic.first_post.incoming_email
+    recipient_user = User.find_by_email(to_address, primary: true)
 
     delivery_options = {
       address: from_group.smtp_server,
@@ -39,7 +40,7 @@ class GroupSmtpMailer < ActionMailer::Base
       only_reply_by_email: true,
       use_from_address_for_reply_to: SiteSetting.enable_smtp && from_group.smtp_enabled?,
       private_reply: post.topic.private_message?,
-      participants: participants(post),
+      participants: participants(post, recipient_user),
       include_respond_instructions: true,
       template: 'user_notifications.user_posted_pm',
       use_topic_title_subject: true,
@@ -47,7 +48,7 @@ class GroupSmtpMailer < ActionMailer::Base
       add_re_to_subject: true,
       locale: SiteSetting.default_locale,
       delivery_method_options: delivery_options,
-      from: from_group.email_username,
+      from: from_group.smtp_from_address,
       from_alias: I18n.t('email_from_without_site', user_name: group_name),
       html_override: html_override(post),
       cc: cc_addresses
@@ -72,7 +73,7 @@ class GroupSmtpMailer < ActionMailer::Base
     )
   end
 
-  def participants(post)
+  def participants(post, recipient_user)
     list = []
 
     post.topic.allowed_groups.each do |g|
@@ -80,6 +81,8 @@ class GroupSmtpMailer < ActionMailer::Base
     end
 
     post.topic.allowed_users.each do |u|
+      next if u.id == recipient_user.id
+
       if SiteSetting.prioritize_username_in_ux?
         if u.staged?
           list.push("#{u.email}")

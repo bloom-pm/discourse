@@ -21,6 +21,7 @@ class Group < ActiveRecord::Base
   has_many :group_users, dependent: :destroy
   has_many :group_requests, dependent: :destroy
   has_many :group_mentions, dependent: :destroy
+  has_many :group_associated_groups, dependent: :destroy
 
   has_many :group_archived_messages, dependent: :destroy
 
@@ -32,6 +33,7 @@ class Group < ActiveRecord::Base
   has_many :reviewables, foreign_key: :reviewable_by_group_id, dependent: :nullify
   has_many :group_category_notification_defaults, dependent: :destroy
   has_many :group_tag_notification_defaults, dependent: :destroy
+  has_many :associated_groups, through: :group_associated_groups, dependent: :destroy
 
   belongs_to :flair_upload, class_name: 'Upload'
   belongs_to :smtp_updated_by, class_name: 'User'
@@ -108,7 +110,8 @@ class Group < ActiveRecord::Base
     "imap_port",
     "imap_ssl",
     "email_username",
-    "email_password"
+    "email_password",
+    "email_from_alias"
   ]
 
   ALIAS_LEVELS = {
@@ -136,6 +139,7 @@ class Group < ActiveRecord::Base
   validates :messageable_level, inclusion: { in: ALIAS_LEVELS.values }
 
   scope :with_imap_configured, -> { where(imap_enabled: true).where.not(imap_mailbox_name: '') }
+  scope :with_smtp_configured, -> { where(smtp_enabled: true) }
 
   scope :visible_groups, Proc.new { |user, order, opts|
     groups = self.order(order || "name ASC")
@@ -287,9 +291,8 @@ class Group < ActiveRecord::Base
     end
   end
 
-  def self.register_plugin_editable_group_custom_field(custom_field_name, plugin)
-    Discourse.deprecate("Editable group custom fields should be registered using the plugin API", since: "v2.4.0.beta4", drop_from: "v2.5.0")
-    DiscoursePluginRegistry.register_editable_group_custom_field(custom_field_name, plugin)
+  def smtp_from_address
+    self.email_from_alias.present? ? self.email_from_alias : self.email_username
   end
 
   def downcase_incoming_email
@@ -557,10 +560,24 @@ class Group < ActiveRecord::Base
     lookup_group(name) || refresh_automatic_group!(name)
   end
 
-  def self.search_groups(name, groups: nil)
-    (groups || Group).where(
+  def self.search_groups(name, groups: nil, custom_scope: {}, sort: :none)
+    groups ||= Group
+
+    relation = groups.where(
       "name ILIKE :term_like OR full_name ILIKE :term_like", term_like: "%#{name}%"
     )
+
+    if sort == :auto
+      prefix = "#{name.gsub("_", "\\_")}%"
+      relation = relation.reorder(
+        DB.sql_fragment(
+          "CASE WHEN name ILIKE :like OR full_name ILIKE :like THEN 0 ELSE 1 END ASC, name ASC",
+          like: prefix
+        )
+      )
+    end
+
+    relation
   end
 
   def self.lookup_group(name)
@@ -690,7 +707,6 @@ class Group < ActiveRecord::Base
     has_webhooks = WebHook.active_web_hooks(:group_user)
     payload = WebHook.generate_payload(:group_user, group_user, WebHookGroupUserSerializer) if has_webhooks
     group_user.destroy
-    user.update_attribute(:primary_group_id, nil) if user.primary_group_id == self.id
     DiscourseEvent.trigger(:user_removed_from_group, user, self)
     WebHook.enqueue_hooks(:group_user, :user_removed_from_group,
       id: group_user.id,
@@ -709,7 +725,9 @@ class Group < ActiveRecord::Base
 
   def self.find_by_email(email)
     self.where(
-      "email_username = :email OR string_to_array(incoming_email, '|') @> ARRAY[:email]",
+      "email_username = :email OR
+        string_to_array(incoming_email, '|') @> ARRAY[:email] OR
+        email_from_alias = :email",
       email: Email.downcase(email)
     ).first
   end
@@ -770,6 +788,20 @@ class Group < ActiveRecord::Base
     end
 
     self
+  end
+
+  def add_automatically(user, subject: nil)
+    if users.exclude?(user) && add(user)
+      logger = GroupActionLogger.new(Discourse.system_user, self)
+      logger.log_add_user_to_group(user, subject)
+    end
+  end
+
+  def remove_automatically(user, subject: nil)
+    if users.include?(user) && remove(user)
+      logger = GroupActionLogger.new(Discourse.system_user, self)
+      logger.log_remove_user_from_group(user, subject)
+    end
   end
 
   def staff?
@@ -978,23 +1010,26 @@ class Group < ActiveRecord::Base
         /*where*/
       SQL
 
-      builder = DB.build(sql)
-      builder.where(<<~SQL, id: id)
-        id IN (
-          SELECT user_id
-          FROM group_users
-          WHERE group_id = :id
-        )
-      SQL
+      [:primary_group_id, :flair_group_id].each do |column|
+        builder = DB.build(sql)
+        builder.where(<<~SQL, id: id)
+          id IN (
+            SELECT user_id
+            FROM group_users
+            WHERE group_id = :id
+          )
+        SQL
 
-      if primary_group
-        builder.set("primary_group_id = :id")
-      else
-        builder.set("primary_group_id = NULL")
-        builder.where("primary_group_id = :id")
+        if primary_group
+          builder.set("#{column} = :id")
+          builder.where("#{column} IS NULL") if column == :flair_group_id
+        else
+          builder.set("#{column} = NULL")
+          builder.where("#{column} = :id")
+        end
+
+        builder.exec
       end
-
-      builder.exec
     end
   end
 
@@ -1112,6 +1147,7 @@ end
 #  imap_enabled                       :boolean          default(FALSE)
 #  imap_updated_at                    :datetime
 #  imap_updated_by_id                 :integer
+#  email_from_alias                   :string
 #
 # Indexes
 #

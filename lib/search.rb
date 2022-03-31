@@ -21,19 +21,12 @@ class Search
     5
   end
 
-  def self.strip_diacritics(str)
-    s = str.unicode_normalize(:nfkd)
-    s.gsub!(DIACRITICS, "")
-    s.strip!
-    s
-  end
-
   def self.per_filter
     50
   end
 
   def self.facets
-    %w(topic category user private_messages tags all_topics)
+    %w(topic category user private_messages tags all_topics exclude_topics)
   end
 
   def self.ts_config(locale = SiteSetting.default_locale)
@@ -64,42 +57,60 @@ class Search
     end
   end
 
-  def self.segment_cjk?
-    ['zh_TW', 'zh_CN', 'ja'].include?(SiteSetting.default_locale) ||
-      SiteSetting.search_tokenize_chinese_japanese_korean
+  def self.wrap_unaccent(str)
+    SiteSetting.search_ignore_accents ? "unaccent(#{str})" : str
   end
 
-  def self.prepare_data(search_data, purpose = :query)
-    purpose ||= :query
+  def self.segment_chinese?
+    ['zh_TW', 'zh_CN'].include?(SiteSetting.default_locale) || SiteSetting.search_tokenize_chinese
+  end
 
+  def self.segment_japanese?
+    SiteSetting.default_locale == "ja" || SiteSetting.search_tokenize_japanese
+  end
+
+  def self.japanese_punctuation_regexp
+    # Regexp adapted from https://github.com/6/tiny_segmenter/blob/15a5b825993dfd2c662df3766f232051716bef5b/lib/tiny_segmenter.rb#L7
+    @japanese_punctuation_regexp ||= Regexp.compile("[-–—―.。・（）()［］｛｝{}【】⟨⟩、､,，،…‥〽「」『』〜~！!：:？?\"'|_＿“”‘’;/⁄／«»]")
+  end
+
+  def self.prepare_data(search_data, purpose = nil)
     data = search_data.dup
     data.force_encoding("UTF-8")
-    if purpose != :topic
-      # TODO cppjieba_rb is designed for chinese, we need something else for Japanese
-      # Korean appears to be safe cause words are already space separated
-      # For Japanese we should investigate using kakasi
-      if segment_cjk?
-        require 'cppjieba_rb' unless defined? CppjiebaRb
-        mode = (purpose == :query ? :query : :mix)
-        data = CppjiebaRb.segment(search_data, mode: mode)
 
-        # TODO: we still want to tokenize here but the current stopword list is too wide
-        # in cppjieba leading to words such as volume to be skipped. PG already has an English
-        # stopword list so use that vs relying on cppjieba
-        if ts_config != 'english'
-          data = CppjiebaRb.filter_stop_word(data)
-        else
-          data = data.filter { |s| s.present? }
+    if purpose != :topic
+      if segment_chinese?
+        require 'cppjieba_rb' unless defined? CppjiebaRb
+
+        segmented_data = []
+
+        # We need to split up the string here because Cppjieba has a bug where text starting with numeric chars will
+        # be split into two segments. For example, '123abc' becomes '123' and 'abc' after segmentation.
+        data.scan(/(?<chinese>[\p{Han}。,、“”《》…\.:?!;()]+)|([^\p{Han}]+)/) do
+          match_data = $LAST_MATCH_INFO
+
+          if match_data[:chinese]
+            segments = CppjiebaRb.segment(match_data.to_s, mode: :mix)
+
+            if ts_config != 'english'
+              segments = CppjiebaRb.filter_stop_word(segments)
+            end
+
+            segments = segments.filter { |s| s.present? }
+            segmented_data << segments.join(' ')
+          else
+            segmented_data << match_data.to_s.squish
+          end
         end
 
+        data = segmented_data.join(' ')
+      elsif segment_japanese?
+        data.gsub!(japanese_punctuation_regexp, " ")
+        data = TinyJapaneseSegmenter.segment(data)
+        data = data.filter { |s| s.present? }
         data = data.join(' ')
-
       else
         data.squish!
-      end
-
-      if SiteSetting.search_ignore_accents
-        data = strip_diacritics(data)
       end
     end
 
@@ -230,7 +241,7 @@ class Search
   end
 
   def limit
-    if @opts[:type_filter].present?
+    if @opts[:type_filter].present? && @opts[:type_filter] != "exclude_topics"
       Search.per_filter + 1
     else
       Search.per_facet + 1
@@ -255,9 +266,9 @@ class Search
 
   # Query a term
   def execute(readonly_mode: Discourse.readonly_mode?)
-    if SiteSetting.log_search_queries? && @opts[:search_type].present? && !readonly_mode
+    if log_query?(readonly_mode)
       status, search_log_id = SearchLog.log(
-        term: @term,
+        term: @clean_term,
         search_type: @opts[:search_type],
         ip_address: @opts[:ip_address],
         user_id: @opts[:user_id]
@@ -266,7 +277,7 @@ class Search
     end
 
     unless @filters.present? || @opts[:search_for_id]
-      min_length = @opts[:min_search_term_length] || SiteSetting.min_search_term_length
+      min_length = min_search_term_length
       terms = (@term || '').split(/\s(?=(?:[^"]|"[^"]*")*$)/).reject { |t| t.length < min_length }
 
       if terms.blank?
@@ -574,7 +585,7 @@ class Search
           SQL
 
         # a bit yucky but we got to add the term back in
-        elsif match.to_s.length >= SiteSetting.min_search_term_length
+        elsif match.to_s.length >= min_search_term_length
           posts.where <<~SQL
             posts.id IN (
               SELECT post_id FROM post_search_data pd1
@@ -586,7 +597,11 @@ class Search
   end
 
   advanced_filter(/^group:(.+)$/i) do |posts, match|
-    group_id = Group.where('name ilike ? OR (id = ? AND id > 0)', match, match.to_i).pluck_first(:id)
+    group_id = Group
+      .visible_groups(@guardian.user)
+      .members_visible_groups(@guardian.user)
+      .where('name ilike ? OR (id = ? AND id > 0)', match, match.to_i).pluck_first(:id)
+
     if group_id
       posts.where("posts.user_id IN (select gu.user_id from group_users gu where gu.group_id = ?)", group_id)
     else
@@ -682,7 +697,7 @@ class Search
         FROM topic_tags tt, tags
         WHERE tt.tag_id = tags.id
         GROUP BY tt.topic_id
-        HAVING to_tsvector(#{default_ts_config}, array_to_string(array_agg(lower(tags.name)), ' ')) @@ to_tsquery(#{default_ts_config}, ?)
+        HAVING to_tsvector(#{default_ts_config}, #{Search.wrap_unaccent("array_to_string(array_agg(lower(tags.name)), ' ')")}) @@ to_tsquery(#{default_ts_config}, #{Search.wrap_unaccent('?')})
       )", tags.join('&'))
     else
       tags = match.split(",")
@@ -758,11 +773,11 @@ class Search
       # calling protected methods
       send("#{@results.type_filter}_search")
     else
-      unless @search_context
-        user_search if @term.present?
-        category_search if @term.present?
-        tags_search if @term.present?
-        groups_search if @term.present?
+      if @term.present? && !@search_context
+        user_search
+        category_search
+        tags_search
+        groups_search
       end
       topic_search
     end
@@ -832,6 +847,10 @@ class Search
       .order("last_posted_at DESC")
       .limit(limit)
 
+    if !SiteSetting.enable_listing_suspended_users_on_search && !@guardian.user&.admin
+      users = users.where(suspended_at: nil)
+    end
+
     users_custom_data_query = DB.query(<<~SQL, user_ids: users.pluck(:id), term: "%#{@original_term.downcase}%")
       SELECT user_custom_fields.user_id, user_fields.name, user_custom_fields.value FROM user_custom_fields
       INNER JOIN user_fields ON user_fields.id = REPLACE(user_custom_fields.name, 'user_field_', '')::INTEGER AND user_fields.searchable IS TRUE
@@ -858,13 +877,13 @@ class Search
     groups = Group
       .visible_groups(@guardian.user, "name ASC", include_everyone: false)
       .where("name ILIKE :term OR full_name ILIKE :term", term: "%#{@term}%")
+      .limit(limit)
 
     groups.each { |group| @results.add(group) }
   end
 
   def tags_search
     return unless SiteSetting.tagging_enabled
-
     tags = Tag.includes(:tag_search_data)
       .where("tag_search_data.search_data @@ #{ts_query}")
       .references(:tag_search_data)
@@ -878,17 +897,29 @@ class Search
     end
   end
 
+  def exclude_topics_search
+    if @term.present?
+      user_search
+      category_search
+      tags_search
+      groups_search
+    end
+  end
+
   PHRASE_MATCH_REGEXP_PATTERN = '"([^"]+)"'
 
   def posts_query(limit, type_filter: nil, aggregate_search: false)
     posts = Post.where(post_type: Topic.visible_post_types(@guardian.user))
       .joins(:post_search_data, :topic)
-      .joins("LEFT JOIN categories ON categories.id = topics.category_id")
+
+    if type_filter != "private_messages"
+      posts = posts.joins("LEFT JOIN categories ON categories.id = topics.category_id")
+    end
 
     is_topic_search = @search_context.present? && @search_context.is_a?(Topic)
     posts = posts.where("topics.visible") unless is_topic_search
 
-    if type_filter === "private_messages" || (is_topic_search && @search_context.private_message?)
+    if type_filter == "private_messages" || (is_topic_search && @search_context.private_message?)
       posts = posts
         .where(
           "topics.archetype = ? AND post_search_data.private_message",
@@ -898,7 +929,7 @@ class Search
       unless @guardian.is_admin?
         posts = posts.private_posts_for_user(@guardian.user)
       end
-    elsif type_filter === "all_topics"
+    elsif type_filter == "all_topics"
       private_posts = posts
         .where(
           "topics.archetype = ? AND post_search_data.private_message",
@@ -961,7 +992,7 @@ class Search
     posts =
       if @search_context.present?
         if @search_context.is_a?(User)
-          if type_filter === "private_messages"
+          if type_filter == "private_messages"
             if @guardian.is_admin? && !@search_all_pms
               posts.private_posts_for_user(@search_context)
             else
@@ -977,7 +1008,7 @@ class Search
             .push(@search_context.id)
 
           posts.where("topics.category_id in (?)", category_ids)
-        elsif @search_context.is_a?(Topic)
+        elsif is_topic_search
           posts.where("topics.id = #{@search_context.id}")
             .order("posts.post_number #{@order == :latest ? "DESC" : ""}")
         elsif @search_context.is_a?(Tag)
@@ -1015,7 +1046,7 @@ class Search
       else
         posts = posts.order("posts.like_count DESC")
       end
-    else
+    elsif !is_topic_search
       rank = <<~SQL
       TS_RANK_CD(
         post_search_data.search_data,
@@ -1024,57 +1055,61 @@ class Search
       )
       SQL
 
-      category_search_priority = <<~SQL
-      (
-        CASE categories.search_priority
-        WHEN #{Searchable::PRIORITIES[:very_high]}
-        THEN 3
-        WHEN #{Searchable::PRIORITIES[:very_low]}
-        THEN 1
-        ELSE 2
-        END
-      )
-      SQL
-
-      category_priority_weights = <<~SQL
-      (
-        CASE categories.search_priority
-        WHEN #{Searchable::PRIORITIES[:low]}
-        THEN #{SiteSetting.category_search_priority_low_weight}
-        WHEN #{Searchable::PRIORITIES[:high]}
-        THEN #{SiteSetting.category_search_priority_high_weight}
-        ELSE
-          CASE WHEN topics.closed
-          THEN 0.9
-          ELSE 1
+      if type_filter != "private_messages"
+        category_search_priority = <<~SQL
+        (
+          CASE categories.search_priority
+          WHEN #{Searchable::PRIORITIES[:very_high]}
+          THEN 3
+          WHEN #{Searchable::PRIORITIES[:very_low]}
+          THEN 1
+          ELSE 2
           END
-        END
-      )
-      SQL
+        )
+        SQL
 
-      data_ranking =
-        if @term.blank?
-          "(#{category_priority_weights})"
-        else
-          "(#{rank} * #{category_priority_weights})"
-        end
+        category_priority_weights = <<~SQL
+        (
+          CASE categories.search_priority
+          WHEN #{Searchable::PRIORITIES[:low]}
+          THEN #{SiteSetting.category_search_priority_low_weight}
+          WHEN #{Searchable::PRIORITIES[:high]}
+          THEN #{SiteSetting.category_search_priority_high_weight}
+          ELSE
+            CASE WHEN topics.closed
+            THEN 0.9
+            ELSE 1
+            END
+          END
+        )
+        SQL
 
-      posts =
-        if aggregate_search
-          posts.order("MAX(#{category_search_priority}) DESC", "MAX(#{data_ranking}) DESC")
-        else
-          posts.order("#{category_search_priority} DESC", "#{data_ranking} DESC")
-        end
+        data_ranking =
+          if @term.blank?
+            "(#{category_priority_weights})"
+          else
+            "(#{rank} * #{category_priority_weights})"
+          end
+
+        posts =
+          if aggregate_search
+            posts.order("MAX(#{category_search_priority}) DESC", "MAX(#{data_ranking}) DESC")
+          else
+            posts.order("#{category_search_priority} DESC", "#{data_ranking} DESC")
+          end
+      end
 
       posts = posts.order("topics.bumped_at DESC")
     end
 
-    posts =
-      if secure_category_ids.present?
-        posts.where("(categories.id IS NULL) OR (NOT categories.read_restricted) OR (categories.id IN (?))", secure_category_ids).references(:categories)
-      else
-        posts.where("(categories.id IS NULL) OR (NOT categories.read_restricted)").references(:categories)
-      end
+    if type_filter != "private_messages"
+      posts =
+        if secure_category_ids.present?
+          posts.where("(categories.id IS NULL) OR (NOT categories.read_restricted) OR (categories.id IN (?))", secure_category_ids).references(:categories)
+        else
+          posts.where("(categories.id IS NULL) OR (NOT categories.read_restricted)").references(:categories)
+        end
+    end
 
     if @order
       advanced_order = Search.advanced_orders&.fetch(@order, nil)
@@ -1109,8 +1144,18 @@ class Search
 
   def self.to_tsquery(ts_config: nil, term:, joiner: nil)
     ts_config = ActiveRecord::Base.connection.quote(ts_config) if ts_config
-    tsquery = "TO_TSQUERY(#{ts_config || default_ts_config}, '#{self.escape_string(term)}')"
-    tsquery = "REPLACE(#{tsquery}::text, '&', '#{self.escape_string(joiner)}')::tsquery" if joiner
+
+    # unaccent can be used only when a joiner is present because the
+    # additional processing and the final conversion to tsquery does not
+    # work well with characters that are converted to quotes by unaccent.
+    if joiner
+      tsquery = "TO_TSQUERY(#{ts_config || default_ts_config}, '#{self.escape_string(term)}')"
+      tsquery = "REPLACE(#{tsquery}::text, '&', '#{self.escape_string(joiner)}')::tsquery"
+    else
+      escaped_term = Search.wrap_unaccent("'#{self.escape_string(term)}'")
+      tsquery = "TO_TSQUERY(#{ts_config || default_ts_config}, #{escaped_term})"
+    end
+
     tsquery
   end
 
@@ -1277,4 +1322,24 @@ class Search
     end
   end
 
+  def log_query?(readonly_mode)
+    SiteSetting.log_search_queries? &&
+    @opts[:search_type].present? &&
+    !readonly_mode &&
+    @opts[:type_filter] != "exclude_topics"
+  end
+
+  def min_search_term_length
+    return @opts[:min_search_term_length] if @opts[:min_search_term_length]
+
+    if SiteSetting.search_tokenize_chinese
+      return SiteSetting.defaults.get('min_search_term_length', 'zh_CN')
+    end
+
+    if SiteSetting.search_tokenize_japanese
+      return SiteSetting.defaults.get('min_search_term_length', 'ja')
+    end
+
+    SiteSetting.min_search_term_length
+  end
 end

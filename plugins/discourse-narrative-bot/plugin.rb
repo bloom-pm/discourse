@@ -5,6 +5,7 @@
 # version: 1.0
 # authors: Nick Sahler, Alan Tan
 # url: https://github.com/discourse/discourse/tree/main/plugins/discourse-narrative-bot
+# transpile_js: true
 
 enabled_site_setting :discourse_narrative_bot_enabled
 hide_plugin if self.respond_to?(:hide_plugin)
@@ -222,7 +223,7 @@ after_initialize do
       Jobs.enqueue(:bot_input,
         user_id: user.id,
         post_id: post.id,
-        input: :reply
+        input: "reply"
       )
     end
   end
@@ -232,7 +233,7 @@ after_initialize do
       Jobs.enqueue(:bot_input,
         user_id: post.user.id,
         post_id: post.id,
-        input: :edit
+        input: "edit"
       )
     end
   end
@@ -243,7 +244,7 @@ after_initialize do
         user_id: user.id,
         post_id: post.id,
         topic_id: post.topic_id,
-        input: :delete
+        input: "delete"
       )
     end
   end
@@ -253,7 +254,7 @@ after_initialize do
       Jobs.enqueue(:bot_input,
         user_id: user.id,
         post_id: post.id,
-        input: :recover
+        input: "recover"
       )
     end
   end
@@ -263,11 +264,11 @@ after_initialize do
       input =
         case self.post_action_type_id
         when *PostActionType.flag_types.values
-          self.post_action_type_id == PostActionType.types[:inappropriate] ? :flag : :reply
+          self.post_action_type_id == PostActionType.types[:inappropriate] ? "flag" : "reply"
         when PostActionType.types[:like]
-          :like
+          "like"
         when PostActionType.types[:bookmark]
-          :bookmark
+          "bookmark"
         end
 
       if input
@@ -282,7 +283,7 @@ after_initialize do
 
   self.add_model_callback(Bookmark, :after_commit, on: :create) do
     if self.post && self.user.enqueue_narrative_bot_job?
-      Jobs.enqueue(:bot_input, user_id: self.user_id, post_id: self.post_id, input: :bookmark)
+      Jobs.enqueue(:bot_input, user_id: self.user_id, post_id: self.post_id, input: "bookmark")
     end
   end
 
@@ -293,7 +294,7 @@ after_initialize do
       Jobs.enqueue(:bot_input,
         user_id: user_id,
         topic_id: topic_id,
-        input: :topic_notification_level_changed
+        input: "topic_notification_level_changed"
       )
     end
   end

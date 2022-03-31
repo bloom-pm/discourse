@@ -25,6 +25,9 @@ class Post < ActiveRecord::Base
   # Version 2 15-12-2017, introduces CommonMark and a huge number of onebox fixes
   BAKED_VERSION = 2
 
+  # Time between the delete and permanent delete of a post
+  PERMANENT_DELETE_TIMER = 5.minutes
+
   rate_limit
   rate_limit :limit_posts_per_day
 
@@ -43,6 +46,9 @@ class Post < ActiveRecord::Base
   has_many :uploads, through: :post_uploads
 
   has_one :post_stat
+
+  # When we are ready we can add as: :bookmarkable here to use the
+  # polymorphic association.
   has_many :bookmarks
 
   has_one :incoming_email
@@ -81,9 +87,13 @@ class Post < ActiveRecord::Base
 
   register_custom_field_type(NOTICE, :json)
 
-  scope :private_posts_for_user, ->(user) {
-    where("posts.topic_id IN (#{Topic::PRIVATE_MESSAGES_SQL})", user_id: user.id)
-  }
+  scope :private_posts_for_user, ->(user) do
+    where(
+      "topics.id IN (#{Topic::PRIVATE_MESSAGES_SQL_USER})
+      OR topics.id IN (#{Topic::PRIVATE_MESSAGES_SQL_GROUP})",
+      user_id: user.id
+    )
+  end
 
   scope :by_newest, -> { order('created_at DESC, id DESC') }
   scope :by_post_number, -> { order('post_number ASC') }
@@ -536,12 +546,17 @@ class Post < ActiveRecord::Base
     self.hidden_at = Time.zone.now
     self.hidden_reason_id = reason
     self.skip_unique_check = true
-    save!
 
-    Topic.where(
-      "id = :topic_id AND NOT EXISTS(SELECT 1 FROM POSTS WHERE topic_id = :topic_id AND NOT hidden)",
-      topic_id: topic_id
-    ).update_all(visible: false)
+    Post.transaction do
+      save!
+
+      Topic.where(
+        "id = :topic_id AND NOT EXISTS(SELECT 1 FROM POSTS WHERE topic_id = :topic_id AND NOT hidden)",
+        topic_id: topic_id
+      ).update_all(visible: false)
+
+      UserStatCountUpdater.decrement!(self)
+    end
 
     # inform user
     if user.present?
@@ -564,16 +579,20 @@ class Post < ActiveRecord::Base
         5.seconds,
         :send_system_message,
         user_id: user.id,
-        message_type: message,
+        message_type: message.to_s,
         message_options: options
       )
     end
   end
 
   def unhide!
-    self.update(hidden: false)
-    self.topic.update(visible: true) if is_first_post?
-    save(validate: false)
+    Post.transaction do
+      self.update!(hidden: false)
+      self.topic.update(visible: true) if is_first_post?
+      UserStatCountUpdater.increment!(self)
+      save(validate: false)
+    end
+
     publish_change_to_clients!(:acted)
   end
 
@@ -589,6 +608,18 @@ class Post < ActiveRecord::Base
     else
       "/404"
     end
+  end
+
+  def canonical_url
+    topic_view = TopicView.new(topic, nil, post_number: post_number)
+
+    page = ""
+
+    if topic_view.page > 1
+      page = "?page=#{topic_view.page}"
+    end
+
+    "#{topic.url}#{page}#post_#{post_number}"
   end
 
   def unsubscribe_url(user)
@@ -732,12 +763,11 @@ class Post < ActiveRecord::Base
   before_save do
     self.last_editor_id ||= user_id
 
-    if !new_record? && will_save_change_to_raw?
-      self.cooked = cook(raw, topic_id: topic_id)
+    if will_save_change_to_raw?
+      self.cooked = cook(raw, topic_id: topic_id) if !new_record?
+      self.baked_at = Time.zone.now
+      self.baked_version = BAKED_VERSION
     end
-
-    self.baked_at = Time.zone.now
-    self.baked_version = BAKED_VERSION
   end
 
   def advance_draft_sequence
@@ -1089,6 +1119,13 @@ class Post < ActiveRecord::Base
   def image_url
     raw_url = image_upload&.url
     UrlHelper.cook_url(raw_url, secure: image_upload&.secure?, local: true) if raw_url
+  end
+
+  def cannot_permanently_delete_reason(user)
+    if self.deleted_by_id == user&.id && self.deleted_at >= Post::PERMANENT_DELETE_TIMER.ago
+      time_left = RateLimiter.time_left(Post::PERMANENT_DELETE_TIMER.to_i - Time.zone.now.to_i + self.deleted_at.to_i)
+      I18n.t('post.cannot_permanently_delete.wait_or_different_admin', time_left: time_left)
+    end
   end
 
   private

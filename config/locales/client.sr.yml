@@ -130,6 +130,8 @@ sr:
       previous_month: "Prethodni mesec"
       next_month: "Sledeći mesec"
       placeholder: datum
+      from_placeholder: "од датума"
+      to_placeholder: "до датума"
     share:
       topic_html: 'Tema: <span class="topic-title">%{topicTitle}</span>'
       post: "poruka #%{postNumber}"
@@ -179,7 +181,6 @@ sr:
     bootstrap_mode_disabled: "Bootstrap mod će biti onemogućen u roku od 24 časa."
     themes:
       default_description: "zadato"
-      broken_theme_alert: "Vaš forum možda neće raditi jer tema / komponenta %{theme} ima greške. Onemogućite je putem linka %{path}."
     s3:
       regions:
         ap_northeast_1: "Azija Pacifik (Tokio)"
@@ -300,11 +301,6 @@ sr:
       invalid_custom_datetime: "Uneti datum i vreme nisu važeći. Pokušajte ponovo."
       list_permission_denied: "Nemate dozvolu da vidite obeleživače ovog člana."
       no_user_bookmarks: "Nemate obeleženih poruka; obeleživači vam omogućavaju da se brzo uputite ka određenoj poruci."
-      auto_delete_preference:
-        label: "Automatski ukloni"
-        never: "Nikad"
-        when_reminder_sent: "Kada je podestnik poslan"
-        on_owner_reply: "Nakon mog odgovora u ovoj temi"
       search_placeholder: "Pretraži obeleživače po nazivu, naslovu teme ili sadržaju poruka"
       search: "Pretraži"
       reminders:
@@ -327,6 +323,10 @@ sr:
         confirm: "Imate nacrt za ovu temu. Sta želite da učinite sa njim?"
         yes_value: "Odbaci"
         no_value: "Nastavi sa uređivanjem"
+    topic_count_categories:
+      one: "Pregledajte %{count} novu ili ažuriranu temu"
+      few: "Pregledajte %{count} nove ili ažurirane teme"
+      other: "Pregledajte %{count} novih ili ažuriranih tema"
     topic_count_latest:
       one: "Pregledajte %{count} novu ili ažuriranu temu"
       few: "Pregledajte %{count} nove ili ažurirane teme"
@@ -361,8 +361,8 @@ sr:
     switch_to_anon: "Uključi Anonimni režim"
     switch_from_anon: "Izađi iz Anonimnog režima"
     banner:
-      close: "Sakrij ovaj element."
-      edit: "Promeni ovaj baner >>"
+      close: "Sakrij ovaj element"
+      edit: "Izmeni"
     pwa:
       install_banner: "Da li želite <a href>da instalirate %{title} na ovom uređaju?</a>"
     choose_topic:
@@ -825,7 +825,6 @@ sr:
       email_level:
         always: "uvek"
         never: "nikada"
-      email_messages_level: "Pošalji mi email kada mi neko pošalje poruku"
       other_settings: "Drugo"
       categories_settings: "Kategorije"
       new_topic_duration:
@@ -1081,7 +1080,6 @@ sr:
       cancel: "Odustani"
       create_topic: "Kreiraj temu"
       create_pm: "Privatna poruka"
-      title: "Ili pritisnite Ctrl+Enter"
       users_placeholder: "Dodaj korisnika"
       title_placeholder: "O čemu je ova diskusija u jednoj kratkoj rečenici?"
       edit_reason_placeholder: "zašto izmenjujete?"
@@ -1126,6 +1124,9 @@ sr:
     notifications:
       none: "Nemoguće je učitati notifikacije ovog trenutka."
       empty: "Nisu pronađene notifikacije"
+      dismiss_confirmation:
+        dismiss: "Одбаци"
+        cancel: "Odustani"
       titles:
         watching_first_post: "nova tema"
     upload_selector:
@@ -1135,17 +1136,21 @@ sr:
       most_liked: "Najviše sviđanja"
       select_all: "Izaberi sve"
       too_short: "Vaš termin za pretragu je previše kratak."
-      title: "pretražite teme, poruke, korisnike ili kategorije"
+      title: "Pretraži"
+      full_page_title: "Pretraži"
       no_results: "Nema rezultata"
       no_more_results: "Nije pronađeno više rezultata"
       post_format: "#%{post_number} od %{username}"
       search_google_button: "Google"
       search_button: "Pretraži"
+      categories: "Kategorije"
+      type:
+        users: "Korisnici"
+        categories: "Kategorije"
       context:
         user: "Pretražite poruke od @%{username}"
         topic: "Pretražite ovu temu"
       advanced:
-        title: Napredna pretraga
         posted_by:
           label: Postavio
         post:
@@ -1156,7 +1161,6 @@ sr:
             before: pre
         views:
           label: Pregledi
-    hamburger_menu: "idi na drugi popis tema ili kategoriju"
     new_item: "novo"
     go_back: "idi nazad"
     not_logged_in_user: "stranica korisnika sa sažetkom trenutnih aktivnosti i postavki"
@@ -1165,7 +1169,7 @@ sr:
       new_messages_marker: "poslednja poseta"
       bulk:
         select_all: "Izaberi sve"
-        reset_read: "Poništi Pročitano"
+        defer: "Odloži"
         delete: "Obriši Teme"
         dismiss_new: "Odbaci Novo"
         toggle: "uključi/isključi grupni odabir tema"
@@ -1267,13 +1271,7 @@ sr:
         replies_short: "%{current} / %{total}"
       progress:
         title: napredak teme
-        go_top: "vrh"
-        go_bottom: "dno"
-        go: "idi"
-        jump_bottom_with_number: "skoči na poruku %{post_number}"
         jump_prompt_or: "ili"
-        total: ukupno poruka
-        current: trenutna poruka
       notifications:
         reasons:
           "3_6": "Primaćete obaveštenja jer posmatrate ovu kategoriju."
@@ -1325,7 +1323,6 @@ sr:
         title: "Odgovori"
         help: "Počni pravljenje odgovora na ovu temu"
       share:
-        title: "Podeli"
         help: "podeli link ka ovoj temi"
         invite_users: "Pozovi"
       print:
@@ -1397,6 +1394,7 @@ sr:
           few: "Odabrali ste <b>%{count}</b> poruka."
           other: "Odabrali ste <b>%{count}</b> poruka."
     post:
+      quote_edit: "Izmeni"
       quote_share: "Podeli"
       edit_reason: "Razlog:"
       post_number: "poruka %{number}"
@@ -1594,6 +1592,8 @@ sr:
       unlisted:
         help: "Ova tema je ne-listovana; neće se prikazivati na listi tema i može joj se pristupiti samo preko direktnog linka."
     posts: "Poruke"
+    pending_posts:
+      label: "U toku"
     original_post: "Originalna Poruka"
     views: "Pregledi"
     replies: "Odgovori"
@@ -1746,8 +1746,11 @@ sr:
           name: Ostalo
         posting:
           name: Poruke
+    download_calendar:
+      download: "Preuzmi"
     tagging:
       add_synonyms: "Dodaj"
+      description: "Opis"
       sort_by_count: "broj"
       sort_by_name: "ime foruma"
       cancel_delete_unused: "Odustani"
@@ -1955,7 +1958,6 @@ sr:
         delete: "Obriši"
         color: "Boja"
         opacity: "Prozirnost"
-        copy: "Kopija"
         email_templates:
           title: "E-mail"
           subject: "Predmet"
@@ -1979,12 +1981,6 @@ sr:
             text: "Header"
           footer:
             text: "Footer"
-          head_tag:
-            text: "</head>"
-            title: "HTML koji će biti umetnut pre </head> oznake"
-          body_tag:
-            text: "</body>"
-            title: "HTML koji će biti umetnut pre </body oznake"
         colors:
           title: "Boje"
           copy_name_prefix: "Kopija od"
@@ -2124,9 +2120,6 @@ sr:
         screened_ips:
           title: "Provereni IP-ovi"
           delete_confirm: "Jeste li sigruni da želite ukloniti pravilo za %{ip_address}?"
-          roll_up_confirm: "Jeste li sigurni da želite zaokružiti često proveraavnje IP adrese u pod-mreže?"
-          rolled_up_some_subnets: "Uspešno zaokruženi zabranjeni IP unosi u ove pod-mreže: %{subnets}."
-          rolled_up_no_subnet: "Nema ničega za zaokružiti."
           actions:
             block: "Blokiraj"
             do_nothing: "Dozvoli"
@@ -2436,7 +2429,6 @@ sr:
             with_time: <span class="username">%{username}</span> u <span class="time">%{time}</span>
       emoji:
         title: "Emoji"
-        help: "Dodajte nove Emoji-e koji će biti dostupni svima. (Savet: povuci i ispusti više datoteka odjednom)"
         add: "Dodaj Novi Emoji"
         uploading: "Učitavanje..."
         name: "Ime"

@@ -31,6 +31,7 @@ tr_TR:
           format_title: Tarih formatı
           timezone: Saat dilimi
           until: A kadar...
+          current_timezone: "Geçerli saat dilimi:"
           recurring:
             every_day: "Her gün"
             every_week: "Her hafta"
@@ -40,3 +41,4 @@ tr_TR:
             every_three_months: "Üç ayda bir"
             every_six_months: "Altı ayda bir"
             every_year: "Her yıl"
+      default_title: "%{site_name} Etkinliği"

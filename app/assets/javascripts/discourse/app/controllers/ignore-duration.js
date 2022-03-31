@@ -11,13 +11,16 @@ export default Controller.extend(ModalFunctionality, {
       if (!this.ignoredUntil) {
         this.flash(
           I18n.t("user.user_notifications.ignore_duration_time_frame_required"),
-          "alert-error"
+          "error"
         );
         return;
       }
       this.set("loading", true);
       this.model
-        .updateNotificationLevel("ignore", this.ignoredUntil)
+        .updateNotificationLevel({
+          level: "ignore",
+          expiringAt: this.ignoredUntil,
+        })
         .then(() => {
           this.set("model.ignored", true);
           this.set("model.muted", false);

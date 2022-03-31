@@ -134,7 +134,12 @@ export function applyDefaultHandlers(pretender) {
   pretender.delete("/bookmarks/:id", () => response({}));
 
   pretender.get("/tags/filter/search", () => {
-    return response({ results: [{ text: "monkey", count: 1 }] });
+    return response({
+      results: [
+        { id: "monkey", name: "monkey", count: 1 },
+        { id: "gazelle", name: "gazelle", count: 2 },
+      ],
+    });
   });
 
   pretender.get(`/u/:username/emails.json`, (request) => {
@@ -249,10 +254,14 @@ export function applyDefaultHandlers(pretender) {
   pretender.get("/search", (request) => {
     if (request.queryParams.q === "discourse") {
       return response(fixturesByUrl["/search.json"]);
+    } else if (request.queryParams.q === "discourse visited") {
+      const obj = JSON.parse(JSON.stringify(fixturesByUrl["/search.json"]));
+      obj.topics.firstObject.visited = true;
+      return response(obj);
     } else if (request.queryParams.q === "discourse in:personal") {
-      const fixtures = fixturesByUrl["/search.json"];
-      fixtures.topics.firstObject.archetype = "private_message";
-      return response(fixtures);
+      const obj = JSON.parse(JSON.stringify(fixturesByUrl["/search.json"]));
+      obj.topics.firstObject.archetype = "private_message";
+      return response(obj);
     } else {
       return response({});
     }
@@ -276,10 +285,13 @@ export function applyDefaultHandlers(pretender) {
   pretender.get("/t/2480.json", () =>
     response(fixturesByUrl["/t/2480/1.json"])
   );
+  pretender.get("/t/2481.json", () =>
+    response(fixturesByUrl["/t/2481/1.json"])
+  );
 
   pretender.get("/t/id_for/:slug", () => {
     return response({
-      id: 280,
+      topic_id: 280,
       slug: "internationalization-localization",
       url: "/t/internationalization-localization/280",
     });
@@ -291,8 +303,8 @@ export function applyDefaultHandlers(pretender) {
 
   pretender.get("/permalink-check.json", () => response({ found: false }));
 
-  pretender.delete("/draft.json", success);
-  pretender.post("/draft.json", success);
+  pretender.delete("/drafts/:draft_key.json", success);
+  pretender.post("/drafts.json", success);
 
   pretender.get("/u/:username/staff-info.json", () => response({}));
 
@@ -339,6 +351,10 @@ export function applyDefaultHandlers(pretender) {
     response(fixturesByUrl["/c/1/show.json"])
   );
 
+  pretender.get("/c/restricted-group/find_by_slug.json", () =>
+    response(fixturesByUrl["/c/2481/show.json"])
+  );
+
   pretender.put("/categories/:category_id", (request) => {
     const category = parsePostData(request.requestBody);
     category.id = parseInt(request.params.category_id, 10);
@@ -358,19 +374,11 @@ export function applyDefaultHandlers(pretender) {
     response(fixturesByUrl["/c/11/show.json"])
   );
 
-  pretender.get("/draft.json", (request) => {
-    if (request.queryParams.draft_key === "new_topic") {
-      return response(fixturesByUrl["/draft.json"]);
-    } else if (request.queryParams.draft_key.startsWith("topic_")) {
-      return response(
-        fixturesByUrl[request.url] || {
-          draft: null,
-          draft_sequence: 0,
-        }
-      );
-    }
-    return response({});
-  });
+  pretender.get("/drafts.json", () => response(fixturesByUrl["/drafts.json"]));
+
+  pretender.get("/drafts/:draft_key.json", (request) =>
+    response(fixturesByUrl[request.url] || { draft: null, draft_sequence: 0 })
+  );
 
   pretender.get("/drafts.json", () => response(fixturesByUrl["/drafts.json"]));
 
@@ -1113,4 +1121,11 @@ export function applyDefaultHandlers(pretender) {
       ],
     });
   });
+}
+
+export function resetPretender() {
+  instance.handlers = [];
+  instance.handledRequests = [];
+  instance.unhandledRequests = [];
+  instance.passthroughRequests = [];
 }

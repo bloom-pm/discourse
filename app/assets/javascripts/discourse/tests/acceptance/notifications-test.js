@@ -1,4 +1,4 @@
-import { visit } from "@ember/test-helpers";
+import { click, visit } from "@ember/test-helpers";
 import {
   acceptance,
   count,
@@ -8,6 +8,7 @@ import {
   queryAll,
 } from "discourse/tests/helpers/qunit-helpers";
 import { test } from "qunit";
+import User from "discourse/models/user";
 
 acceptance("User Notifications", function (needs) {
   needs.user();
@@ -36,7 +37,7 @@ acceptance("User Notifications", function (needs) {
 
     await visit("/"); // wait for re-render
 
-    assert.equal(count("#quick-access-notifications li"), 6);
+    assert.strictEqual(count("#quick-access-notifications li"), 6);
 
     // high priority, unread notification - should be first
 
@@ -50,7 +51,6 @@ acceptance("User Notifications", function (needs) {
           id: 42,
           user_id: 1,
           notification_type: 5,
-          high_priority: true,
           read: false,
           high_priority: true,
           created_at: "2021-01-01 12:00:00 UTC",
@@ -81,8 +81,8 @@ acceptance("User Notifications", function (needs) {
 
     await visit("/"); // wait for re-render
 
-    assert.equal(count("#quick-access-notifications li"), 6);
-    assert.equal(
+    assert.strictEqual(count("#quick-access-notifications li"), 6);
+    assert.strictEqual(
       query("#quick-access-notifications li span[data-topic-id]").innerText,
       "First notification"
     );
@@ -99,7 +99,6 @@ acceptance("User Notifications", function (needs) {
           id: 43,
           user_id: 1,
           notification_type: 5,
-          high_priority: true,
           read: true,
           high_priority: false,
           created_at: "2021-01-01 12:00:00 UTC",
@@ -131,8 +130,8 @@ acceptance("User Notifications", function (needs) {
 
     await visit("/"); // wait for re-render
 
-    assert.equal(count("#quick-access-notifications li"), 7);
-    assert.equal(
+    assert.strictEqual(count("#quick-access-notifications li"), 7);
+    assert.strictEqual(
       queryAll("#quick-access-notifications li span[data-topic-id]")[1]
         .innerText,
       "Second notification"
@@ -150,7 +149,6 @@ acceptance("User Notifications", function (needs) {
           id: 44,
           user_id: 1,
           notification_type: 5,
-          high_priority: true,
           read: true,
           high_priority: false,
           created_at: "2021-01-01 12:00:00 UTC",
@@ -182,7 +180,7 @@ acceptance("User Notifications", function (needs) {
     });
 
     await visit("/"); // wait for re-render
-    assert.equal(count("#quick-access-notifications li"), 8);
+    assert.strictEqual(count("#quick-access-notifications li"), 8);
     const texts = [];
     queryAll("#quick-access-notifications li").each((_, el) =>
       texts.push(el.innerText.trim())
@@ -197,6 +195,41 @@ acceptance("User Notifications", function (needs) {
       "test1 accepted your invitation",
       "Membership accepted in 'test'",
     ]);
+  });
+});
+
+acceptance("Category Notifications", function (needs) {
+  needs.user({ muted_category_ids: [1], indirectly_muted_category_ids: [2] });
+
+  test("New category is muted when parent category is muted", async function (assert) {
+    await visit("/");
+    const user = User.current();
+    publishToMessageBus("/categories", {
+      categories: [
+        {
+          id: 3,
+          parent_category_id: 99,
+        },
+        {
+          id: 4,
+        },
+      ],
+    });
+    assert.deepEqual(user.indirectly_muted_category_ids, [2]);
+
+    publishToMessageBus("/categories", {
+      categories: [
+        {
+          id: 4,
+          parent_category_id: 1,
+        },
+        {
+          id: 5,
+          parent_category_id: 2,
+        },
+      ],
+    });
+    assert.deepEqual(user.indirectly_muted_category_ids, [2, 4, 5]);
   });
 });
 
@@ -221,7 +254,7 @@ acceptance(
     test("It does not render filter", async function (assert) {
       await visit("/u/eviltrout/notifications");
 
-      assert.notOk(exists("div.user-notifications-filter-select-kit"));
+      assert.notOk(exists("div.user-notifications-filter"));
     });
   }
 );

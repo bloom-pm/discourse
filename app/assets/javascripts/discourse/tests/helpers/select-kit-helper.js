@@ -65,6 +65,7 @@ async function keyboardHelper(value, target, selector) {
 
   if (value === "selectAll") {
     // special casing the only one not working with triggerEvent
+    // eslint-disable-next-line no-undef
     const event = jQuery.Event("keydown");
     event.key = "A";
     event.keyCode = 65;
@@ -128,7 +129,10 @@ function headerHelper(header) {
       return header.attr("data-name");
     },
     label() {
-      return header.text().trim();
+      return header
+        .text()
+        .trim()
+        .replace(/(^[\s\u200b]*|[\s\u200b]*$)/g, "");
     },
     icon() {
       return header.find(".d-icon");

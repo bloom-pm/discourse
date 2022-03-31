@@ -22,25 +22,25 @@ acceptance("New Message - Authenticated", function (needs) {
 
   test("accessing new-message route when logged in", async function (assert) {
     await visit(
-      "/new-message?username=charlie&title=message%20title&body=message%20body"
+      "/new-message?username=charlie,john&title=message%20title&body=message%20body"
     );
 
     assert.ok(exists(".composer-fields"), "it opens composer");
-    assert.equal(
+    assert.strictEqual(
       queryAll("#reply-title").val().trim(),
       "message title",
       "it pre-fills message title"
     );
-    assert.equal(
+    assert.strictEqual(
       queryAll(".d-editor-input").val().trim(),
       "message body",
       "it pre-fills message body"
     );
 
     const privateMessageUsers = selectKit("#private-message-users");
-    assert.equal(
+    assert.strictEqual(
       privateMessageUsers.header().value(),
-      "charlie",
+      "charlie,john",
       "it selects correct username"
     );
   });

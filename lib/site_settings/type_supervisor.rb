@@ -37,7 +37,7 @@ class SiteSettings::TypeSupervisor
       color: 22,
       simple_list: 23,
       emoji_list: 24,
-      html: 25
+      html_deprecated: 25,
     )
   end
 
@@ -92,7 +92,7 @@ class SiteSettings::TypeSupervisor
     end
 
     if (new_choices = opts[:choices])
-      new_choices = eval(new_choices) if new_choices.is_a?(String)
+      new_choices = eval(new_choices) if new_choices.is_a?(String) # rubocop:disable Security/Eval
 
       if @choices.has_key?(name)
         @choices[name].concat(new_choices)
@@ -162,6 +162,10 @@ class SiteSettings::TypeSupervisor
       else
         result.merge!(valid_values: @choices[name].map { |c| { name: c, value: c } }, translate_names: false)
       end
+    end
+
+    if type == :list
+      result[:allow_any] = @allow_any[name]
     end
 
     result[:choices] = @choices[name] if @choices.has_key? name
@@ -269,6 +273,8 @@ class SiteSettings::TypeSupervisor
       RegexSettingValidator
     when self.class.types[:string], self.class.types[:list], self.class.types[:enum]
       StringSettingValidator
+    when self.class.types[:host_list]
+      HostListSettingValidator
     else nil
     end
   end

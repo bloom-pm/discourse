@@ -27,9 +27,7 @@ const SELECT_KIT_OPTIONS = Mixin.create({
 });
 
 function isDocumentRTL() {
-  return (
-    window.getComputedStyle(document.querySelector("html")).direction === "rtl"
-  );
+  return document.documentElement.classList.contains("rtl");
 }
 
 export default Component.extend(
@@ -139,12 +137,6 @@ export default Component.extend(
       );
     },
 
-    click(event) {
-      if (this.selectKit.options.preventsClickPropagation) {
-        event.stopPropagation();
-      }
-    },
-
     _modifyComponentForRowWrapper(collection, item) {
       let component = this.modifyComponentForRow(collection, item);
       return component || "select-kit/select-kit-row";
@@ -196,10 +188,9 @@ export default Component.extend(
       this.handleDeprecations();
     },
 
-    didInsertElement() {
-      this._super(...arguments);
-
-      this.element.addEventListener("toggle", this.selectKit.toggle);
+    click(event) {
+      event.preventDefault();
+      event.stopPropagation();
     },
 
     willDestroyElement() {
@@ -211,15 +202,17 @@ export default Component.extend(
         this.popper.destroy();
         this.popper = null;
       }
-
-      this.element.removeEventListener("toggle", this.selectKit.toggle);
     },
 
     didReceiveAttrs() {
       this._super(...arguments);
 
-      const computedOptions = {};
       Object.keys(this.selectKitOptions).forEach((key) => {
+        if (isPresent(this.options[key])) {
+          this.selectKit.options.set(key, this.options[key]);
+          return;
+        }
+
         const value = this.selectKitOptions[key];
 
         if (
@@ -228,9 +221,9 @@ export default Component.extend(
           key === "componentForCollection"
         ) {
           if (typeof value === "string") {
-            computedOptions[key] = () => value;
+            this.selectKit.options.set(key, () => value);
           } else {
-            computedOptions[key] = bind(this, value);
+            this.selectKit.options.set(key, bind(this, value));
           }
 
           return;
@@ -243,15 +236,13 @@ export default Component.extend(
         ) {
           const computedValue = get(this, value);
           if (typeof computedValue !== "function") {
-            computedOptions[key] = get(this, value);
+            this.selectKit.options.set(key, computedValue);
             return;
           }
         }
-        computedOptions[key] = value;
+
+        this.selectKit.options.set(key, value);
       });
-      this.selectKit.options.setProperties(
-        Object.assign(computedOptions, this.options || {})
-      );
 
       this.selectKit.setProperties({
         hasSelection: !isEmpty(this.value),
@@ -273,6 +264,7 @@ export default Component.extend(
     },
 
     selectKitOptions: {
+      allowAny: false,
       showFullTitle: true,
       none: null,
       translatedNone: null,
@@ -286,7 +278,6 @@ export default Component.extend(
       maximum: null,
       maximumLabel: null,
       minimum: null,
-      minimumLabel: null,
       autoInsertNoneItem: true,
       closeOnChange: true,
       limitMatches: null,
@@ -295,10 +286,12 @@ export default Component.extend(
       selectedNameComponent: "selected-name",
       selectedChoiceComponent: "selected-choice",
       castInteger: false,
-      preventsClickPropagation: false,
       focusAfterOnChange: true,
       triggerOnChangeOnTab: true,
       autofocus: false,
+      placementStrategy: null,
+      mobilePlacementStrategy: null,
+      desktopPlacementStrategy: null,
     },
 
     autoFilterable: computed("content.[]", "selectKit.filter", function () {
@@ -455,10 +448,10 @@ export default Component.extend(
       }).finally(() => {
         if (!this.isDestroying && !this.isDestroyed) {
           if (
-            this.selectKit.options.closeOnChange &&
-            this.selectKit.mainElement()
+            this.selectKit.options.closeOnChange ||
+            (isPresent(value) && this.selectKit.options.maximum === 1)
           ) {
-            this.selectKit.mainElement().open = false;
+            this.selectKit.close(event);
           }
 
           if (this.selectKit.options.focusAfterOnChange) {
@@ -711,10 +704,17 @@ export default Component.extend(
 
     _scrollToRow(rowItem, preventScroll = true) {
       const value = this.getValue(rowItem);
-      const rowContainer = this.element.querySelector(
-        `.select-kit-row[data-value="${value}"]`
-      );
-      rowContainer && rowContainer.focus({ preventScroll });
+
+      let rowContainer;
+      if (isPresent(value)) {
+        rowContainer = this.element.querySelector(
+          `.select-kit-row[data-value="${value}"]`
+        );
+      } else {
+        rowContainer = this.element.querySelector(".select-kit-row.is-none");
+      }
+
+      rowContainer?.focus({ preventScroll });
     },
 
     _highlightLast() {
@@ -783,14 +783,7 @@ export default Component.extend(
 
     select(value, item) {
       if (!isPresent(value)) {
-        if (!this.validateSelect(this.selectKit.highlighted)) {
-          return;
-        }
-
-        this.selectKit.change(
-          this.getValue(this.selectKit.highlighted),
-          this.selectKit.highlighted
-        );
+        this._onClearSelection();
       } else {
         const existingItem = this.findValue(this.mainCollection, item);
         if (existingItem) {
@@ -835,6 +828,8 @@ export default Component.extend(
         return;
       }
 
+      this.selectKit.mainElement().open = false;
+
       this.clearErrors();
 
       const inModal = this.element.closest("#discourse-modal");
@@ -856,32 +851,44 @@ export default Component.extend(
         return;
       }
 
+      this.selectKit.mainElement().open = true;
       this.clearErrors();
-
-      const inModal = this.element.closest("#discourse-modal");
-
       this.selectKit.onOpen(event);
 
       if (!this.popper) {
+        const inModal = this.element.closest("#discourse-modal");
         const anchor = document.querySelector(
           `#${this.selectKit.uniqueID}-header`
         );
         const popper = document.querySelector(
           `#${this.selectKit.uniqueID}-body`
         );
-
-        const placementStrategy = this?.site?.mobileView ? "absolute" : "fixed";
-        const verticalOffset = 3;
+        const strategy = this._computePlacementStrategy();
 
         this.popper = createPopper(anchor, popper, {
           eventsEnabled: false,
-          strategy: placementStrategy,
+          strategy,
           placement: this.selectKit.options.placement,
           modifiers: [
             {
+              name: "flip",
+              enabled: !inModal,
+              options: {
+                padding: {
+                  top:
+                    parseInt(
+                      document.documentElement.style.getPropertyValue(
+                        "--header-offset"
+                      ),
+                      10
+                    ) || 0,
+                },
+              },
+            },
+            {
               name: "offset",
               options: {
-                offset: [0, verticalOffset],
+                offset: [0, 3],
               },
             },
             {
@@ -891,7 +898,11 @@ export default Component.extend(
               fn({ state }) {
                 if (!inModal) {
                   let { x } = state.elements.reference.getBoundingClientRect();
-                  state.modifiersData.popperOffsets.x = -x + 10;
+                  if (strategy === "fixed") {
+                    state.modifiersData.popperOffsets.x = 0 + 10;
+                  } else {
+                    state.modifiersData.popperOffsets.x = -x + 10;
+                  }
                 }
               },
             },
@@ -993,7 +1004,7 @@ export default Component.extend(
         }
 
         if (highlighted) {
-          this._scrollToRow(highlighted);
+          this._scrollToRow(highlighted, false);
           this.set("selectKit.highlighted", highlighted);
         }
       }
@@ -1014,6 +1025,10 @@ export default Component.extend(
         const input = this.getFilterInput();
         if (!forceHeader && input) {
           input.focus({ preventScroll: true });
+
+          if (typeof input.selectionStart === "number") {
+            input.selectionStart = input.selectionEnd = input.value.length;
+          }
         } else if (!this.selectKit.options.preventHeaderFocus) {
           const headerContainer = this.getHeader();
           headerContainer && headerContainer.focus({ preventScroll: true });
@@ -1035,13 +1050,31 @@ export default Component.extend(
       this._deprecateOptions();
     },
 
+    _computePlacementStrategy() {
+      let placementStrategy = this.selectKit.options.placementStrategy;
+
+      if (placementStrategy) {
+        return placementStrategy;
+      }
+
+      if (this.capabilities?.isIpadOS || this.site?.mobileView) {
+        placementStrategy =
+          this.selectKit.options.mobilePlacementStrategy || "absolute";
+      } else {
+        placementStrategy =
+          this.selectKit.options.desktopPlacementStrategy || "fixed";
+      }
+
+      return placementStrategy;
+    },
+
     _deprecated(text) {
       const discourseSetup = document.getElementById("data-discourse-setup");
       if (
         discourseSetup &&
         discourseSetup.getAttribute("data-environment") === "development"
       ) {
-        deprecated(text, { since: "v2.4.0" });
+        deprecated(text, { since: "v2.4.0", dropFrom: "2.9.0.beta1" });
       }
     },
 

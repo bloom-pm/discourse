@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'rails_helper'
-
 describe SearchController do
   fab!(:awesome_topic) do
     topic = Fabricate(:topic)
@@ -229,6 +227,13 @@ describe SearchController do
       get "/search/query.json", params: { term: 'wookie' }
       expect(response.status).to eq(200)
       expect(SearchLog.where(term: 'wookie')).to be_blank
+    end
+
+    it "doesn't log when filtering by exclude_topics" do
+      SiteSetting.log_search_queries = true
+      get "/search/query.json", params: { term: 'boop', type_filter: 'exclude_topics' }
+      expect(response.status).to eq(200)
+      expect(SearchLog.where(term: 'boop')).to be_blank
     end
 
     it "does not raise 500 with an empty term" do

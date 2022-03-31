@@ -1,5 +1,4 @@
 import Composer, { SAVE_ICONS, SAVE_LABELS } from "discourse/models/composer";
-import { warn } from "@ember/debug";
 import Controller, { inject as controller } from "@ember/controller";
 import EmberObject, { action, computed } from "@ember/object";
 import { alias, and, or, reads } from "@ember/object/computed";
@@ -7,7 +6,7 @@ import {
   authorizesOneOrMoreExtensions,
   uploadIcon,
 } from "discourse/lib/uploads";
-import { cancel, run } from "@ember/runloop";
+import { cancel, run, scheduleOnce } from "@ember/runloop";
 import {
   cannotPostAgain,
   durationTextFromSeconds,
@@ -193,10 +192,13 @@ export default Controller.extend({
 
   @discourseComputed("model.canEditTitle", "model.creatingPrivateMessage")
   canEditTags(canEditTitle, creatingPrivateMessage) {
+    if (creatingPrivateMessage && (this.site.mobileView || !this.isStaffUser)) {
+      return false;
+    }
+
     return (
       this.site.can_tag_topics &&
       canEditTitle &&
-      !creatingPrivateMessage &&
       (!this.get("model.topic.isPrivateMessage") || this.site.can_tag_pms)
     );
   },
@@ -241,13 +243,22 @@ export default Controller.extend({
     return SAVE_ICONS[modelAction];
   },
 
+  // Note we update when some other attributes like tag/category change to allow
+  // text customizations to use those.
   @discourseComputed(
     "model.action",
     "isWhispering",
     "model.editConflict",
-    "model.privateMessage"
+    "model.privateMessage",
+    "model.tags",
+    "model.category"
   )
   saveLabel(modelAction, isWhispering, editConflict, privateMessage) {
+    let result = this.model.customizationFor("saveLabel");
+    if (result) {
+      return result;
+    }
+
     if (editConflict) {
       return "composer.overwrite_edit";
     } else if (isWhispering) {
@@ -285,20 +296,9 @@ export default Controller.extend({
     return option;
   },
 
-  @discourseComputed("model.isEncrypted")
-  composerComponent(isEncrypted) {
-    const defaultComposer = "composer-editor";
-    if (this.siteSettings.enable_experimental_composer_uploader) {
-      if (isEncrypted) {
-        warn(
-          "Uppy cannot be used for composer uploads until upload handlers are developed, falling back to composer-editor.",
-          { id: "composer" }
-        );
-        return defaultComposer;
-      }
-      return "composer-editor-uppy";
-    }
-    return defaultComposer;
+  @discourseComputed("model.requiredCategoryMissing", "model.replyLength")
+  disableTextarea(requiredCategoryMissing, replyLength) {
+    return requiredCategoryMissing && replyLength === 0;
   },
 
   @discourseComputed("model.composeState", "model.creatingTopic", "model.post")
@@ -316,6 +316,28 @@ export default Controller.extend({
           };
         })
       );
+
+      if (this.site.mobileView) {
+        options.push(
+          this._setupPopupMenuOption(() => {
+            return {
+              action: "applyUnorderedList",
+              icon: "list-ul",
+              label: "composer.ulist_title",
+            };
+          })
+        );
+
+        options.push(
+          this._setupPopupMenuOption(() => {
+            return {
+              action: "applyOrderedList",
+              icon: "list-ol",
+              label: "composer.olist_title",
+            };
+          })
+        );
+      }
 
       options.push(
         this._setupPopupMenuOption(() => {
@@ -374,6 +396,75 @@ export default Controller.extend({
     return uploadIcon(this.currentUser.staff, this.siteSettings);
   },
 
+  // Use this to open the composer when you are not sure whether it is
+  // already open and whether it already has a draft being worked on. Supports
+  // options to append text once the composer is open if required.
+  //
+  // opts:
+  //
+  // - topic: if this is present, the composer will be opened with the reply
+  // action and the current topic key and draft sequence
+  // - fallbackToNewTopic: if true, and there is no draft and no topic,
+  // the composer will be opened with the create_topic action and a new
+  // topic draft key
+  // - insertText: the text to append to the composer once it is opened
+  // - openOpts: this object will be passed to this.open if fallbackToNewTopic is
+  // true or topic is provided
+  @action
+  focusComposer(opts = {}) {
+    return this._openComposerForFocus(opts).then(() => {
+      this._focusAndInsertText(opts.insertText);
+    });
+  },
+
+  _openComposerForFocus(opts) {
+    if (this.get("model.viewOpen")) {
+      return Promise.resolve();
+    } else {
+      const opened = this.openIfDraft();
+      if (opened) {
+        return Promise.resolve();
+      }
+
+      if (opts.topic) {
+        return this.open(
+          Object.assign(
+            {
+              action: Composer.REPLY,
+              draftKey: opts.topic.get("draft_key"),
+              draftSequence: opts.topic.get("draft_sequence"),
+              topic: opts.topic,
+            },
+            opts.openOpts || {}
+          )
+        );
+      }
+
+      if (opts.fallbackToNewTopic) {
+        return this.open(
+          Object.assign(
+            {
+              action: Composer.CREATE_TOPIC,
+              draftKey: Composer.NEW_TOPIC_KEY,
+            },
+            opts.openOpts || {}
+          )
+        );
+      }
+    }
+  },
+
+  _focusAndInsertText(insertText) {
+    scheduleOnce("afterRender", () => {
+      const input = document.querySelector("textarea.d-editor-input");
+      input && input.focus();
+
+      if (insertText) {
+        this.model.appendText(insertText, null, { new_line: true });
+      }
+    });
+  },
+
   @action
   openIfDraft(event) {
     if (this.get("model.viewDraft")) {
@@ -385,7 +476,10 @@ export default Controller.extend({
       }
 
       this.set("model.composeState", Composer.OPEN);
+      return true;
     }
+
+    return false;
   },
 
   actions: {
@@ -474,6 +568,11 @@ export default Controller.extend({
       $links.each((idx, l) => {
         const href = l.href;
         if (href && href.length) {
+          // skip links added by watched words
+          if (l.dataset.word !== undefined) {
+            return true;
+          }
+
           // skip links in quotes and oneboxes
           for (let element = l; element; element = element.parentElement) {
             if (
@@ -604,7 +703,11 @@ export default Controller.extend({
     },
 
     save(ignore, event) {
-      this.save(false, { jump: !(event && event.shiftKey) });
+      this.save(false, {
+        jump:
+          !(event?.shiftKey && this.get("model.replyingToTopic")) &&
+          !this.skipJumpOnSave,
+      });
     },
 
     displayEditReason() {
@@ -637,17 +740,19 @@ export default Controller.extend({
         groups.forEach((group) => {
           let body;
           const groupLink = getURL(`/g/${group.name}/members`);
+          const maxMentions = parseInt(group.max_mentions, 10);
+          const userCount = parseInt(group.user_count, 10);
 
-          if (group.max_mentions < group.user_count) {
+          if (maxMentions < userCount) {
             body = I18n.t("composer.group_mentioned_limit", {
               group: `@${group.name}`,
-              count: group.max_mentions,
+              count: maxMentions,
               group_link: groupLink,
             });
           } else if (group.user_count > 0) {
             body = I18n.t("composer.group_mentioned", {
               group: `@${group.name}`,
-              count: group.user_count,
+              count: userCount,
               group_link: groupLink,
             });
           }
@@ -665,18 +770,36 @@ export default Controller.extend({
 
     cannotSeeMention(mentions) {
       mentions.forEach((mention) => {
-        const translation = this.get("model.topic.isPrivateMessage")
-          ? "composer.cannot_see_mention.private"
-          : "composer.cannot_see_mention.category";
-        const body = I18n.t(translation, {
-          username: `@${mention.name}`,
-        });
         this.appEvents.trigger("composer-messages:create", {
           extraClass: "custom-body",
           templateName: "custom-body",
-          body,
+          body: I18n.t(`composer.cannot_see_mention.${mention.reason}`, {
+            username: mention.name,
+          }),
         });
       });
+    },
+
+    hereMention(count) {
+      this.appEvents.trigger("composer-messages:create", {
+        extraClass: "custom-body",
+        templateName: "custom-body",
+        body: I18n.t("composer.here_mention", {
+          here: this.siteSettings.here_mention,
+          count,
+        }),
+      });
+    },
+
+    applyUnorderedList() {
+      this.toolbarEvent.applyList("* ", "list_item");
+    },
+
+    applyOrderedList() {
+      this.toolbarEvent.applyList(
+        (i) => (!i ? "1. " : `${parseInt(i, 10) + 1}. `),
+        "list_item"
+      );
     },
   },
 
@@ -841,7 +964,11 @@ export default Controller.extend({
 
         if (result.responseJson.action === "create_post") {
           this.appEvents.trigger("composer:created-post");
-          this.appEvents.trigger("post:highlight", result.payload.post_number);
+          this.appEvents.trigger(
+            "post:highlight",
+            result.payload.post_number,
+            options
+          );
         }
 
         if (this.get("model.draftKey") === Composer.NEW_TOPIC_KEY) {
@@ -917,6 +1044,7 @@ export default Controller.extend({
       @param {Number} [opts.prioritizedCategoryId]
       @param {String} [opts.draftSequence]
       @param {Boolean} [opts.skipDraftCheck]
+      @param {Boolean} [opts.skipJumpOnSave] Option to skip navigating to the post when saved in this composer session
   **/
   open(opts) {
     opts = opts || {};
@@ -942,6 +1070,8 @@ export default Controller.extend({
       prioritizedCategoryId: null,
       skipAutoSave: true,
     });
+
+    this.set("skipJumpOnSave", !!opts.skipJumpOnSave);
 
     // Scope the categories drop down to the category we opened the composer with.
     if (opts.categoryId && !opts.disableScopedCategory) {
@@ -1341,6 +1471,7 @@ export default Controller.extend({
 
     const elem = document.querySelector("html");
     elem.classList.remove("fullscreen-composer");
+    elem.classList.remove("composer-open");
 
     document.activeElement && document.activeElement.blur();
     this.setProperties({ model: null, lastValidatedAt: null });
@@ -1358,5 +1489,9 @@ export default Controller.extend({
   @discourseComputed("model.composeState")
   visible(state) {
     return state && state !== "closed";
+  },
+
+  clearLastValidatedAt() {
+    this.set("lastValidatedAt", null);
   },
 });

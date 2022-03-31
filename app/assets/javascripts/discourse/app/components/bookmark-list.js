@@ -1,16 +1,53 @@
+import Component from "@ember/component";
+import { action } from "@ember/object";
+import { schedule } from "@ember/runloop";
+import bootbox from "bootbox";
+import discourseDebounce from "discourse-common/lib/debounce";
+import { openBookmarkModal } from "discourse/controllers/bookmark";
+import { ajax } from "discourse/lib/ajax";
 import {
   openLinkInNewTab,
   shouldOpenInNewTab,
 } from "discourse/lib/click-track";
-import Component from "@ember/component";
+import Scrolling from "discourse/mixins/scrolling";
 import I18n from "I18n";
 import { Promise } from "rsvp";
-import { action } from "@ember/object";
-import bootbox from "bootbox";
-import showModal from "discourse/lib/show-modal";
 
-export default Component.extend({
+export default Component.extend(Scrolling, {
   classNames: ["bookmark-list-wrapper"],
+
+  didInsertElement() {
+    this._super(...arguments);
+    this.bindScrolling();
+    this.scrollToLastPosition();
+  },
+
+  willDestroyElement() {
+    this._super(...arguments);
+    this.unbindScrolling();
+  },
+
+  scrollToLastPosition() {
+    let scrollTo = this.session.bookmarkListScrollPosition;
+    if (scrollTo && scrollTo >= 0) {
+      schedule("afterRender", () => {
+        discourseDebounce(
+          this,
+          function () {
+            if (this.element && !this.isDestroying && !this.isDestroyed) {
+              window.scrollTo(0, scrollTo + 1);
+            }
+          },
+          0
+        );
+      });
+    }
+  },
+
+  scrolled() {
+    this._super(...arguments);
+    this.session.set("bookmarkListScrollPosition", window.scrollY);
+  },
 
   @action
   removeBookmark(bookmark) {
@@ -19,6 +56,11 @@ export default Component.extend({
         bookmark
           .destroy()
           .then(() => {
+            this.appEvents.trigger(
+              "bookmarks:changed",
+              null,
+              bookmark.attachedTo()
+            );
             this._removeBookmarkFromList(bookmark);
             resolve(true);
           })
@@ -51,17 +93,33 @@ export default Component.extend({
 
   @action
   editBookmark(bookmark) {
-    let controller = showModal("bookmark", {
-      model: {
-        postId: bookmark.post_id,
-        id: bookmark.id,
-        reminderAt: bookmark.reminder_at,
-        name: bookmark.name,
+    openBookmarkModal(
+      bookmark,
+      {
+        onAfterSave: (savedData) => {
+          this.appEvents.trigger(
+            "bookmarks:changed",
+            savedData,
+            bookmark.attachedTo()
+          );
+          this.reload();
+        },
+        onAfterDelete: () => {
+          this.reload();
+        },
       },
-      title: "post.bookmarks.edit",
-      modalClass: "bookmark-with-reminder",
+      { use_polymorphic_bookmarks: this.siteSettings.use_polymorphic_bookmarks }
+    );
+  },
+
+  @action
+  clearBookmarkReminder(bookmark) {
+    return ajax(`/bookmarks/${bookmark.id}`, {
+      type: "PUT",
+      data: { reminder_at: null },
+    }).then(() => {
+      bookmark.set("reminder_at", null);
     });
-    controller.set("afterSave", this.reload);
   },
 
   @action

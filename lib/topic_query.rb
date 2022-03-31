@@ -60,7 +60,8 @@ class TopicQuery
          tags
          match_all_tags
          no_subcategories
-         no_tags)
+         no_tags
+         exclude_tag)
   end
 
   def self.valid_options
@@ -74,6 +75,7 @@ class TopicQuery
          guardian
          no_definitions
          destination_category_id
+         include_all_pms
          include_pms)
   end
 
@@ -407,6 +409,7 @@ class TopicQuery
   end
 
   def create_list(filter, options = {}, topics = nil)
+    options[:filter] ||= filter
     topics ||= default_results(options)
     topics = yield(topics) if block_given?
 
@@ -625,19 +628,20 @@ class TopicQuery
     @options[:category_id] = category_id
     if category_id
       if options[:no_subcategories]
-        result = result.where('categories.id = ?', category_id)
+        result = result.where('topics.category_id = ?', category_id)
       else
-        result = result.where("categories.id IN (?)", Category.subcategory_ids(category_id))
+        result = result.where("topics.category_id IN (?)", Category.subcategory_ids(category_id))
         if !SiteSetting.show_category_definitions_in_topic_lists
-          result = result.where("categories.topic_id <> topics.id OR categories.id = ?", category_id)
+          result = result.where("categories.topic_id <> topics.id OR topics.category_id = ?", category_id)
         end
       end
       result = result.references(:categories)
 
       if !@options[:order]
+        filter = (options[:filter] || options[:f])
         # category default sort order
         sort_order, sort_ascending = Category.where(id: category_id).pluck_first(:sort_order, :sort_ascending)
-        if sort_order
+        if sort_order && (filter.blank? || [:latest, :unseen].include?(filter))
           options[:order] = sort_order
           options[:ascending] = !!sort_ascending ? 'true' : 'false'
         else
@@ -689,14 +693,29 @@ class TopicQuery
         # the following will do: ("topics"."id" NOT IN (SELECT DISTINCT "topic_tags"."topic_id" FROM "topic_tags"))
         result = result.where.not(id: TopicTag.distinct.pluck(:topic_id))
       end
+
+      if @options[:exclude_tag].present?
+        result = result.where(<<~SQL, name: @options[:exclude_tag])
+        topics.id NOT IN (
+          SELECT topic_tags.topic_id
+          FROM topic_tags
+          INNER JOIN tags ON tags.id = topic_tags.tag_id
+          WHERE tags.name = :name
+        )
+        SQL
+      end
     end
 
     result = apply_ordering(result, options)
 
     all_listable_topics = @guardian.filter_allowed_categories(Topic.unscoped.listable_topics)
 
-    if options[:include_pms]
-      all_pm_topics = Topic.unscoped.private_messages_for_user(@user)
+    if options[:include_pms] || options[:include_all_pms]
+      all_pm_topics = if options[:include_all_pms] && @guardian.is_admin?
+        Topic.unscoped.private_messages
+      else
+        Topic.unscoped.private_messages_for_user(@user)
+      end
       result = result.merge(all_listable_topics.or(all_pm_topics))
     else
       result = result.merge(all_listable_topics)
@@ -808,7 +827,7 @@ class TopicQuery
   def remove_muted(list, user, options)
     list = remove_muted_topics(list, user) unless options && options[:state] == "muted"
     list = remove_muted_categories(list, user, exclude: options[:category])
-    remove_muted_tags(list, user, options)
+    TopicQuery.remove_muted_tags(list, user, options)
   end
 
   def remove_muted_topics(list, user)
@@ -827,10 +846,12 @@ class TopicQuery
         .references("cu")
         .joins("LEFT JOIN category_users ON category_users.category_id = topics.category_id AND category_users.user_id = #{user.id}")
         .where("topics.category_id = :category_id
-                OR COALESCE(category_users.notification_level, :default) <> :muted
+                OR
+                (COALESCE(category_users.notification_level, :default) <> :muted AND (topics.category_id IS NULL OR topics.category_id NOT IN(:indirectly_muted_category_ids)))
                 OR tu.notification_level > :regular",
                 category_id: category_id || -1,
                 default: CategoryUser.default_notification_level,
+                indirectly_muted_category_ids: CategoryUser.indirectly_muted_category_ids(user).presence || [-1],
                 muted: CategoryUser.notification_levels[:muted],
                 regular: TopicUser.notification_levels[:regular])
     elsif SiteSetting.mute_all_categories_by_default
@@ -853,7 +874,7 @@ class TopicQuery
     list
   end
 
-  def remove_muted_tags(list, user, opts = {})
+  def self.remove_muted_tags(list, user, opts = {})
     if !SiteSetting.tagging_enabled || SiteSetting.remove_muted_tags_from_latest == 'never'
       return list
     end

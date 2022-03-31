@@ -5,16 +5,18 @@ import { visit } from "@ember/test-helpers";
 
 acceptance("CustomHTML template", function (needs) {
   needs.hooks.beforeEach(() => {
+    // eslint-disable-next-line no-undef
     Ember.TEMPLATES["top"] = hbs`<span class='top-span'>TOP</span>`;
   });
 
   needs.hooks.afterEach(() => {
+    // eslint-disable-next-line no-undef
     delete Ember.TEMPLATES["top"];
   });
 
   test("renders custom template", async function (assert) {
     await visit("/static/faq");
-    assert.equal(
+    assert.strictEqual(
       queryAll("span.top-span").text(),
       "TOP",
       "it inserted the template"

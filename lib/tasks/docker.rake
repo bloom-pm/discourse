@@ -18,7 +18,6 @@
 # => PAUSE_ON_TERMINATE        set to 1 to pause prior to terminating redis and pg
 # => JS_TIMEOUT                set timeout for qunit tests in ms
 # => WARMUP_TMP_FOLDER runs a single spec to warmup the tmp folder and obtain accurate results when profiling specs.
-# => EMBER_CLI                 set to 1 to run JS tests using the Ember CLI
 #
 # Other useful environment variables (not specific to this rake task)
 # => COMMIT_HASH    used by the discourse_test docker image to load a specific commit of discourse
@@ -69,7 +68,7 @@ task 'docker:test' do
       if ENV["SINGLE_PLUGIN"]
         @good &&= run_or_fail("bundle exec rubocop --parallel plugins/#{ENV["SINGLE_PLUGIN"]}")
         @good &&= run_or_fail("bundle exec ruby script/i18n_lint.rb plugins/#{ENV["SINGLE_PLUGIN"]}/config/locales/{client,server}.en.yml")
-        @good &&= run_or_fail("yarn eslint --global I18n --ext .js,.js.es6 --no-error-on-unmatched-pattern plugins/#{ENV['SINGLE_PLUGIN']}")
+        @good &&= run_or_fail("yarn eslint --ext .js,.js.es6 --no-error-on-unmatched-pattern plugins/#{ENV['SINGLE_PLUGIN']}")
 
         puts "Listing prettier offenses in #{ENV['SINGLE_PLUGIN']}:"
         @good &&= run_or_fail_prettier("plugins/#{ENV['SINGLE_PLUGIN']}/**/*.scss", "plugins/#{ENV['SINGLE_PLUGIN']}/**/*.{js,es6}")
@@ -77,16 +76,14 @@ task 'docker:test' do
         @good &&= run_or_fail("bundle exec rake plugin:update_all") unless ENV["SKIP_PLUGINS"]
         @good &&= run_or_fail("bundle exec rubocop --parallel") unless ENV["SKIP_CORE"]
         @good &&= run_or_fail("yarn eslint app/assets/javascripts") unless ENV["SKIP_CORE"]
-
-        # TODO: remove --global I18n once plugins can be updated
-        @good &&= run_or_fail("yarn eslint --global I18n --ext .js,.js.es6 --no-error-on-unmatched-pattern plugins") unless ENV["SKIP_PLUGINS"]
+        @good &&= run_or_fail("yarn eslint --ext .js,.js.es6 --no-error-on-unmatched-pattern plugins") unless ENV["SKIP_PLUGINS"]
 
         @good &&= run_or_fail('bundle exec ruby script/i18n_lint.rb "config/locales/{client,server}.en.yml"') unless ENV["SKIP_CORE"]
         @good &&= run_or_fail('bundle exec ruby script/i18n_lint.rb "plugins/**/locales/{client,server}.en.yml"') unless ENV["SKIP_PLUGINS"]
 
         unless ENV["SKIP_CORE"]
           puts "Listing prettier offenses in core:"
-          @good &&= run_or_fail('yarn prettier --list-different "app/assets/stylesheets/**/*.scss" "app/assets/javascripts/**/*.{js,es6}"')
+          @good &&= run_or_fail('yarn prettier --list-different "app/assets/stylesheets/**/*.scss" "app/assets/javascripts/**/*.js"')
         end
 
         unless ENV["SKIP_PLUGINS"]
@@ -103,23 +100,22 @@ task 'docker:test' do
       puts "Starting background redis"
       @redis_pid = Process.spawn('redis-server --dir tmp/test_data/redis')
 
-      @postgres_bin = "/usr/lib/postgresql/#{ENV['PG_MAJOR']}/bin/"
-      `#{@postgres_bin}initdb -D tmp/test_data/pg`
-
-      # speed up db, never do this in production mmmmk
-      `echo fsync = off >> tmp/test_data/pg/postgresql.conf`
-      `echo full_page_writes = off >> tmp/test_data/pg/postgresql.conf`
-      `echo shared_buffers = 500MB >> tmp/test_data/pg/postgresql.conf`
+      unless ENV['SKIP_DB_CREATE']
+        puts "Initializing postgres"
+        system("script/start_test_db.rb --skip-run", exception: true)
+      end
 
       puts "Starting postgres"
-      @pg_pid = Process.spawn("#{@postgres_bin}postmaster -D tmp/test_data/pg")
+      @pg_pid = Process.spawn("script/start_test_db.rb --skip-setup --exec")
 
       ENV["RAILS_ENV"] = "test"
       # this shaves all the creation of the multisite db off
       # for js tests
       ENV["SKIP_MULTISITE"] = "1" if ENV["JS_ONLY"]
 
-      @good &&= run_or_fail("bundle exec rake db:create")
+      unless ENV['SKIP_DB_CREATE']
+        @good &&= run_or_fail("bundle exec rake db:create")
+      end
 
       if ENV['USE_TURBO']
         @good &&= run_or_fail("bundle exec rake parallel:create")
@@ -209,24 +205,18 @@ task 'docker:test' do
 
       unless ENV["RUBY_ONLY"]
         js_timeout = ENV["JS_TIMEOUT"].presence || 900_000 # 15 minutes
+        @good &&= run_or_fail 'yarn install'
 
         unless ENV["SKIP_CORE"]
-          @good &&= run_or_fail("bundle exec rake qunit:test['#{js_timeout}']")
-          @good &&= run_or_fail("bundle exec rake qunit:test['#{js_timeout}','/wizard/qunit']")
+          @good &&= run_or_fail("cd app/assets/javascripts/discourse && CI=1 yarn ember exam --random")
+          @good &&= run_or_fail("QUNIT_EMBER_CLI=0 bundle exec rake qunit:test['#{js_timeout}','/wizard/qunit']")
         end
 
         unless ENV["SKIP_PLUGINS"]
           if ENV["SINGLE_PLUGIN"]
-            @good &&= run_or_fail("bundle exec rake plugin:qunit['#{ENV['SINGLE_PLUGIN']}','#{js_timeout}']")
+            @good &&= run_or_fail("CI=1 QUNIT_EMBER_CLI=1 bundle exec rake plugin:qunit['#{ENV['SINGLE_PLUGIN']}','#{js_timeout}']")
           else
-            @good &&= run_or_fail("bundle exec rake plugin:qunit['*','#{js_timeout}']")
-          end
-        end
-
-        if ENV["EMBER_CLI"]
-          Dir.chdir("#{Rails.root}/app/assets/javascripts/discourse") do # rubocop:disable Discourse/NoChdir
-            @good &&= run_or_fail("yarn install")
-            @good &&= run_or_fail("yarn ember test")
+            @good &&= run_or_fail("CI=1 QUNIT_EMBER_CLI=1 bundle exec rake plugin:qunit['*','#{js_timeout}']")
           end
         end
       end

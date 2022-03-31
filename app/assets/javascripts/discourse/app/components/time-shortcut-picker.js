@@ -1,4 +1,7 @@
 import {
+  LATER_TODAY_CUTOFF_HOUR,
+  MOMENT_FRIDAY,
+  MOMENT_THURSDAY,
   START_OF_DAY_HOUR,
   laterToday,
   now,
@@ -57,7 +60,6 @@ export default Component.extend({
   selectedDatetime: null,
   prefilledDatetime: null,
 
-  additionalOptionsToShow: null,
   hiddenOptions: null,
   customOptions: null,
 
@@ -67,6 +69,8 @@ export default Component.extend({
   customDate: null,
   customTime: null,
 
+  _itsatrap: null,
+
   defaultCustomReminderTime: `0${START_OF_DAY_HOUR}:00`,
 
   @on("init")
@@ -74,9 +78,9 @@ export default Component.extend({
     this.setProperties({
       customTime: this.defaultCustomReminderTime,
       userTimezone: this.currentUser.resolvedTimezone(this.currentUser),
-      additionalOptionsToShow: this.additionalOptionsToShow || [],
       hiddenOptions: this.hiddenOptions || [],
       customOptions: this.customOptions || [],
+      customLabels: this.customLabels || {},
     });
 
     if (this.prefilledDatetime) {
@@ -101,7 +105,8 @@ export default Component.extend({
 
   willDestroyElement() {
     this._super(...arguments);
-    this.mousetrap.unbind(Object.keys(BINDINGS));
+
+    this._itsatrap.unbind(Object.keys(BINDINGS));
   },
 
   parsePrefilledDatetime() {
@@ -143,7 +148,7 @@ export default Component.extend({
 
   _bindKeyboardShortcuts() {
     Object.keys(BINDINGS).forEach((shortcut) => {
-      this.mousetrap.bind(shortcut, () => {
+      this._itsatrap.bind(shortcut, () => {
         let binding = BINDINGS[shortcut];
         this.send(binding.handler, ...binding.args);
         return false;
@@ -164,31 +169,18 @@ export default Component.extend({
   },
 
   @discourseComputed(
-    "additionalOptionsToShow",
     "hiddenOptions",
     "customOptions",
+    "customLabels",
     "userTimezone"
   )
-  options(additionalOptionsToShow, hiddenOptions, customOptions, userTimezone) {
+  options(hiddenOptions, customOptions, customLabels, userTimezone) {
     this._loadLastUsedCustomDatetime();
 
     let options = defaultShortcutOptions(userTimezone);
-
-    if (additionalOptionsToShow.length > 0) {
-      options.forEach((opt) => {
-        if (additionalOptionsToShow.includes(opt.id)) {
-          opt.hidden = false;
-        }
-      });
-    }
-
-    customOptions.forEach((opt) => {
-      if (!opt.timeFormatted && opt.time) {
-        opt.timeFormatted = opt.time.format(I18n.t(opt.timeFormatKey));
-      }
-    });
-
+    this._hideDynamicOptions(options);
     options = options.concat(customOptions);
+
     options.sort((a, b) => {
       if (a.time < b.time) {
         return -1;
@@ -207,9 +199,7 @@ export default Component.extend({
         TIME_SHORTCUT_TYPES.LAST_CUSTOM
       );
       lastCustom.time = this.parsedLastCustomDatetime;
-      lastCustom.timeFormatted = this.parsedLastCustomDatetime.format(
-        I18n.t("dates.long_no_year")
-      );
+      lastCustom.timeFormatKey = "dates.long_no_year";
       lastCustom.hidden = false;
     }
 
@@ -223,6 +213,8 @@ export default Component.extend({
       });
     }
 
+    this._applyCustomLabels(options, customLabels);
+    this._formatTime(options);
     return options;
   },
 
@@ -270,5 +262,40 @@ export default Component.extend({
     if (this.onTimeSelected) {
       this.onTimeSelected(type, dateTime);
     }
+  },
+
+  _applyCustomLabels(options, customLabels) {
+    options.forEach((option) => {
+      if (customLabels[option.id]) {
+        option.label = customLabels[option.id];
+      }
+    });
+  },
+
+  _formatTime(options) {
+    options.forEach((option) => {
+      if (option.time && option.timeFormatKey) {
+        option.timeFormatted = option.time.format(I18n.t(option.timeFormatKey));
+      }
+    });
+  },
+
+  _hideDynamicOptions(options) {
+    if (now(this.userTimezone).hour() >= LATER_TODAY_CUTOFF_HOUR) {
+      this._hideOption(options, TIME_SHORTCUT_TYPES.LATER_TODAY);
+    }
+
+    if (now(this.userTimezone).day() >= MOMENT_THURSDAY) {
+      this._hideOption(options, TIME_SHORTCUT_TYPES.LATER_THIS_WEEK);
+    }
+
+    if (now(this.userTimezone).day() >= MOMENT_FRIDAY) {
+      this._hideOption(options, TIME_SHORTCUT_TYPES.THIS_WEEKEND);
+    }
+  },
+
+  _hideOption(options, optionId) {
+    const option = options.findBy("id", optionId);
+    option.hidden = true;
   },
 });

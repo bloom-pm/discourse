@@ -1,5 +1,7 @@
 import Component from "@ember/component";
-import { afterRender } from "discourse-common/utils/decorators";
+import discourseComputed, {
+  afterRender,
+} from "discourse-common/utils/decorators";
 import componentTest, {
   setupRenderingTest,
 } from "discourse/tests/helpers/component-test";
@@ -29,7 +31,16 @@ const fooComponent = Component.extend({
   },
 });
 
-discourseModule("utils:decorators", function (hooks) {
+class NativeComponent extends Component {
+  name = "";
+
+  @discourseComputed("name")
+  text(name) {
+    return `hello, ${name}`;
+  }
+}
+
+discourseModule("Unit | Utils | decorators", function (hooks) {
   setupRenderingTest(hooks);
 
   componentTest("afterRender", {
@@ -42,12 +53,36 @@ discourseModule("utils:decorators", function (hooks) {
 
     async test(assert) {
       assert.ok(exists(document.querySelector(".foo-component")));
-      assert.equal(this.baz, 1);
+      assert.strictEqual(this.baz, 1);
 
       await this.clearRender();
 
       assert.ok(!exists(document.querySelector(".foo-component")));
-      assert.equal(this.baz, 1);
+      assert.strictEqual(this.baz, 1);
+    },
+  });
+
+  componentTest("discourseComputed works in native classes", {
+    template: hbs`<NativeComponent @name="Jarek" />`,
+
+    beforeEach() {
+      // eslint-disable-next-line no-undef
+      Ember.TEMPLATES[
+        "components/native-component"
+      ] = hbs`<span class="native-component">{{this.text}}</span>`;
+      this.registry.register("component:native-component", NativeComponent);
+    },
+
+    afterEach() {
+      // eslint-disable-next-line no-undef
+      delete Ember.TEMPLATES["components/native-component"];
+    },
+
+    test(assert) {
+      assert.strictEqual(
+        document.querySelector(".native-component").textContent,
+        "hello, Jarek"
+      );
     },
   });
 });

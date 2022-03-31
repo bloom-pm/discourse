@@ -1,11 +1,21 @@
 import getURL, { getURLWithCDN } from "discourse-common/lib/get-url";
 import Handlebars from "handlebars";
+import I18n from "I18n";
 import { deepMerge } from "discourse-common/lib/object";
 import { escape } from "pretty-text/sanitizer";
 import { helperContext } from "discourse-common/lib/helpers";
 import toMarkdown from "discourse/lib/to-markdown";
+import deprecated from "discourse-common/lib/deprecated";
 
 let _defaultHomepage;
+
+export function splitString(str, separator = ",") {
+  if (typeof str === "string") {
+    return str.split(separator).filter(Boolean);
+  } else {
+    return [];
+  }
+}
 
 export function translateSize(size) {
   switch (size) {
@@ -86,13 +96,11 @@ export function avatarImg(options, customGetURL) {
     title = ` title='${escaped}' aria-label='${escaped}'`;
   }
 
-  return `<img alt='' width='${size}' height='${size}' src='${path}' class='${classes}'${title}>`;
+  return `<img loading='lazy' alt='' width='${size}' height='${size}' src='${path}' class='${classes}'${title}>`;
 }
 
 export function tinyAvatar(avatarTemplate, options) {
-  return avatarImg(
-    deepMerge({ avatarTemplate: avatarTemplate, size: "tiny" }, options)
-  );
+  return avatarImg(deepMerge({ avatarTemplate, size: "tiny" }, options));
 }
 
 export function postUrl(slug, topicId, postNumber) {
@@ -126,12 +134,19 @@ export function highlightPost(postNumber) {
     element.removeEventListener("animationend", removeHighlighted);
   };
   element.addEventListener("animationend", removeHighlighted);
+  container.querySelector(".tabLoc").focus();
 }
 
 export function emailValid(email) {
   // see:  http://stackoverflow.com/questions/46155/validate-email-address-in-javascript
   const re = /^[a-zA-Z0-9!#$%&'*+\/=?\^_`{|}~\-]+(?:\.[a-zA-Z0-9!#$%&'\*+\/=?\^_`{|}~\-]+)*@(?:[a-zA-Z0-9](?:[a-zA-Z0-9\-]*[a-zA-Z0-9])?\.)+[a-zA-Z0-9](?:[a-zA-Z0-9\-]*[a-zA-Z0-9])?$/;
   return re.test(email);
+}
+
+export function hostnameValid(hostname) {
+  // see:  https://stackoverflow.com/questions/106179/regular-expression-to-match-dns-hostname-or-ip-address
+  const re = /^(([a-zA-Z0-9]|[a-zA-Z0-9][a-zA-Z0-9\-]*[a-zA-Z0-9])\.)+([A-Za-z0-9]|[A-Za-z0-9][A-Za-z0-9\-]*[A-Za-z0-9])$/;
+  return hostname && re.test(hostname);
 }
 
 export function extractDomainFromUrl(url) {
@@ -192,9 +207,13 @@ export function selectedText() {
 }
 
 export function selectedElement() {
+  return selectedRange()?.commonAncestorContainer;
+}
+
+export function selectedRange() {
   const selection = window.getSelection();
   if (selection.rangeCount > 0) {
-    return selection.getRangeAt(0).commonAncestorContainer;
+    return selection.getRangeAt(0);
   }
 }
 
@@ -210,29 +229,12 @@ export function caretRowCol(el) {
       return sum + row.length + 1;
     }, 0);
 
-  return { rowNum: rowNum, colNum: colNum };
+  return { rowNum, colNum };
 }
 
 // Determine the position of the caret in an element
 export function caretPosition(el) {
-  let r, rc, re;
-  if (el.selectionStart) {
-    return el.selectionStart;
-  }
-  if (document.selection) {
-    el.focus();
-    r = document.selection.createRange();
-    if (!r) {
-      return 0;
-    }
-
-    re = el.createTextRange();
-    rc = re.duplicate();
-    re.moveToBookmark(r.getBookmark());
-    rc.setEndPoint("EndToStart", re);
-    return rc.text.length;
-  }
-  return 0;
+  return el?.selectionStart || 0;
 }
 
 // Set the caret's position
@@ -316,10 +318,6 @@ export function isAppleDevice() {
 
 let iPadDetected = undefined;
 
-export function iOSWithVisualViewport() {
-  return isAppleDevice() && window.visualViewport !== undefined;
-}
-
 export function isiPad() {
   if (iPadDetected === undefined) {
     iPadDetected =
@@ -330,16 +328,15 @@ export function isiPad() {
 }
 
 export function safariHacksDisabled() {
-  if (iOSWithVisualViewport()) {
-    return false;
-  }
+  deprecated(
+    "`safariHacksDisabled()` is deprecated, it now always returns `false`",
+    {
+      since: "2.8.0.beta8",
+      dropFrom: "2.9.0.beta1",
+    }
+  );
 
-  let pref = localStorage.getItem("safari-hacks-disabled");
-  let result = false;
-  if (pref !== null) {
-    result = pref === "true";
-  }
-  return result;
+  return false;
 }
 
 const toArray = (items) => {
@@ -350,6 +347,15 @@ const toArray = (items) => {
   }
 
   return items;
+};
+
+const gifInDisguise = (clipboard) => {
+  return (
+    clipboard.files.length === 1 &&
+    clipboard.files[0].type === "image/png" &&
+    clipboard.types.every((e) => ["text/html", "Files"].includes(e)) &&
+    /<img.*src=.*\.gif/.test(clipboard.getData("text/html"))
+  );
 };
 
 export function clipboardHelpers(e, opts) {
@@ -368,7 +374,9 @@ export function clipboardHelpers(e, opts) {
 
   let canUpload = files && opts.canUpload && types.includes("Files");
   const canUploadImage =
-    canUpload && files.filter((f) => f.type.match("^image/"))[0];
+    canUpload &&
+    files.filter((f) => f.type.match("^image/"))[0] &&
+    !gifInDisguise(clipboard);
   const canPasteHtml =
     opts.siteSettings.enable_rich_text_paste &&
     types.includes("text/html") &&
@@ -439,17 +447,8 @@ export function areCookiesEnabled() {
   }
 }
 
-export function isiOSPWA() {
-  let caps = helperContext().capabilities;
-  return window.matchMedia("(display-mode: standalone)").matches && caps.isIOS;
-}
-
 export function prefersReducedMotion() {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
-
-export function isAppWebview() {
-  return window.ReactNativeWebView !== undefined;
 }
 
 export function postRNWebviewMessage(prop, value) {
@@ -469,19 +468,122 @@ const CODE_BLOCKS_REGEX = /^(    |\t).*|`[^`]+`|^```[^]*?^```|\[code\][^]*?\[\/c
 //                               |
 //                               +------- paragraphs starting with 4 spaces or tab
 
-export function inCodeBlock(text, pos) {
-  let result = false;
+const OPEN_CODE_BLOCKS_REGEX = /`[^`]+|^```[^]*?|\[code\][^]*?/gm;
 
-  let match;
-  while ((match = CODE_BLOCKS_REGEX.exec(text)) !== null) {
-    const begin = match.index;
-    const end = match.index + match[0].length;
-    if (begin <= pos && pos <= end) {
-      result = true;
+export function inCodeBlock(text, pos) {
+  let end = 0;
+  for (const match of text.matchAll(CODE_BLOCKS_REGEX)) {
+    end = match.index + match[0].length;
+    if (match.index <= pos && pos <= end) {
+      return true;
     }
   }
 
-  return result;
+  // Character at position `pos` can be in a code block that is unfinished.
+  // To check this case, we look for any open code blocks after the last closed
+  // code block.
+  const lastOpenBlock = text.substr(end).search(OPEN_CODE_BLOCKS_REGEX);
+  return lastOpenBlock !== -1 && pos >= end + lastOpenBlock;
+}
+
+export function translateModKey(string) {
+  const { isApple } = helperContext().capabilities;
+  // Apple device users are used to glyphs for shortcut keys
+  if (isApple) {
+    string = string
+      .replace("Shift", "\u21E7")
+      .replace("Meta", "\u2318")
+      .replace("Alt", "\u2325")
+      .replace(/\+/g, "");
+  } else {
+    string = string
+      .replace("Shift", I18n.t("shortcut_modifier_key.shift"))
+      .replace("Ctrl", I18n.t("shortcut_modifier_key.ctrl"))
+      .replace("Meta", I18n.t("shortcut_modifier_key.ctrl"))
+      .replace("Alt", I18n.t("shortcut_modifier_key.alt"));
+  }
+
+  return string;
+}
+
+// Use this version of clipboardCopy if you already have the text to
+// be copied in memory, and you do not need to make an AJAX call to
+// the API to generate any text. See clipboardCopyAsync for the latter.
+export function clipboardCopy(text) {
+  // Use the Async Clipboard API when available.
+  // Requires a secure browsing context (i.e. HTTPS)
+  if (navigator.clipboard) {
+    return navigator.clipboard.writeText(text).catch(function (err) {
+      throw err !== undefined
+        ? err
+        : new DOMException("The request is not allowed", "NotAllowedError");
+    });
+  }
+
+  // ...Otherwise, use document.execCommand() fallback
+  return clipboardCopyFallback(text);
+}
+
+// Use this verison of clipboardCopy if you must use an AJAX call
+// to retrieve/generate server-side text to copy to the clipboard,
+// otherwise this write function will error in certain browsers, because
+// the time taken from the user event to the clipboard text being copied
+// will be too long.
+//
+// Note that the promise passed in should return a Blob with type of
+// text/plain.
+export function clipboardCopyAsync(promise) {
+  // Use the Async Clipboard API when available.
+  // Requires a secure browsing context (i.e. HTTPS)
+  if (navigator.clipboard) {
+    return navigator.clipboard
+      .write([new window.ClipboardItem({ "text/plain": promise() })])
+      .catch(function (err) {
+        throw err !== undefined
+          ? err
+          : new DOMException("The request is not allowed", "NotAllowedError");
+      });
+  }
+
+  // ...Otherwise, use document.execCommand() fallback
+  return promise().then((textBlob) => {
+    textBlob.text().then((text) => {
+      return clipboardCopyFallback(text);
+    });
+  });
+}
+
+function clipboardCopyFallback(text) {
+  // Put the text to copy into a <span>
+  const span = document.createElement("span");
+  span.textContent = text;
+
+  // Preserve consecutive spaces and newlines
+  span.style.whiteSpace = "pre";
+
+  // Add the <span> to the page
+  document.body.appendChild(span);
+
+  // Make a selection object representing the range of text selected by the user
+  const selection = window.getSelection();
+  const range = window.document.createRange();
+  selection.removeAllRanges();
+  range.selectNode(span);
+  selection.addRange(range);
+
+  // Copy text to the clipboard
+  let success = false;
+  try {
+    success = window.document.execCommand("copy");
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.log("error", err);
+  }
+
+  // Cleanup
+  selection.removeAllRanges();
+  window.document.body.removeChild(span);
+  return success;
 }
 
 // This prevents a mini racer crash

@@ -29,6 +29,11 @@ acceptance(
         "textarea is disabled"
       );
 
+      assert.ok(
+        !exists("button.toggle-fullscreen"),
+        "fullscreen button is not present"
+      );
+
       const categoryChooser = selectKit(".category-chooser");
 
       await categoryChooser.expand();
@@ -47,6 +52,11 @@ acceptance(
         !exists(".d-editor-textarea-wrapper.disabled"),
         "textarea is still enabled"
       );
+
+      assert.ok(
+        exists("button.toggle-fullscreen"),
+        "fullscreen button is present"
+      );
     });
   }
 );
@@ -62,18 +72,21 @@ acceptance(
           id: 1,
           name: "test won",
           slug: "test-won",
+          permission: 1,
           topic_template: null,
         },
         {
           id: 2,
           name: "test too",
           slug: "test-too",
+          permission: 1,
           topic_template: "",
         },
         {
           id: 3,
           name: "test free",
           slug: "test-free",
+          permission: 1,
           topic_template: null,
         },
       ],
@@ -89,6 +102,11 @@ acceptance(
       assert.ok(
         !exists(".d-editor-textarea-wrapper.disabled"),
         "textarea is enabled"
+      );
+
+      assert.ok(
+        exists("button.toggle-fullscreen"),
+        "fullscreen button is present"
       );
 
       await click("#reply-control button.create");

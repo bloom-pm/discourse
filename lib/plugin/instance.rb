@@ -157,7 +157,7 @@ class Plugin::Instance
   end
 
   def whitelist_staff_user_custom_field(field)
-    Discourse.deprecate("whitelist_staff_user_custom_field is deprecated, use the allow_staff_user_custom_field.", drop_from: "2.6")
+    Discourse.deprecate("whitelist_staff_user_custom_field is deprecated, use the allow_staff_user_custom_field.", drop_from: "2.6", raise_error: true)
     allow_staff_user_custom_field(field)
   end
 
@@ -166,7 +166,7 @@ class Plugin::Instance
   end
 
   def whitelist_public_user_custom_field(field)
-    Discourse.deprecate("whitelist_public_user_custom_field is deprecated, use the allow_public_user_custom_field.", drop_from: "2.6")
+    Discourse.deprecate("whitelist_public_user_custom_field is deprecated, use the allow_public_user_custom_field.", drop_from: "2.6", raise_error: true)
     allow_public_user_custom_field(field)
   end
 
@@ -252,6 +252,14 @@ class Plugin::Instance
     Site.add_categories_callbacks(&block)
   end
 
+  def register_upload_unused(&block)
+    Upload.add_unused_callback(&block)
+  end
+
+  def register_upload_in_use(&block)
+    Upload.add_in_use_callback(&block)
+  end
+
   def custom_avatar_column(column)
     reloadable_patch do |plugin|
       UserLookup.lookup_columns << column
@@ -319,15 +327,15 @@ class Plugin::Instance
   end
 
   def topic_view_post_custom_fields_whitelister(&block)
-    Discourse.deprecate("topic_view_post_custom_fields_whitelister is deprecated, use the topic_view_post_custom_fields_allowlister.", drop_from: "2.6")
+    Discourse.deprecate("topic_view_post_custom_fields_whitelister is deprecated, use the topic_view_post_custom_fields_allowlister.", drop_from: "2.6", raise_error: true)
     topic_view_post_custom_fields_allowlister(&block)
   end
 
   # Add a post_custom_fields_allowlister block to the TopicView, respecting if the plugin is enabled
   def topic_view_post_custom_fields_allowlister(&block)
     reloadable_patch do |plugin|
-      ::TopicView.add_post_custom_fields_allowlister do |user|
-        plugin.enabled? ? block.call(user) : []
+      ::TopicView.add_post_custom_fields_allowlister do |user, topic|
+        plugin.enabled? ? block.call(user, topic) : []
       end
     end
   end
@@ -369,6 +377,27 @@ class Plugin::Instance
     end
   end
 
+  # Add a permitted_param to Group, respecting if the plugin is enabled
+  # Used in GroupsController#update and Admin::GroupsController#create
+  def register_group_param(param)
+    DiscoursePluginRegistry.register_group_param(param, self)
+  end
+
+  # Add a custom callback for search to Group
+  # Callback is called in UsersController#search_users
+  # Block takes groups and optional current_user
+  # For example:
+  # plugin.register_groups_callback_for_users_search_controller_action(:admins_filter) do |groups, user|
+  #   groups.where(name: "admins")
+  # end
+  def register_groups_callback_for_users_search_controller_action(callback, &block)
+    if DiscoursePluginRegistry.groups_callback_for_users_search_controller_action.key?(callback)
+      raise "groups_callback_for_users_search_controller_action callback already registered"
+    end
+
+    DiscoursePluginRegistry.groups_callback_for_users_search_controller_action[callback] = block
+  end
+
   # Add validation method but check that the plugin is enabled
   def validate(klass, name, &block)
     klass = klass.to_s.classify.constantize
@@ -403,7 +432,7 @@ class Plugin::Instance
   end
 
   def delete_extra_automatic_assets(good_paths)
-    return unless Dir.exists? auto_generated_path
+    return unless Dir.exist? auto_generated_path
 
     filenames = good_paths.map { |f| File.basename(f) }
     # nuke old files
@@ -680,7 +709,7 @@ class Plugin::Instance
     end
 
     public_data = File.dirname(path) + "/public"
-    if Dir.exists?(public_data)
+    if Dir.exist?(public_data)
       target = Rails.root.to_s + "/public/plugins/"
 
       Discourse::Utils.execute_command('mkdir', '-p', target)
@@ -723,9 +752,9 @@ class Plugin::Instance
         provider.authenticator.enabled?
       rescue NotImplementedError
         provider.authenticator.define_singleton_method(:enabled?) do
-          Discourse.deprecate("#{provider.authenticator.class.name} should define an `enabled?` function. Patching for now.")
+          Discourse.deprecate("#{provider.authenticator.class.name} should define an `enabled?` function. Patching for now.", drop_from: '2.9.0')
           return SiteSetting.get(provider.enabled_setting) if provider.enabled_setting
-          Discourse.deprecate("#{provider.authenticator.class.name} has not defined an enabled_setting. Defaulting to true.")
+          Discourse.deprecate("#{provider.authenticator.class.name} has not defined an enabled_setting. Defaulting to true.", drop_from: '2.9.0')
           true
         end
       end
@@ -818,7 +847,7 @@ class Plugin::Instance
   end
 
   def js_asset_exists?
-    File.exists?(js_file_path)
+    File.exist?(js_file_path)
   end
 
   # Receives an array with two elements:
@@ -886,14 +915,14 @@ class Plugin::Instance
                               format: nil, formats: nil)
 
     if Array(format).include?("*")
-      Discourse.deprecate("* is no longer a valid api_parameter_route format matcher. Use `nil` instead", drop_from: "2.7")
+      Discourse.deprecate("* is no longer a valid api_parameter_route format matcher. Use `nil` instead", drop_from: "2.7", raise_error: true)
       # Old API used * as wildcard. New api uses `nil`
       format = nil
     end
 
     # Backwards compatibility with old parameter names:
     if method || route || format
-      Discourse.deprecate("method, route and format parameters for api_parameter_routes are deprecated. Use methods, actions and formats instead.", drop_from: "2.7")
+      Discourse.deprecate("method, route and format parameters for api_parameter_routes are deprecated. Use methods, actions and formats instead.", drop_from: "2.7", raise_error: true)
       methods ||= method
       actions ||= route
       formats ||= format
@@ -927,6 +956,66 @@ class Plugin::Instance
   # for usage instructions
   def register_presence_channel_prefix(prefix, &block)
     DiscoursePluginRegistry.register_presence_channel_prefix([prefix, block], self)
+  end
+
+  # Registers a new push notification filter. User and notification payload are passed into block, and if all
+  # filters return `true`, the push notification will be sent.
+  def register_push_notification_filter(&block)
+    DiscoursePluginRegistry.register_push_notification_filter(block, self)
+  end
+
+  # Register a ReviewableScore setting_name associated with a reason.
+  # We'll use this to build a site setting link and add it to the reason's translation.
+  #
+  # If your plugin has a reason translation looking like this:
+  #
+  #   my_plugin_reason: "This is the reason this post was flagged. See %{link}."
+  #
+  # And you associate the reason with a setting:
+  #
+  #   add_reviewable_score_link(:my_plugin_reason, 'a_plugin_setting')
+  #
+  # We'll generate the following link and attach it to the translation:
+  #
+  #   <a href="/admin/site_settings/category/all_results?filter=a_plugin_setting">
+  #     a plugin setting
+  #   </a>
+  def add_reviewable_score_link(reason, setting_name)
+    DiscoursePluginRegistry.register_reviewable_score_link({ reason: reason.to_sym, setting: setting_name }, self)
+  end
+
+  # If your plugin creates notifications, and you'd like to consolidate/collapse similar ones,
+  # you're in the right place.
+  # This method receives a plan object, which must be an instance of `Notifications::ConsolidateNotifications`.
+  #
+  # Instead of using `Notification#create!`, you should use `Notification#consolidate_or_save!`,
+  # which will automatically pick your plan and apply it, updating an already consolidated notification,
+  # consolidating multiple ones, or creating a regular one.
+  #
+  # The rule object is quite complex. We strongly recommend you write tests to ensure your plugin consolidates notifications correctly.
+  #
+  # - Threshold and time window consolidation plan: https://github.com/discourse/discourse/blob/main/app/services/notifications/consolidate_notifications.rb
+  # - Create a new notification and delete previous versions plan: https://github.com/discourse/discourse/blob/main/app/services/notifications/delete_previous_notifications.rb
+  # - Base plans: https://github.com/discourse/discourse/blob/main/app/services/notifications/consolidation_planner.rb
+  def register_notification_consolidation_plan(plan)
+    raise ArgumentError.new("Not a consolidation plan") if !plan.class.ancestors.include?(Notifications::ConsolidationPlan)
+    DiscoursePluginRegistry.register_notification_consolidation_plan(plan, self)
+  end
+
+  # Allows customizing existing topic-backed static pages, like:
+  # faq, tos, privacy (see: StaticController) The block passed to this
+  # method has to return a SiteSetting name that contains a topic id.
+  #
+  #   add_topic_static_page("faq") do |controller|
+  #     current_user&.locale == "pl" ? "polish_faq_topic_id" : "faq_topic_id"
+  #   end
+  #
+  # You can also add new pages in a plugin, but remember to add a route,
+  # for example:
+  #
+  #   get "contact" => "static#show", id: "contact"
+  def add_topic_static_page(page, options = {}, &blk)
+    StaticController::CUSTOM_PAGES[page] = blk ? { topic_id: blk } : options
   end
 
   protected
@@ -1004,7 +1093,7 @@ class Plugin::Instance
   end
 
   def write_asset(path, contents)
-    unless File.exists?(path)
+    unless File.exist?(path)
       ensure_directory(path)
       File.open(path, "w") { |f| f.write(contents) }
     end

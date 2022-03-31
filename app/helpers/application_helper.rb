@@ -13,9 +13,11 @@ module ApplicationHelper
     @extra_body_classes ||= Set.new
   end
 
-  def discourse_config_environment
+  def discourse_config_environment(testing: false)
+
     # TODO: Can this come from Ember CLI somehow?
-    { modulePrefix: "discourse",
+    config = {
+      modulePrefix: "discourse",
       environment: Rails.env,
       rootURL: Discourse.base_path,
       locationType: "auto",
@@ -32,7 +34,16 @@ module ApplicationHelper
         version: "#{Discourse::VERSION::STRING} #{Discourse.git_version}",
         exportApplicationGlobal: true
       }
-    }.to_json
+    }
+
+    if testing
+      config[:environment] = "test"
+      config[:locationType] = "none"
+      config[:APP][:autoboot] = false
+      config[:APP][:rootElement] = '#ember-testing'
+    end
+
+    config.to_json
   end
 
   def google_universal_analytics_json(ua_domain_name = nil)
@@ -122,6 +133,22 @@ module ApplicationHelper
     end
 
     path
+  end
+
+  def preload_vendor_scripts
+    scripts = ["vendor"]
+
+    if ENV["EMBER_CLI_PROD_ASSETS"] != "0"
+      @@vendor_chunks ||= begin
+        all_assets = ActionController::Base.helpers.assets_manifest.assets
+        all_assets.keys.filter_map { |name| name[/\A(chunk\..*)\.js\z/, 1] }
+      end
+      scripts.push(*@@vendor_chunks)
+    end
+
+    scripts.map do |name|
+      preload_script(name)
+    end.join("\n").html_safe
   end
 
   def preload_script(script)
@@ -336,6 +363,18 @@ module ApplicationHelper
           SiteSetting.site_logo_dark_url
         else
           SiteSetting.site_logo_url
+        end
+      end
+    end
+  end
+
+  def application_logo_dark_url
+    @application_logo_dark_url ||= begin
+      if dark_scheme_id != -1
+        if mobile_view? && SiteSetting.site_mobile_logo_dark_url != application_logo_url
+          SiteSetting.site_mobile_logo_dark_url
+        elsif !mobile_view? && SiteSetting.site_logo_dark_url != application_logo_url
+          SiteSetting.site_logo_dark_url
         end
       end
     end
@@ -601,6 +640,13 @@ module ApplicationHelper
     absolute_url
   end
 
+  def manifest_url
+    # If you want the `manifest_url` to be different for a specific action,
+    # in the action set @manifest_url = X. Originally added for chat to add a
+    # separate manifest
+    @manifest_url || "#{Discourse.base_path}/manifest.webmanifest"
+  end
+
   def can_sign_up?
     SiteSetting.allow_new_registrations &&
     !SiteSetting.invite_only &&
@@ -626,12 +672,6 @@ module ApplicationHelper
         cookies.delete(:authentication_data, path: Discourse.base_path("/"))
       end
       current_user ? nil : value
-    end
-  end
-
-  def hijack_if_ember_cli!
-    if request.headers["HTTP_X_DISCOURSE_EMBER_CLI"] == "true"
-      raise ApplicationController::EmberCLIHijacked.new
     end
   end
 end

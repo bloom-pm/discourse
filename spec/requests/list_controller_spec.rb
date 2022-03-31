@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'rails_helper'
-
 RSpec.describe ListController do
   fab!(:user) { Fabricate(:user) }
   fab!(:topic) { Fabricate(:topic, user: user) }
@@ -54,6 +52,12 @@ RSpec.describe ListController do
       expect(response.status).to eq(200)
 
       get "/latest?search="
+      expect(response.status).to eq(200)
+
+      get "/latest.json?topic_ids%5B%5D=14583&topic_ids%5B%5D=14584"
+      expect(response.status).to eq(200)
+
+      get "/latest.json?topic_ids=14583%2C14584"
       expect(response.status).to eq(200)
     end
 
@@ -136,9 +140,9 @@ RSpec.describe ListController do
   end
 
   describe "filter private messages by tag" do
-    let(:user) { Fabricate(:user) }
-    let(:moderator) { Fabricate(:moderator) }
-    let(:admin) { Fabricate(:admin) }
+    fab!(:user) { Fabricate(:user) }
+    fab!(:moderator) { Fabricate(:moderator) }
+    fab!(:admin) { Fabricate(:admin) }
     let(:tag) { Fabricate(:tag) }
     let(:private_message) { Fabricate(:private_message_topic, user: admin) }
 
@@ -185,7 +189,7 @@ RSpec.describe ListController do
   end
 
   describe '#private_messages_group' do
-    let(:user) { Fabricate(:user) }
+    fab!(:user) { Fabricate(:user) }
 
     describe 'with personal_messages disabled' do
       let!(:topic) { Fabricate(:private_message_topic, allowed_groups: [group]) }
@@ -703,10 +707,10 @@ RSpec.describe ListController do
       end
     end
 
-    it "returns 403 error when the user can't see private message" do
+    it "returns 404 when the user can't see private message" do
       sign_in(Fabricate(:user))
       get "/topics/private-messages-unread/#{pm_user.username}.json"
-      expect(response.status).to eq(403)
+      expect(response.status).to eq(404)
     end
 
     it "succeeds when the user can see private messages" do
@@ -726,10 +730,10 @@ RSpec.describe ListController do
   end
 
   describe "#private_messages_warnings" do
-    let(:target_user) { Fabricate(:user) }
-    let(:admin) { Fabricate(:admin) }
-    let(:moderator1) { Fabricate(:moderator) }
-    let(:moderator2) { Fabricate(:moderator) }
+    fab!(:target_user) { Fabricate(:user) }
+    fab!(:admin) { Fabricate(:admin) }
+    fab!(:moderator1) { Fabricate(:moderator) }
+    fab!(:moderator2) { Fabricate(:moderator) }
 
     let(:create_args) do
       { title: 'you need a warning buddy!',

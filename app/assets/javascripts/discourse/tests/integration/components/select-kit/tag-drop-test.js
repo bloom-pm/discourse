@@ -36,13 +36,9 @@ discourseModule(
       };
 
       pretender.get("/tags/filter/search", (params) => {
-        if (params.queryParams.q === "rég") {
+        if (params.queryParams.q === "dav") {
           return response({
-            results: [{ id: "régis", text: "régis", count: 2, pm_count: 0 }],
-          });
-        } else if (params.queryParams.q === "dav") {
-          return response({
-            results: [{ id: "David", text: "David", count: 2, pm_count: 0 }],
+            results: [{ id: "David", name: "David", count: 2, pm_count: 0 }],
           });
         }
       });
@@ -75,15 +71,41 @@ discourseModule(
 
         const content = this.subject.displayedContent();
 
-        assert.equal(
+        assert.strictEqual(
           content[0].name,
           I18n.t("tagging.selector_no_tags"),
           "it has the translated label for no-tags"
         );
-        assert.equal(
+        assert.strictEqual(
           content[1].name,
           I18n.t("tagging.selector_all_tags"),
           "it has the correct label for all-tags"
+        );
+
+        await this.subject.fillInFilter("dav");
+
+        assert.strictEqual(
+          this.subject.rows()[0].textContent.trim(),
+          "David",
+          "it has no tag count when filtering in a category context"
+        );
+      },
+    });
+
+    componentTest("default global (no category)", {
+      template: hbs`{{tag-drop}}`,
+
+      async test(assert) {
+        await this.subject.expand();
+
+        assert.ok(true);
+
+        await this.subject.fillInFilter("dav");
+
+        assert.strictEqual(
+          this.subject.rows()[0].textContent.trim(),
+          "David x2",
+          "it has the tag count"
         );
       },
     });

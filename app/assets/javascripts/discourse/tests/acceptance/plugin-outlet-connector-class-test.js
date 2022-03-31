@@ -48,29 +48,35 @@ acceptance("Plugin Outlet - Connector Class", function (needs) {
       },
     });
 
+    // eslint-disable-next-line no-undef
     Ember.TEMPLATES[
       `${PREFIX}/user-profile-primary/hello`
     ] = hbs`<span class='hello-username'>{{model.username}}</span>
         <button class='say-hello' {{action "sayHello"}}></button>
         <span class='hello-result'>{{hello}}</span>`;
+    // eslint-disable-next-line no-undef
     Ember.TEMPLATES[
       `${PREFIX}/user-profile-primary/hi`
     ] = hbs`<button class='say-hi' {{action "sayHi"}}></button>
         <span class='hi-result'>{{hi}}</span>`;
+    // eslint-disable-next-line no-undef
     Ember.TEMPLATES[
       `${PREFIX}/user-profile-primary/dont-render`
     ] = hbs`I'm not rendered!`;
   });
 
   needs.hooks.afterEach(() => {
+    // eslint-disable-next-line no-undef
     delete Ember.TEMPLATES[`${PREFIX}/user-profile-primary/hello`];
+    // eslint-disable-next-line no-undef
     delete Ember.TEMPLATES[`${PREFIX}/user-profile-primary/hi`];
+    // eslint-disable-next-line no-undef
     delete Ember.TEMPLATES[`${PREFIX}/user-profile-primary/dont-render`];
   });
 
   test("Renders a template into the outlet", async function (assert) {
     await visit("/u/eviltrout");
-    assert.equal(
+    assert.strictEqual(
       count(".user-profile-primary-outlet.hello"),
       1,
       "it has class names"
@@ -81,14 +87,14 @@ acceptance("Plugin Outlet - Connector Class", function (needs) {
     );
 
     await click(".say-hello");
-    assert.equal(
+    assert.strictEqual(
       queryAll(".hello-result").text(),
       "hello!",
       "actions delegate properly"
     );
 
     await click(".say-hi");
-    assert.equal(
+    assert.strictEqual(
       queryAll(".hi-result").text(),
       "hi!",
       "actions delegate properly"

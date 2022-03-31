@@ -38,6 +38,7 @@ export default ComboBoxComponent.extend({
     autoInsertNoneItem: false,
     displayCategoryDescription: "displayCategoryDescription",
     headerComponent: "category-drop/category-drop-header",
+    parentCategory: false,
   },
 
   modifyComponentForRow() {
@@ -130,7 +131,10 @@ export default ComboBoxComponent.extend({
 
   search(filter) {
     if (filter) {
-      let results = Category.search(filter);
+      let opts = {
+        parentCategoryId: this.options.parentCategory?.id,
+      };
+      let results = Category.search(filter, opts);
       results = this._filterUncategorized(results).sort((a, b) => {
         if (a.parent_category_id && !b.parent_category_id) {
           return 1;

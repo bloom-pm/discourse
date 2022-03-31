@@ -25,7 +25,7 @@ class Category < ActiveRecord::Base
   register_custom_field_type(REQUIRE_REPLY_APPROVAL, :boolean)
   register_custom_field_type(NUM_AUTO_BUMP_DAILY, :integer)
 
-  belongs_to :topic, dependent: :destroy
+  belongs_to :topic
   belongs_to :topic_only_relative_url,
               -> { select "id, title, slug" },
               class_name: "Topic",
@@ -67,6 +67,7 @@ class Category < ActiveRecord::Base
   validates :slug, exclusion: { in: RESERVED_SLUGS }
 
   after_create :create_category_definition
+  after_destroy :trash_category_definition
 
   before_save :apply_permissions
   before_save :downcase_email
@@ -138,7 +139,7 @@ class Category < ActiveRecord::Base
 
   # permission is just used by serialization
   # we may consider wrapping this in another spot
-  attr_accessor :displayable_topics, :permission, :subcategory_ids, :notification_level, :has_children
+  attr_accessor :displayable_topics, :permission, :subcategory_ids, :subcategory_list, :notification_level, :has_children
 
   # Allows us to skip creating the category definition topic in tests.
   attr_accessor :skip_category_definition
@@ -296,6 +297,10 @@ class Category < ActiveRecord::Base
     end
   end
 
+  def trash_category_definition
+    self.topic&.trash!
+  end
+
   def topic_url
     if has_attribute?("topic_slug")
       Topic.relative_url(topic_id, read_attribute(:topic_slug))
@@ -348,6 +353,8 @@ class Category < ActiveRecord::Base
 
       if self.slug.blank?
         errors.add(:slug, :invalid)
+      elsif SiteSetting.slug_generation_method == 'ascii' && !CGI.unescape(self.slug).ascii_only?
+        errors.add(:slug, I18n.t("category.errors.slug_contains_non_ascii_chars"))
       elsif duplicate_slug?
         errors.add(:slug, 'is already in use')
       end
@@ -742,7 +749,7 @@ class Category < ActiveRecord::Base
   end
 
   def url_with_id
-    Discourse.deprecate("Category#url_with_id is deprecated. Use `Category#url` instead.", output_in_test: true)
+    Discourse.deprecate("Category#url_with_id is deprecated. Use `Category#url` instead.", output_in_test: true, drop_from: '2.9.0')
 
     url
   end
@@ -798,11 +805,7 @@ class Category < ActiveRecord::Base
     return nil if slug_path.size > SiteSetting.max_category_nesting
 
     slug_path.map! do |slug|
-      if SiteSetting.slug_generation_method == "encoded"
-        CGI.escape(slug.downcase)
-      else
-        slug.downcase
-      end
+      CGI.escape(slug.downcase)
     end
 
     query =
@@ -913,6 +916,25 @@ class Category < ActiveRecord::Base
     else
       [self.slug_for_url]
     end
+  end
+
+  def cannot_delete_reason
+    return I18n.t('category.cannot_delete.uncategorized') if self.uncategorized?
+    return I18n.t('category.cannot_delete.has_subcategories') if self.has_children?
+
+    if self.topic_count != 0
+      oldest_topic = self.topics.where.not(id: self.topic_id).order('created_at ASC').limit(1).first
+      if oldest_topic
+        I18n.t('category.cannot_delete.topic_exists', count: self.topic_count, topic_link: "<a href=\"#{oldest_topic.url}\">#{CGI.escapeHTML(oldest_topic.title)}</a>")
+      else
+        # This is a weird case, probably indicating a bug.
+        I18n.t('category.cannot_delete.topic_exists_no_oldest', count: self.topic_count)
+      end
+    end
+  end
+
+  def has_restricted_tags?
+    tags.count > 0 || tag_groups.count > 0
   end
 
   private

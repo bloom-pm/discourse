@@ -1,6 +1,19 @@
 # frozen_string_literal: true
 
 class ReviewableScoreSerializer < ApplicationSerializer
+  REASONS_AND_SETTINGS = {
+    post_count: 'approve_post_count',
+    trust_level: 'approve_unless_trust_level',
+    new_topics_unless_trust_level: 'approve_new_topics_unless_trust_level',
+    fast_typer: 'min_first_post_typing_time',
+    auto_silence_regex: 'auto_silence_first_post_regex',
+    staged: 'approve_unless_staged',
+    must_approve_users: 'must_approve_users',
+    invite_only: 'invite_only',
+    email_spam: 'email_in_spam_header',
+    suspect_user: 'approve_suspect_users',
+    contains_media: 'review_media_unless_trust_level',
+  }
 
   attributes :id, :score, :agree_stats, :status, :reason, :created_at, :reviewed_at
   has_one :user, serializer: BasicUserSerializer, root: 'users'
@@ -19,18 +32,14 @@ class ReviewableScoreSerializer < ApplicationSerializer
   def reason
     return unless object.reason
 
-    if text = I18n.t("reviewables.reasons.#{object.reason}", base_url: Discourse.base_url, default: nil)
-      # Create a convenient link to any site settings if the user is staff
-      settings_url = "#{Discourse.base_url}/admin/site_settings/category/all_results?filter="
+    link_text = setting_name_for_reason(object.reason)
+    link_text = I18n.t("reviewables.reasons.links.#{object.reason}", default: nil) if link_text.nil?
 
-      text.gsub!(/`[a-z_]+`/) do |m|
-        if scope.is_staff?
-          setting = m[1..-2]
-          "<a href=\"#{settings_url}#{setting}\">#{setting.gsub('_', ' ')}</a>"
-        else
-          m.gsub('_', ' ')
-        end
-      end
+    if link_text
+      link = build_link_for(object.reason, link_text)
+      text = I18n.t("reviewables.reasons.#{object.reason}", link: link, default: nil)
+    else
+      text = I18n.t("reviewables.reasons.#{object.reason}", default: nil)
     end
 
     text
@@ -40,4 +49,35 @@ class ReviewableScoreSerializer < ApplicationSerializer
     reason.present?
   end
 
+  def setting_name_for_reason(reason)
+    setting_name = REASONS_AND_SETTINGS[reason.to_sym]
+
+    if setting_name.nil?
+      plugin_options = DiscoursePluginRegistry.reviewable_score_links
+      option = plugin_options.detect { |o| o[:reason] == reason.to_sym }
+
+      setting_name = option[:setting] if option
+    end
+
+    setting_name
+  end
+
+  private
+
+  def url_for(reason, text)
+    case reason
+    when 'watched_word'
+      "#{Discourse.base_url}/admin/customize/watched_words"
+    when 'category'
+      "#{Discourse.base_url}/c/#{object.reviewable.category&.name}/edit/settings"
+    else
+      "#{Discourse.base_url}/admin/site_settings/category/all_results?filter=#{text}"
+    end
+  end
+
+  def build_link_for(reason, text)
+    return text.gsub('_', ' ') unless scope.is_staff?
+
+    "<a href=\"#{url_for(reason, text)}\">#{text.gsub('_', ' ')}</a>"
+  end
 end

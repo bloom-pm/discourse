@@ -17,6 +17,7 @@
 # See discourse/app/models/topic-tracking-state.js
 class TopicTrackingState
   include ActiveModel::SerializerSupport
+  include TopicTrackingStatePublishable
 
   UNREAD_MESSAGE_TYPE = "unread"
   LATEST_MESSAGE_TYPE = "latest"
@@ -61,7 +62,7 @@ class TopicTrackingState
     group_ids = topic.category && topic.category.secure_group_ids
 
     MessageBus.publish("/new", message.as_json, group_ids: group_ids)
-    publish_read(topic.id, 1, topic.user_id)
+    publish_read(topic.id, 1, topic.user)
   end
 
   def self.publish_latest(topic, staff_only = false)
@@ -158,38 +159,32 @@ class TopicTrackingState
         .where("gu.group_id IN (?)", group_ids)
     end
 
-    scope
-      .select([:user_id, :last_read_post_number, :notification_level])
-      .each do |tu|
+    user_ids = scope.pluck(:user_id)
+    return if user_ids.empty?
 
-      payload = {
-        last_read_post_number: tu.last_read_post_number,
-        highest_post_number: post.post_number,
-        updated_at: post.topic.updated_at,
-        created_at: post.created_at,
-        category_id: post.topic.category_id,
-        notification_level: tu.notification_level,
-        archetype: post.topic.archetype,
-        first_unread_at: tu.user.user_stat.first_unread_at,
-        unread_not_too_old: true
-      }
+    payload = {
+      highest_post_number: post.post_number,
+      updated_at: post.topic.updated_at,
+      created_at: post.created_at,
+      category_id: post.topic.category_id,
+      archetype: post.topic.archetype,
+      unread_not_too_old: true
+    }
 
-      if tags
-        payload[:tags] = tags
-        payload[:topic_tag_ids] = tag_ids
-      end
-
-      message = {
-        topic_id: post.topic_id,
-        message_type: UNREAD_MESSAGE_TYPE,
-        payload: payload
-      }
-
-      MessageBus.publish(self.unread_channel_key(tu.user_id), message.as_json,
-        user_ids: [tu.user_id]
-      )
+    if tags
+      payload[:tags] = tags
+      payload[:topic_tag_ids] = tag_ids
     end
 
+    message = {
+      topic_id: post.topic_id,
+      message_type: UNREAD_MESSAGE_TYPE,
+      payload: payload
+    }
+
+    MessageBus.publish("/unread", message.as_json,
+      user_ids: user_ids
+    )
   end
 
   def self.publish_recover(topic)
@@ -226,20 +221,15 @@ class TopicTrackingState
     MessageBus.publish("/destroy", message.as_json, group_ids: group_ids)
   end
 
-  def self.publish_read(topic_id, last_read_post_number, user_id, notification_level = nil)
-    highest_post_number = DB.query_single("SELECT highest_post_number FROM topics WHERE id = ?", topic_id).first
-
-    message = {
-      topic_id: topic_id,
+  def self.publish_read(topic_id, last_read_post_number, user, notification_level = nil)
+    self.publish_read_message(
       message_type: READ_MESSAGE_TYPE,
-      payload: {
-        last_read_post_number: last_read_post_number,
-        highest_post_number: highest_post_number,
-        notification_level: notification_level
-      }
-    }
-
-    MessageBus.publish(self.unread_channel_key(user_id), message.as_json, user_ids: [user_id])
+      channel_name: self.unread_channel_key(user.id),
+      topic_id: topic_id,
+      user: user,
+      last_read_post_number: last_read_post_number,
+      notification_level: notification_level
+    )
   end
 
   def self.publish_dismiss_new(user_id, topic_ids: [])
@@ -474,7 +464,6 @@ class TopicTrackingState
       JOIN user_options AS uo ON uo.user_id = u.id
       JOIN categories c ON c.id = topics.category_id
       LEFT JOIN topic_users tu ON tu.topic_id = topics.id AND tu.user_id = u.id
-      LEFT JOIN category_users ON category_users.category_id = topics.category_id AND category_users.user_id = :user_id
       #{skip_new ? "" : "LEFT JOIN dismissed_topic_users ON dismissed_topic_users.topic_id = topics.id AND dismissed_topic_users.user_id = :user_id"}
       #{additional_join_sql}
       WHERE u.id = :user_id AND
@@ -488,7 +477,7 @@ class TopicTrackingState
             NOT (
               #{(skip_new && skip_unread) ? "" : "last_read_post_number IS NULL AND"}
               (
-                COALESCE(category_users.notification_level, #{CategoryUser.default_notification_level}) = #{CategoryUser.notification_levels[:muted]}
+                topics.category_id IN (#{CategoryUser.muted_category_ids_query(user, include_direct: true).select("categories.id").to_sql})
                 AND tu.notification_level <= #{TopicUser.notification_levels[:regular]}
               )
             )

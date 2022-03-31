@@ -184,7 +184,7 @@ te:
     revert: "తిద్దు"
     failed: "విఫలం"
     banner:
-      close: "బ్యానరు తుడువు"
+      edit: "సవరించు"
     choose_topic:
       none_found: "ఎటువంటి విషయాలూ కనపడలేదు."
     review:
@@ -738,7 +738,6 @@ te:
       reply_here: "ఇక్కడ జవాబివ్వు"
       reply: "జవాబు"
       cancel: "రద్దుచేయి"
-      title: "లేదా కంట్రోల్ + ఎంటర్ నొక్కు"
       users_placeholder: "ఒక సభ్యుడిని కలుపు"
       title_placeholder: "ఈ చర్చ దేనిగురించో ఒక లైనులో చెప్పండి?"
       edit_reason_placeholder: "మీరెందుకు సవరిస్తున్నారు?"
@@ -774,17 +773,25 @@ te:
           label: "కొత్త విషయం"
     notifications:
       none: "ఈ సమయంలో ప్రకటనలు చూపలేకున్నాము."
+      dismiss_confirmation:
+        cancel: "రద్దుచేయి"
       titles:
         watching_first_post: "కొత్త విషయం"
     upload_selector:
       uploading: "ఎగుమతవుతోంది"
       default_image_alt_text: బొమ్మ
     search:
-      title: "విషయాలు, టపాలు, సభ్యులు లేదా వర్గాలు వెతుకు"
+      title: "వెతుకు"
+      full_page_title: "వెతుకు"
       no_results: "ఎటువంటి ఫలితాలు దొరకలేదు."
       post_format: "%{username} నుండి #%{post_number}"
       search_google_button: "గూగుల్"
       search_button: "వెతుకు"
+      categories: "వర్గాలు"
+      tags: "ట్యాగులు"
+      type:
+        users: "వాడుకరులు"
+        categories: "వర్గాలు"
       context:
         user: "@%{username} యొక్క విషయాలు వెతుకు"
         topic: "ఈ విషయంలో వెతుకు"
@@ -796,14 +803,13 @@ te:
             label: టపాలు
         views:
           label: చూపులు
-    hamburger_menu: "మరో విషయాల జాబితాకు లేదా వర్గానికి వెళ్లు"
     new_item: "కొత్త"
     go_back: "వెనక్కు మరలు"
     not_logged_in_user: "సభ్యుని ప్రస్తుత కలాపాల మరియు అభిరూపాల సారాంశ పుట"
     current_user: "మీ సభ్యపుటకు వెళ్లు"
     topics:
       bulk:
-        reset_read: "రీలోడ్ రీసెట్"
+        defer: "వాయిదావేయి"
         delete: "విషయాలు తొలగించు"
         dismiss_new: "కొత్తవి తుడువు"
         toggle: "విషయాల బహుళ ఎంపికలు అటుఇటుచేయి"
@@ -895,13 +901,7 @@ te:
         replies_short: "%{current} / %{total}"
       progress:
         title: విషయపు పురోగతి
-        go_top: "అగ్ర"
-        go_bottom: "అడుగు"
-        go: "వెళ్లు"
-        jump_bottom_with_number: "%{post_number} టపాకు వళ్లు"
         jump_prompt_or: "లేదా"
-        total: అన్ని టపాలు
-        current: ప్రస్తుత టపా
       notifications:
         reasons:
           "3_6": "మీకు ప్రకటనలు వస్తాయి, ఎందుకంటే మీరు ఈ వర్గాంపై కన్నేసారు"
@@ -946,7 +946,6 @@ te:
         title: "జవాబు"
         help: "ఈ విషయానికి జవాబివ్వుట ప్రారంభించు"
       share:
-        title: "పంచు"
         help: "ఈ విషయపులంకెను పంచు"
         invite_users: "ఆహ్వానించు"
       flag_topic:
@@ -1006,6 +1005,7 @@ te:
           one: మీరు <b>%{count}</b> టపా ఎంచుకున్నారు
           other: "మీరు <b>%{count}</b> టపాలు ఎంచుకున్నారు"
     post:
+      quote_edit: "సవరించు"
       quote_share: "పంచు"
       edit_reason: "కారణం:"
       post_number: "టపా %{number}"
@@ -1191,6 +1191,8 @@ te:
       unlisted:
         help: "ఈ విషయం జాబితాలనుండి తొలగించబడింది. ఇహ కేవలం నేరు లంకె ద్వారా మాత్రమే చూడగలరు."
     posts: "టపాలు"
+    pending_posts:
+      label: "పెండింగు"
     original_post: "మూల టపా"
     views: "చూపులు"
     replies: "జవాబులు"
@@ -1311,9 +1313,12 @@ te:
           name: ఇతర
         posting:
           name: రాస్తున్నారు
+    download_calendar:
+      download: "దిగుమతి"
     tagging:
       tags: "ట్యాగులు"
       add_synonyms: "కలుపు"
+      description: "వివరణ"
       sort_by_name: "పేరు"
       cancel_delete_unused: "రద్దుచేయి"
       filters:
@@ -1528,7 +1533,6 @@ te:
         delete: "తొలగించు"
         color: "రంగు"
         opacity: "అపారదర్శకత"
-        copy: "నకలు"
         email_templates:
           title: "ఈమెయిల్"
           subject: "సబ్జెక్టు"
@@ -1554,12 +1558,8 @@ te:
             text: "హెడర్"
           footer:
             text: "ఫుటరు"
-          head_tag:
-            text: "</head>"
-            title: "</head> కొస ముందు ఉంచే హెచ్ టీ యం యల్"
           body_tag:
-            text: "</body>"
-            title: "</body> కొస ముందు ఉంచే హెచ్ టీ యం యల్"
+            text: "శరీరం"
         colors:
           title: "రంగులు"
           copy_name_prefix: "దీనికి నకలు"
@@ -1697,8 +1697,6 @@ te:
         screened_ips:
           title: "స్క్రీన్ చేసిన ఐపీలు"
           delete_confirm: "మీరు నిజంగా %{ip_address} కు ఈ నియమాన్ని తొలగించాలనుకుంటున్నారా? "
-          rolled_up_some_subnets: "IP నిషేధిత ప్రవేశాలు ఈ సబ్‌నెట్స్‌కు విజయవంతంగా చేర్చారు: %{subnets}."
-          rolled_up_no_subnet: "రోల్ అప్ చేయుటకు ఏమీ లేదు."
           actions:
             block: "ఖండం"
             do_nothing: "అనుమతించు"

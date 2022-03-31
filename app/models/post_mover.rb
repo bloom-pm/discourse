@@ -165,7 +165,7 @@ class PostMover
       guardian: Guardian.new(user),
       skip_jobs: true
     )
-    new_post = @post_creator.create
+    new_post = @post_creator.create!
 
     move_email_logs(post, new_post)
 
@@ -175,6 +175,13 @@ class PostMover
     new_post.save_custom_fields
 
     DiscourseEvent.trigger(:post_moved, new_post, original_topic.id)
+
+    # we don't want to keep the old topic's OP bookmarked when we are
+    # moving it into a new topic
+    #
+    # TODO (martin) [POLYBOOK] This will need to be restructured for polymorphic
+    # bookmarks when edge cases are handled.
+    Bookmark.where(post_id: post.id).update_all(post_id: new_post.id)
 
     new_post
   end
@@ -187,7 +194,8 @@ class PostMover
       post_number: @move_map[post.post_number],
       reply_to_post_number: @move_map[post.reply_to_post_number],
       topic_id: destination_topic.id,
-      sort_order: @move_map[post.post_number]
+      sort_order: @move_map[post.post_number],
+      baked_version: nil
     }
 
     unless @move_map[post.reply_to_post_number]
@@ -479,8 +487,6 @@ class PostMover
   end
 
   def update_bookmarks
-    Bookmark.where(post_id: post_ids).update_all(topic_id: @destination_topic.id)
-
     DB.after_commit do
       Jobs.enqueue(:sync_topic_user_bookmarked, topic_id: @original_topic.id)
       Jobs.enqueue(:sync_topic_user_bookmarked, topic_id: @destination_topic.id)

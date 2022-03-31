@@ -1,7 +1,7 @@
 import ComposerEditor, {
   addComposerUploadHandler,
   addComposerUploadMarkdownResolver,
-  addComposerUploadProcessor,
+  addComposerUploadPreProcessor,
 } from "discourse/components/composer-editor";
 import {
   addButton,
@@ -36,7 +36,9 @@ import {
   registerIconRenderer,
   replaceIcon,
 } from "discourse-common/lib/icon-library";
-import Composer from "discourse/models/composer";
+import Composer, {
+  registerCustomizationCallback,
+} from "discourse/models/composer";
 import DiscourseBanner from "discourse/components/discourse-banner";
 import KeyboardShortcuts from "discourse/lib/keyboard-shortcuts";
 import Sharing from "discourse/lib/sharing";
@@ -49,6 +51,7 @@ import { addFeaturedLinkMetaDecorator } from "discourse/lib/render-topic-feature
 import { addGTMPageChangedCallback } from "discourse/lib/page-tracker";
 import { addGlobalNotice } from "discourse/components/global-notice";
 import { addNavItem } from "discourse/models/nav-item";
+import { addPluginDocumentTitleCounter } from "discourse/components/d-document";
 import { addPluginOutletDecorator } from "discourse/components/plugin-connector";
 import { addPluginReviewableParam } from "discourse/components/reviewable-item";
 import { addPopupMenuOptionsCallback } from "discourse/controllers/composer";
@@ -77,21 +80,34 @@ import { registerCustomAvatarHelper } from "discourse/helpers/user-avatar";
 import { registerCustomPostMessageCallback as registerCustomPostMessageCallback1 } from "discourse/controllers/topic";
 import { registerHighlightJSLanguage } from "discourse/lib/highlight-syntax";
 import { registerTopicFooterButton } from "discourse/lib/register-topic-footer-button";
+import { registerTopicFooterDropdown } from "discourse/lib/register-topic-footer-dropdown";
+import { registerDesktopNotificationHandler } from "discourse/lib/desktop-notifications";
 import { replaceFormatter } from "discourse/lib/utilities";
 import { replaceTagRenderer } from "discourse/lib/render-tag";
+import { registerCustomLastUnreadUrlCallback } from "discourse/models/topic";
 import { setNewCategoryDefaultColors } from "discourse/routes/new-category";
 import { addSearchResultsCallback } from "discourse/lib/search";
-import { addSearchSuggestion } from "discourse/widgets/search-menu-results";
+import {
+  addQuickSearchRandomTip,
+  addSearchSuggestion,
+} from "discourse/widgets/search-menu-results";
+import { CUSTOM_USER_SEARCH_OPTIONS } from "select-kit/components/user-chooser";
+import { downloadCalendar } from "discourse/lib/download-calendar";
+import { consolePrefix } from "discourse/lib/source-identifier";
 
-// If you add any methods to the API ensure you bump up this number
-const PLUGIN_API_VERSION = "0.12.2";
+// If you add any methods to the API ensure you bump up the version number
+// based on Semantic Versioning 2.0.0. Please update the changelog at
+// docs/CHANGELOG-JAVASCRIPT-PLUGIN-API.md whenever you change the version
+// using the format described at https://keepachangelog.com/en/1.0.0/.
+const PLUGIN_API_VERSION = "1.2.0";
 
 // This helper prevents us from applying the same `modifyClass` over and over in test mode.
 function canModify(klass, type, resolverName, changes) {
   if (!changes.pluginId) {
     // eslint-disable-next-line no-console
     console.warn(
-      "To prevent errors, add a `pluginId` key to your changes when calling `modifyClass`"
+      consolePrefix(),
+      "To prevent errors in tests, add a `pluginId` key to your `modifyClass` call. This will ensure the modification is only applied once."
     );
     return true;
   }
@@ -103,6 +119,21 @@ function canModify(klass, type, resolverName, changes) {
     klass.class[key] = 1;
     return true;
   }
+}
+
+function wrapWithErrorHandler(func, messageKey) {
+  return function () {
+    try {
+      return func.call(this, ...arguments);
+    } catch (error) {
+      document.dispatchEvent(
+        new CustomEvent("discourse-error", {
+          detail: { messageKey, error },
+        })
+      );
+      return;
+    }
+  };
 }
 
 class PluginApi {
@@ -138,6 +169,7 @@ class PluginApi {
     if (this.container.cache[resolverName]) {
       // eslint-disable-next-line no-console
       console.warn(
+        consolePrefix(),
         `"${resolverName}" was already cached in the container. Changes won't be applied.`
       );
     }
@@ -146,7 +178,10 @@ class PluginApi {
     if (!klass) {
       if (!opts.ignoreMissing) {
         // eslint-disable-next-line no-console
-        console.warn(`"${resolverName}" was not found by modifyClass`);
+        console.warn(
+          consolePrefix(),
+          `"${resolverName}" was not found by modifyClass`
+        );
       }
       return;
     }
@@ -192,7 +227,7 @@ class PluginApi {
    *
    * ```
    * api.modifyClassStatic('controller:composer', {
-   *   superFinder: function() { return []; }
+   *   superFinder() { return []; }
    * });
    * ```
    **/
@@ -223,7 +258,7 @@ class PluginApi {
    *
    *   // for the place in code that render a string
    *   string() {
-   *     return "<svg class=\"fa d-icon d-icon-far-smile svg-icon\" aria-hidden=\"true\"><use xlink:href=\"#far-smile\"></use></svg>";
+   *     return "<svg class=\"fa d-icon d-icon-far-smile svg-icon\" aria-hidden=\"true\"><use href=\"#far-smile\"></use></svg>";
    *   },
    *
    *   // for the places in code that render virtual dom elements
@@ -233,7 +268,7 @@ class PluginApi {
    *          namespace: "http://www.w3.org/2000/svg"
    *        },[
    *          h("use", {
-   *          "xlink:href": attributeHook("http://www.w3.org/1999/xlink", `#far-smile`),
+   *          "href": attributeHook("http://www.w3.org/1999/xlink", `#far-smile`),
    *          namespace: "http://www.w3.org/2000/svg"
    *        })]
    *     );
@@ -296,17 +331,17 @@ class PluginApi {
   decorateCookedElement(callback, opts) {
     opts = opts || {};
 
+    callback = wrapWithErrorHandler(callback, "broken_decorator_alert");
+
     addDecorator(callback, { afterAdopt: !!opts.afterAdopt });
 
     if (!opts.onlyStream) {
       decorate(ComposerEditor, "previewRefreshed", callback, opts.id);
       decorate(DiscourseBanner, "didInsertElement", callback, opts.id);
-      decorate(
-        this.container.factoryFor("component:user-stream").class,
-        "didInsertElement",
-        callback,
-        opts.id
-      );
+      ["didInsertElement", "user-stream:new-item-inserted"].forEach((event) => {
+        const klass = this.container.factoryFor("component:user-stream").class;
+        decorate(klass, event, callback, opts.id);
+      });
     }
   }
 
@@ -320,12 +355,22 @@ class PluginApi {
   /**
    * addPosterIcon(callback)
    *
-   * This function can be used to add an icon with a link that will be displayed
-   * beside a poster's name. The `callback` is called with the post's user custom
-   * fields and post attributes. An icon will be rendered if the callback returns
-   * an object with the appropriate attributes.
+   * This function is an alias of addPosterIcons, which the latter has the ability
+   * to add multiple icons at once. Please refer to `addPosterIcons` for usage examples.
+   **/
+  addPosterIcon(cb) {
+    this.addPosterIcons(cb);
+  }
+
+  /**
+   * addPosterIcons(callback)
    *
-   * The returned object can have the following attributes:
+   * This function can be used to add one, or multiple icons, with a link that will
+   * be displayed beside a poster's name. The `callback` is called with the post's
+   * user custom fields and post attributes. One or multiple icons may be rendered
+   * when the callback returns an array of objects with the appropriate attributes.
+   *
+   * The returned object(s) each can have the following attributes:
    *
    *   icon        the font awesome icon to render
    *   emoji       an emoji icon to render
@@ -335,49 +380,70 @@ class PluginApi {
    *   text        (optional) text to display alongside the emoji or icon
    *
    * ```
-   * api.addPosterIcon((cfs, attrs) => {
+   * api.addPosterIcons((cfs, attrs) => {
    *   if (cfs.customer) {
    *     return { icon: 'user', className: 'customer', title: 'customer' };
    *   }
    * });
    * ```
+   * or
+   * * ```
+   * api.addPosterIcons((cfs, attrs) => {
+   *   return attrs.customers.map(({name}) => {
+   *     icon: 'user', className: 'customer', title: name
+   *   })
+   * });
+   * ```
    **/
-  addPosterIcon(cb) {
+  addPosterIcons(cb) {
     const site = this._lookupContainer("site:main");
     const loc = site && site.mobileView ? "before" : "after";
 
     decorateWidget(`poster-name:${loc}`, (dec) => {
       const attrs = dec.attrs;
-      const result = cb(attrs.userCustomFields || {}, attrs);
+      let results = cb(attrs.userCustomFields || {}, attrs);
 
-      if (result) {
-        let iconBody;
-
-        if (result.icon) {
-          iconBody = iconNode(result.icon);
-        } else if (result.emoji) {
-          iconBody = result.emoji.split("|").map((name) => {
-            let widgetAttrs = { name };
-            if (result.emojiTitle) {
-              widgetAttrs.title = true;
-            }
-            return dec.attach("emoji", widgetAttrs);
-          });
+      if (results) {
+        if (!Array.isArray(results)) {
+          results = [results];
         }
 
-        if (result.text) {
-          iconBody = [iconBody, result.text];
-        }
+        return results.map((result) => {
+          let iconBody;
 
-        if (result.url) {
-          iconBody = dec.h("a", { attributes: { href: result.url } }, iconBody);
-        }
+          if (result.icon) {
+            iconBody = iconNode(result.icon);
+          } else if (result.emoji) {
+            iconBody = result.emoji.split("|").map((name) => {
+              let widgetAttrs = { name };
+              if (result.emojiTitle) {
+                widgetAttrs.title = true;
+              }
+              return dec.attach("emoji", widgetAttrs);
+            });
+          }
 
-        return dec.h(
-          "span.poster-icon",
-          { className: result.className, attributes: { title: result.title } },
-          iconBody
-        );
+          if (result.text) {
+            iconBody = [iconBody, result.text];
+          }
+
+          if (result.url) {
+            iconBody = dec.h(
+              "a",
+              { attributes: { href: result.url } },
+              iconBody
+            );
+          }
+
+          return dec.h(
+            "span.poster-icon",
+            {
+              className: result.className,
+              attributes: { title: result.title },
+            },
+            iconBody
+          );
+        });
       }
     });
   }
@@ -482,9 +548,17 @@ class PluginApi {
    * ```
    * api.removePostMenuButton('like');
    * ```
+   *
+   * ```
+   * api.removePostMenuButton('like', (attrs, state, siteSettings, settings, currentUser) => {
+   *   if (attrs.post_number === 1) {
+   *     return true;
+   *   }
+   * });
+   * ```
    **/
-  removePostMenuButton(name) {
-    removeButton(name);
+  removePostMenuButton(name, callback) {
+    removeButton(name, callback);
   }
 
   /**
@@ -728,18 +802,46 @@ class PluginApi {
   }
 
   /**
-   * Register a small icon to be used for custom small post actions
+   * Register a button to display at the bottom of a topic
    *
    * ```javascript
    * api.registerTopicFooterButton({
-   *   key: "flag"
-   *   icon: "flag"
-   *   action: (context) => console.log(context.get("topic.id"))
+   *   id: "flag",
+   *   icon: "flag",
+   *   action(context) { console.log(context.get("topic.id")) },
    * });
    * ```
    **/
-  registerTopicFooterButton(action) {
-    registerTopicFooterButton(action);
+  registerTopicFooterButton(buttonOptions) {
+    registerTopicFooterButton(buttonOptions);
+  }
+
+  /**
+   * Register a dropdown to display at the bottom of a topic, desktop only
+   *
+   * ```javascript
+   * api.registerTopicFooterDropdown({
+   *   id: "my-button",
+   *   content() { return [{id: 1, name: "foo"}] },
+   *   action(itemId) { console.log(itemId) },
+   * });
+   * ```
+   **/
+  registerTopicFooterDropdown(dropdownOptions) {
+    registerTopicFooterDropdown(dropdownOptions);
+  }
+
+  /**
+   * Register a desktop notification handler
+   *
+   * ```javascript
+   * api.registerDesktopNotificationHandler((data, siteSettings, user) => {
+   *   // Do something!
+   * });
+   * ```
+   **/
+  registerDesktopNotificationHandler(handler) {
+    registerDesktopNotificationHandler(handler);
   }
 
   /**
@@ -886,6 +988,7 @@ class PluginApi {
     if (!item["name"]) {
       // eslint-disable-next-line no-console
       console.warn(
+        consolePrefix(),
         "A 'name' is required when adding a Navigation Bar Item.",
         item
       );
@@ -989,15 +1092,16 @@ class PluginApi {
   }
 
   /**
-   * Registers a function to handle uploads for specified file types
+   * Registers a function to handle uploads for specified file types.
    * The normal uploading functionality will be bypassed if function returns
    * a falsy value.
-   * This only for uploads of individual files
    *
    * Example:
    *
-   * api.addComposerUploadHandler(["mp4", "mov"], (file, editor) => {
-   *   console.log("Handling upload for", file.name);
+   * api.addComposerUploadHandler(["mp4", "mov"], (files, editor) => {
+   *   files.forEach((file) => {
+   *     console.log("Handling upload for", file.name);
+   *   });
    * })
    */
   addComposerUploadHandler(extensions, method) {
@@ -1005,26 +1109,36 @@ class PluginApi {
   }
 
   /**
-   * Registers a pre-processor for file uploads
-   * See https://github.com/blueimp/jQuery-File-Upload/wiki/Options#file-processing-options
+   * Registers a pre-processor for file uploads in the form
+   * of an Uppy preprocessor plugin.
    *
-   * Useful for transforming to-be uploaded files client-side
+   * See https://uppy.io/docs/writing-plugins/ for the Uppy
+   * documentation, but other examples of preprocessors in core
+   * can be found in UppyMediaOptimization and UppyChecksum.
+   *
+   * Useful for transforming to-be uploaded files client-side.
    *
    * Example:
    *
-   * api.addComposerUploadProcessor({action: 'myFileTransformation'}, {
-   *    myFileTransformation: function (data, options) {
-   *      let p = new Promise((resolve, reject) => {
-   *        let file = data.files[data.index];
-   *        console.log(`Transforming ${file.name}`);
-   *        // do work...
-   *        resolve(data);
-   *      });
-   *      return p;
+   * api.addComposerUploadPreProcessor(UppyMediaOptimization, ({ composerModel, composerElement, capabilities, isMobileDevice }) => {
+   *   return {
+   *     composerModel,
+   *     composerElement,
+   *     capabilities,
+   *     isMobileDevice,
+   *     someOption: true,
+   *     someFn: () => {},
+   *   };
    * });
+   *
+   * @param {BasePlugin} pluginClass The uppy plugin class to use for the preprocessor.
+   * @param {Function} optionsResolverFn This function should return an object which is passed into the constructor
+   *                                     of the uppy plugin as the options argument. The object passed to the function
+   *                                     contains references to the composer model, element, the capabilities of the
+   *                                     browser, and isMobileDevice.
    */
-  addComposerUploadProcessor(queueItem, actionItem) {
-    addComposerUploadProcessor(queueItem, actionItem);
+  addComposerUploadPreProcessor(pluginClass, optionsResolverFn) {
+    addComposerUploadPreProcessor(pluginClass, optionsResolverFn);
   }
 
   /**
@@ -1178,6 +1292,21 @@ class PluginApi {
   }
 
   /**
+   * Register a custom last unread url for a topic list item.
+   * If a non-null value is returned, it will be used right away.
+   *
+   * Example:
+   *
+   * function testLastUnreadUrl(context) {
+   *   return context.urlForPostNumber(1);
+   * }
+   * api.registerCustomLastUnreadUrlCallback(testLastUnreadUrl);
+   **/
+  registerCustomLastUnreadUrlCallback(fn) {
+    registerCustomLastUnreadUrlCallback(fn);
+  }
+
+  /**
    * Registers custom languages for use with HighlightJS.
    *
    * See https://highlightjs.readthedocs.io/en/latest/language-guide.html
@@ -1202,10 +1331,22 @@ class PluginApi {
    * api.addGlobalNotice("text", "foo", { html: "<p>bar</p>" })
    *
    **/
-  addGlobalNotice(id, text, options) {
-    addGlobalNotice(id, text, options);
+  addGlobalNotice(text, id, options) {
+    addGlobalNotice(text, id, options);
   }
 
+  /**
+   * Used for modifying the document title count. The core count is unread notifications, and
+   * the returned value from calling the passed in function will be added to this number.
+   *
+   * For example, to add a count
+   * api.addDocumentTitleCounter(() => {
+   *   return currentUser.somePluginValue;
+   * })
+   **/
+  addDocumentTitleCounter(counterFunction) {
+    addPluginDocumentTitleCounter(counterFunction);
+  }
   /**
    * Used for decorating the rendered HTML content of a plugin-outlet after it's been rendered
    *
@@ -1374,6 +1515,65 @@ class PluginApi {
   }
 
   /**
+   * Download calendar modal which allow to pick between ICS and Google Calendar
+   *
+   * ```
+   * api.downloadCalendar("title of the event", [
+   * {
+        startsAt: "2021-10-12T15:00:00.000Z",
+        endsAt: "2021-10-12T16:00:00.000Z",
+      },
+   * ]);
+   * ```
+   *
+   */
+  downloadCalendar(title, dates) {
+    downloadCalendar(title, dates);
+  }
+
+  /**
+   * Add a quick search tip shown randomly when the search dropdown is invoked on desktop.
+   *
+   * Example usage:
+   * ```
+   * const tip = {
+   *    label: "in:docs",
+   *    description: I18n.t("search.tips.in_docs"),
+   *    clickable: true,
+   *    showTopics: true
+   * };
+   * api.addQuickSearchRandomTip(tip);
+   * ```
+   *
+   */
+  addQuickSearchRandomTip(tip) {
+    addQuickSearchRandomTip(tip);
+  }
+
+  /**
+   * Add custom user search options.
+   * It is heavily correlated with `register_groups_callback_for_users_search_controller_action` which allows defining custom filter.
+   * Example usage:
+   * ```
+   * api.addUserSearchOption("adminsOnly");
+
+   * register_groups_callback_for_users_search_controller_action(:admins_only) do |groups, user|
+   *   groups.where(name: "admins")
+   * end
+   *
+   * {{email-group-user-chooser
+   *   options=(hash
+   *     includeGroups=true
+   *     adminsOnly=true
+   *   )
+   * }}
+   * ```
+   */
+  addUserSearchOption(value) {
+    CUSTOM_USER_SEARCH_OPTIONS.push(value);
+  }
+
+  /**
    * Calls a method on a mounted widget whenever an app event happens.
    *
    * For example, if you have a widget with a `key` of `cool-widget` that lives inside the
@@ -1387,12 +1587,40 @@ class PluginApi {
    * is converted to camelCase and used as the method name for you.
    */
   dispatchWidgetAppEvent(mountedComponent, widgetKey, appEvent) {
-    this.modifyClass(`component:${mountedComponent}`, {
-      didInsertElement() {
-        this._super();
-        this.dispatch(appEvent, widgetKey);
+    this.modifyClass(
+      `component:${mountedComponent}`,
+      {
+        pluginId: `${mountedComponent}/${widgetKey}/${appEvent}`,
+
+        didInsertElement() {
+          this._super();
+          this.dispatch(appEvent, widgetKey);
+        },
       },
-    });
+      { ignoreMissing: true }
+    );
+  }
+
+  /**
+   * Support for customizing the composer text. By providing a callback. Callbacks should
+   * return `null` or `undefined` if you don't need a customization based on the current state.
+   *
+   * ```
+   * api.customizeComposerText({
+   *   actionTitle(model) {
+   *     if (model.hello) {
+   *        return "hello.world";
+   *     }
+   *   },
+   *
+   *   saveLabel(model) {
+   *     return "my.custom_save_label_key";
+   *   }
+   * })
+   *
+   */
+  customizeComposerText(callbacks) {
+    registerCustomizationCallback(callbacks);
   }
 }
 
@@ -1425,6 +1653,9 @@ function getPluginApi(version) {
       owner.registry.register("plugin-api:main", pluginApi, {
         instantiate: false,
       });
+    } else {
+      // If we are re-using an instance, make sure the container is correct
+      pluginApi.container = owner;
     }
 
     // We are recycling the compatible object, but let's update to the higher version
@@ -1435,7 +1666,7 @@ function getPluginApi(version) {
     return pluginApi;
   } else {
     // eslint-disable-next-line no-console
-    console.warn(`Plugin API v${version} is not supported`);
+    console.warn(consolePrefix(), `Plugin API v${version} is not supported`);
   }
 }
 
@@ -1462,7 +1693,8 @@ function decorate(klass, evt, cb, id) {
   if (!id) {
     // eslint-disable-next-line no-console
     console.warn(
-      "`decorateCooked` should be supplied with an `id` option to avoid memory leaks."
+      consolePrefix(),
+      "`decorateCooked` should be supplied with an `id` option to avoid memory leaks in test mode. The id will be used to ensure the decorator is only applied once."
     );
   } else {
     if (!_decorated.has(klass)) {
@@ -1477,11 +1709,18 @@ function decorate(klass, evt, cb, id) {
   }
 
   const mixin = {};
-  mixin["_decorate_" + _decorateId++] = on(evt, function (elem) {
+  let name = `_decorate_${_decorateId++}`;
+
+  if (id) {
+    name += `_${id.replaceAll(/\W/g, "_")}`;
+  }
+
+  mixin[name] = on(evt, function (elem) {
     elem = elem || this.element;
     if (elem) {
       cb(elem);
     }
   });
+
   klass.reopen(mixin);
 }

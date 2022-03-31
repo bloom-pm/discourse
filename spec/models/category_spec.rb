@@ -1,8 +1,6 @@
 # encoding: utf-8
 # frozen_string_literal: true
 
-require 'rails_helper'
-
 describe Category do
   fab!(:user) { Fabricate(:user) }
 
@@ -362,6 +360,19 @@ describe Category do
       expect(@cat).to be_valid
       expect(@cat.errors[:slug]).not_to be_present
     end
+
+    context 'if SiteSettings.slug_generation_method = ascii' do
+      before do
+        SiteSetting.slug_generation_method = 'ascii'
+      end
+
+      it 'fails if slug contains non-ascii characters' do
+        c = Fabricate.build(:category, name: "Sem acentuação", slug: "sem-acentuação")
+        expect(c).not_to be_valid
+
+        expect(c.errors[:slug]).to be_present
+      end
+    end
   end
 
   describe 'description_text' do
@@ -538,7 +549,7 @@ describe Category do
     it 'is deleted correctly' do
       @category.destroy
       expect(Category.exists?(id: @category_id)).to be false
-      expect(Topic.exists?(id: @topic_id)).to be false
+      expect(Topic.with_deleted.where.not(deleted_at: nil).exists?(id: @topic_id)).to be true
       expect(SiteSetting.shared_drafts_category).to be_blank
     end
 
@@ -1218,6 +1229,50 @@ describe Category do
 
       expect(Category.find_by_slug_path(['cat1', "#{subcategory.id}-category"])).to eq(subcategory)
       expect(Category.find_by_slug_path(["#{category.id}-category", "#{subcategory.id}-category"])).to eq(subcategory)
+    end
+  end
+
+  describe '#cannot_delete_reason' do
+    fab!(:admin) { Fabricate(:admin) }
+    let(:guardian) { Guardian.new(admin) }
+    fab!(:category) { Fabricate(:category) }
+
+    describe 'when category is uncategorized' do
+      it 'should return the reason' do
+        category = Category.find(SiteSetting.uncategorized_category_id)
+
+        expect(category.cannot_delete_reason).to eq(
+          I18n.t('category.cannot_delete.uncategorized')
+        )
+      end
+    end
+
+    describe 'when category has subcategories' do
+      it 'should return the right reason' do
+        category.subcategories << Fabricate(:category)
+
+        expect(category.cannot_delete_reason).to eq(
+          I18n.t('category.cannot_delete.has_subcategories')
+        )
+      end
+    end
+
+    describe 'when category has topics' do
+      it 'should return the right reason' do
+        topic = Fabricate(:topic,
+          title: '</a><script>alert(document.cookie);</script><a>',
+          category: category
+        )
+
+        category.reload
+
+        expect(category.cannot_delete_reason).to eq(
+          I18n.t('category.cannot_delete.topic_exists',
+            count: 1,
+            topic_link: "<a href=\"#{topic.url}\">&lt;/a&gt;&lt;script&gt;alert(document.cookie);&lt;/script&gt;&lt;a&gt;</a>"
+          )
+        )
+      end
     end
   end
 end

@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'rails_helper'
-
 describe TopicUser do
   let :watching do
     TopicUser.notification_levels[:watching]
@@ -226,7 +224,14 @@ describe TopicUser do
         freeze_time tomorrow
 
         Fabricate(:post, topic: topic, user: user)
-        TopicUser.update_last_read(user, topic.id, 2, 1, 0)
+        channel = TopicTrackingState.unread_channel_key(user.id)
+
+        messages = MessageBus.track_publish(channel) do
+          TopicUser.update_last_read(user, topic.id, 2, 1, 0)
+        end
+
+        expect(messages.blank?).to eq(false)
+
         topic_user = TopicUser.get(topic, user)
 
         expect(topic_user.last_read_post_number).to eq(2)
@@ -268,6 +273,20 @@ describe TopicUser do
 
         expect(TopicUser.get(topic, another_user).notification_level)
           .to eq(TopicUser.notification_levels[:regular])
+      end
+
+      it 'should publish the right message_bus message' do
+        TopicUser.update_last_read(user, topic.id, 1, 1, 0)
+
+        Fabricate(:post, topic: topic, user: user)
+
+        channel = PrivateMessageTopicTrackingState.user_channel(user.id)
+
+        messages = MessageBus.track_publish(channel) do
+          TopicUser.update_last_read(user, topic.id, 2, 1, 0)
+        end
+
+        expect(messages.blank?).to eq(false)
       end
 
       describe 'inviting a group' do

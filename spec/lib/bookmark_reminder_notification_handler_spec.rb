@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'rails_helper'
-
 RSpec.describe BookmarkReminderNotificationHandler do
   subject { described_class }
 
@@ -28,10 +26,28 @@ RSpec.describe BookmarkReminderNotificationHandler do
       expect(data["bookmark_name"]).to eq(bookmark.name)
     end
 
-    it "clears the reminder" do
-      subject.send_notification(bookmark)
-      bookmark.reload
-      expect(bookmark.reload.no_reminder?).to eq(true)
+    context "when the topic is deleted" do
+      before do
+        bookmark.topic.trash!
+        bookmark.reload
+      end
+
+      it "does not send a notification and updates last notification attempt time" do
+        expect { subject.send_notification(bookmark) }.not_to change { Notification.count }
+        expect(bookmark.reload.reminder_last_sent_at).not_to be_blank
+      end
+    end
+
+    context "when the post is deleted" do
+      before do
+        bookmark.post.trash!
+        bookmark.reload
+      end
+
+      it "does not send a notification and updates last notification attempt time" do
+        expect { subject.send_notification(bookmark) }.not_to change { Notification.count }
+        expect(bookmark.reload.reminder_last_sent_at).not_to be_blank
+      end
     end
 
     context "when the auto_delete_preference is when_reminder_sent" do
@@ -52,7 +68,7 @@ RSpec.describe BookmarkReminderNotificationHandler do
 
       context "if there are still other bookmarks in the topic" do
         before do
-          Fabricate(:bookmark, topic: bookmark.topic, post: Fabricate(:post, topic: bookmark.topic), user: user)
+          Fabricate(:bookmark, post: Fabricate(:post, topic: bookmark.topic), user: user)
         end
 
         it "does not change the TopicUser bookmarked column to false" do
@@ -62,12 +78,24 @@ RSpec.describe BookmarkReminderNotificationHandler do
       end
     end
 
+    context "when the auto_delete_preference is clear_reminder" do
+      before do
+        TopicUser.create!(topic: bookmark.topic, user: user, bookmarked: true)
+        bookmark.update(auto_delete_preference: Bookmark.auto_delete_preferences[:clear_reminder])
+      end
+
+      it "resets reminder_at after the reminder gets sent" do
+        subject.send_notification(bookmark)
+        expect(Bookmark.find_by(id: bookmark.id).reminder_at).to eq(nil)
+      end
+    end
+
     context "when the post has been deleted" do
-      it "clears the reminder and does not send a notification" do
+      it "does not send a notification" do
         bookmark.post.trash!
         bookmark.reload
-        subject.send_notification(bookmark)
-        expect(bookmark.reload.no_reminder?).to eq(true)
+        expect { subject.send_notification(bookmark) }.not_to change { Notification.count }
+        expect(bookmark.reload.reminder_last_sent_at).not_to be_blank
       end
     end
   end

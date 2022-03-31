@@ -17,7 +17,7 @@ class InlineUploads
     end
 
     cooked_fragment = Nokogiri::HTML5::fragment(PrettyText.cook(markdown, disable_emojis: true))
-    link_occurences = []
+    link_occurrences = []
 
     cooked_fragment.traverse do |node|
       if node.name == "img"
@@ -29,9 +29,9 @@ class InlineUploads
 
       if seen_link = matched_uploads(node).first
         if (actual_link = (node.attributes["href"]&.value || node.attributes["src"]&.value))
-          link_occurences << { link: actual_link, is_valid: true }
+          link_occurrences << { link: actual_link, is_valid: true }
         elsif node.name != "p"
-          link_occurences << { link: seen_link, is_valid: false }
+          link_occurrences << { link: seen_link, is_valid: false }
         end
       end
     end
@@ -104,7 +104,7 @@ class InlineUploads
       .sort { |a, b| a[3] <=> b[3] }
       .each do |match, link, replace_with, _index|
 
-      node_info = link_occurences.shift
+      node_info = link_occurrences.shift
       next unless node_info&.dig(:is_valid)
 
       if link.include?(node_info[:link])
@@ -149,7 +149,7 @@ class InlineUploads
 
   def self.match_md_inline_img(markdown, external_src: false)
     markdown.scan(/(!?\[([^\[\]]*)\]\(([^\s\)]+)([ ]*['"]{1}[^\)]*['"]{1}[ ]*)?\))/) do |match|
-      if (matched_uploads(match[2]).present? || external_src) && block_given?
+      if (external_src || matched_uploads(match[2]).present?) && block_given?
         yield(
           match[0],
           match[2],
@@ -162,7 +162,7 @@ class InlineUploads
 
   def self.match_bbcode_img(markdown, external_src: false)
     markdown.scan(/(\[img\]\s*([^\[\]\s]+)\s*\[\/img\])/i) do |match|
-      if (matched_uploads(match[1]).present? && block_given?) || external_src
+      if (external_src || (matched_uploads(match[1]).present?)) && block_given?
         yield(match[0], match[1], +"![](#{PLACEHOLDER})", $~.offset(0)[0])
       end
     end
@@ -186,7 +186,7 @@ class InlineUploads
       node = Nokogiri::HTML5::fragment(match[0]).children[0]
       href =  node.attributes["href"]&.value
 
-      if href && (matched_uploads(href).present? || external_href)
+      if href && (external_href || matched_uploads(href).present?)
         has_attachment = node.attributes["class"]&.value
         index = $~.offset(0)[0]
         text = match[2].strip.gsub("\n", "").gsub(/ +/, " ")
@@ -202,18 +202,12 @@ class InlineUploads
       node = Nokogiri::HTML5::fragment(match[2].strip).children[0]
       src = node&.attributes&.[]("src")&.value
 
-      if src && (matched_uploads(src).present? || external_src)
+      if src && (external_src || matched_uploads(src).present?)
         upload = uploads&.[](src)
-
-        text = upload&.original_filename || node.attributes["alt"]&.value
-        width = (node.attributes["width"]&.value || upload&.width).to_i
-        height = (node.attributes["height"]&.value || upload&.height).to_i
-        title = node.attributes["title"]&.value
-        text = "#{text}|#{width}x#{height}" if width > 0 && height > 0
-        url = upload&.short_url || PLACEHOLDER
+        node["src"] = upload&.short_url || PLACEHOLDER
 
         spaces_before = match[1].present? ? match[1][/ +$/].size : 0
-        replacement = +"#{" " * spaces_before}![#{text}](#{url}#{title.present? ? " \"#{title}\"" : ""})"
+        replacement = +"#{" " * spaces_before}#{node.to_s}"
 
         yield(match[2], src, replacement, $~.offset(0)[0]) if block_given?
       end

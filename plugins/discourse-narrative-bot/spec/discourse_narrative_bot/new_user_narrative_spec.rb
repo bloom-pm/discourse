@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'rails_helper'
-
 describe DiscourseNarrativeBot::NewUserNarrative do
   fab!(:welcome_topic) { Fabricate(:topic, title: 'Welcome to Discourse') }
   fab!(:narrative_bot) { ::DiscourseNarrativeBot::Base.new }
@@ -29,6 +27,7 @@ describe DiscourseNarrativeBot::NewUserNarrative do
   fab!(:reset_trigger) { DiscourseNarrativeBot::TrackSelector.reset_trigger }
 
   before do
+    stub_image_size
     Jobs.run_immediately!
     SiteSetting.discourse_narrative_bot_enabled = true
   end

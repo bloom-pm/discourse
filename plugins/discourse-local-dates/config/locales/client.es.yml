@@ -31,6 +31,7 @@ es:
           format_title: Formato de fecha
           timezone: Zona horaria
           until: Hasta...
+          current_timezone: "Zona horaria actual:"
           recurring:
             every_day: "Cada día"
             every_week: "Cada semana"
@@ -40,3 +41,4 @@ es:
             every_three_months: "Cada tres meses"
             every_six_months: "Cada seis meses"
             every_year: "Cada año"
+      default_title: "Evento de %{site_name}"

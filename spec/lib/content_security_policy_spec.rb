@@ -1,6 +1,4 @@
 # frozen_string_literal: true
-require 'rails_helper'
-
 describe ContentSecurityPolicy do
   after do
     DiscoursePluginRegistry.reset!
@@ -234,6 +232,7 @@ describe ContentSecurityPolicy do
       expect(parse(policy)['manifest-src']).to_not include('https://manifest-src.com')
 
       Discourse.plugins.delete plugin
+      DiscoursePluginRegistry.reset!
     end
 
     it 'can extend frame_ancestors' do
@@ -251,6 +250,7 @@ describe ContentSecurityPolicy do
       expect(parse(policy)['frame-ancestors']).to_not include('https://frame-ancestors-plugin.ext')
 
       Discourse.plugins.delete plugin
+      DiscoursePluginRegistry.reset!
     end
   end
 
@@ -325,13 +325,13 @@ describe ContentSecurityPolicy do
     it 'is extended automatically when themes reference external scripts' do
       policy # call this first to make sure further actions clear the cache
 
-      theme.set_field(target: :common, name: "header", value: <<~SCRIPT)
+      theme.set_field(target: :common, name: "header", value: <<~HTML)
         <script src='https://example.com/myscript.js'></script>
         <script src='https://example.com/myscript2.js?with=query'></script>
         <script src='//example2.com/protocol-less-script.js'></script>
         <script src='domain-only.com'></script>
         <script>console.log('inline script')</script>
-      SCRIPT
+      HTML
 
       theme.set_field(target: :desktop, name: "header", value: "")
       theme.save!

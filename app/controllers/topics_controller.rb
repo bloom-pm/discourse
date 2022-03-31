@@ -43,6 +43,13 @@ class TopicsController < ApplicationController
     render json: { slug: topic.slug, topic_id: topic.id, url: topic.url }
   end
 
+  def show_by_external_id
+    topic = Topic.find_by(external_id: params[:external_id])
+    raise Discourse::NotFound unless topic
+    guardian.ensure_can_see!(topic)
+    redirect_to_correct_topic(topic, params[:post_number])
+  end
+
   def show
     if request.referer
       flash["referer"] ||= request.referer[0..255]
@@ -56,7 +63,7 @@ class TopicsController < ApplicationController
     # arrays are not supported
     params[:page] = params[:page].to_i rescue 1
 
-    opts = params.slice(:username_filters, :filter, :page, :post_number, :show_deleted, :replies_to_post_number, :filter_upwards_post_id)
+    opts = params.slice(:username_filters, :filter, :page, :post_number, :show_deleted, :replies_to_post_number, :filter_upwards_post_id, :filter_top_level_replies)
     username_filters = opts[:username_filters]
 
     opts[:print] = true if params[:print].present?
@@ -262,14 +269,21 @@ class TopicsController < ApplicationController
     @posts = Post.where(hidden: false, deleted_at: nil, topic_id: @topic.id)
       .where('posts.id in (?)', post_ids)
       .joins("LEFT JOIN users u on u.id = posts.user_id")
-      .pluck(:id, :cooked, :username)
-      .map do |post_id, cooked, username|
-      {
-        post_id: post_id,
-        username: username,
-        excerpt: PrettyText.excerpt(cooked, 800, keep_emoji_images: true)
-      }
-    end
+      .pluck(:id, :cooked, :username, :action_code, :created_at)
+      .map do |post_id, cooked, username, action_code, created_at|
+        attrs = {
+          post_id: post_id,
+          username: username,
+          excerpt: PrettyText.excerpt(cooked, 800, keep_emoji_images: true),
+        }
+
+        if action_code
+          attrs[:action_code] = action_code
+          attrs[:created_at] = created_at
+        end
+
+        attrs
+      end
 
     render json: @posts.to_json
   end
@@ -278,7 +292,7 @@ class TopicsController < ApplicationController
     topic_id = params[:topic_id].to_i
 
     if params[:last].to_s == "1"
-      PostTiming.destroy_last_for(current_user, topic_id)
+      PostTiming.destroy_last_for(current_user, topic_id: topic_id)
     else
       PostTiming.destroy_for(current_user.id, [topic_id])
     end
@@ -380,8 +394,16 @@ class TopicsController < ApplicationController
     success = true
 
     if changes.length > 0
+      bypass_bump = should_bypass_bump?(changes)
+
       first_post = topic.ordered_posts.first
-      success = PostRevisor.new(first_post, topic).revise!(current_user, changes, validate_post: false)
+      success = PostRevisor.new(first_post, topic).revise!(
+        current_user,
+        changes,
+        validate_post: false,
+        bypass_bump: bypass_bump,
+        keep_existing_draft: params[:keep_existing_draft].to_s == "true"
+      )
 
       if !success && topic.errors.blank?
         topic.errors.add(:base, :unable_to_update)
@@ -548,12 +570,22 @@ class TopicsController < ApplicationController
     if group_ids.present?
       allowed_groups = topic.allowed_groups
         .where('topic_allowed_groups.group_id IN (?)', group_ids).pluck(:id)
+
       allowed_groups.each do |id|
         if archive
-          GroupArchivedMessage.archive!(id, topic)
+          GroupArchivedMessage.archive!(
+            id,
+            topic,
+            acting_user_id: current_user.id
+          )
+
           group_id = id
         else
-          GroupArchivedMessage.move_to_inbox!(id, topic)
+          GroupArchivedMessage.move_to_inbox!(
+            id,
+            topic,
+            acting_user_id: current_user.id
+          )
         end
       end
     end
@@ -589,11 +621,21 @@ class TopicsController < ApplicationController
   end
 
   def destroy
-    topic = Topic.find_by(id: params[:id])
-    guardian.ensure_can_delete!(topic)
+    topic = Topic.with_deleted.find_by(id: params[:id])
 
-    first_post = topic.ordered_posts.first
-    PostDestroyer.new(current_user, first_post, context: params[:context]).destroy
+    force_destroy = false
+    if params[:force_destroy].present?
+      if !guardian.can_permanently_delete?(topic)
+        return render_json_error topic.cannot_permanently_delete_reason(current_user), status: 403
+      end
+
+      force_destroy = true
+    else
+      guardian.ensure_can_delete!(topic)
+    end
+
+    first_post = topic.posts.with_deleted.order(:post_number).first
+    PostDestroyer.new(current_user, first_post, context: params[:context], force_destroy: force_destroy).destroy
 
     render body: nil
   rescue Discourse::InvalidAccess
@@ -640,39 +682,6 @@ class TopicsController < ApplicationController
     else
       render json: failed_json, status: 422
     end
-  end
-
-  def invite_notify
-    topic = Topic.find_by(id: params[:topic_id])
-    guardian.ensure_can_see!(topic)
-
-    usernames = params[:usernames]
-    raise Discourse::InvalidParameters.new(:usernames) if !usernames.kind_of?(Array) || (!current_user.staff? && usernames.size > 1)
-
-    users = User.where(username_lower: usernames.map(&:downcase))
-    raise Discourse::InvalidParameters.new(:usernames) if usernames.size != users.size
-
-    topic.rate_limit_topic_invitation(current_user)
-
-    users.find_each do |user|
-      if !user.guardian.can_see_topic?(topic)
-        return render json: failed_json.merge(error: I18n.t('topic_invite.user_cannot_see_topic', username: user.username)), status: 422
-      end
-    end
-
-    users.find_each do |user|
-      last_notification = user.notifications
-        .where(notification_type: Notification.types[:invited_to_topic])
-        .where(topic_id: topic.id)
-        .where(post_number: 1)
-        .where('created_at > ?', 1.hour.ago)
-
-      if !last_notification.exists?
-        topic.create_invite_notification!(user, Notification.types[:invited_to_topic], current_user.username)
-      end
-    end
-
-    render json: success_json
   end
 
   def invite_group
@@ -810,7 +819,7 @@ class TopicsController < ApplicationController
 
     destination_topic = move_posts_to_destination(topic)
     render_topic_changes(destination_topic)
-  rescue ActiveRecord::RecordInvalid => ex
+  rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotSaved => ex
     render_json_error(ex)
   end
 
@@ -913,6 +922,8 @@ class TopicsController < ApplicationController
     end
 
     discourse_expires_in 1.minute
+
+    response.headers['X-Robots-Tag'] = 'noindex, nofollow'
     render 'topics/show', formats: [:rss]
   end
 
@@ -942,7 +953,7 @@ class TopicsController < ApplicationController
   end
 
   def private_message_reset_new
-    topic_query = TopicQuery.new(current_user)
+    topic_query = TopicQuery.new(current_user, limit: false)
 
     if params[:topic_ids].present?
       unless Array === params[:topic_ids]
@@ -958,17 +969,16 @@ class TopicsController < ApplicationController
       params.require(:inbox)
       inbox = params[:inbox].to_s
       filter = private_message_filter(topic_query, inbox)
-      topic_query.options[:limit] = false
       topic_scope = topic_query.filter_private_message_new(current_user, filter)
     end
 
-    TopicsBulkAction.new(
+    topic_ids = TopicsBulkAction.new(
       current_user,
       topic_scope.pluck(:id),
       type: "dismiss_topics"
     ).perform!
 
-    render json: success_json
+    render json: success_json.merge(topic_ids: topic_ids)
   end
 
   def reset_new
@@ -1088,6 +1098,11 @@ class TopicsController < ApplicationController
     Promotion.new(current_user).review if current_user.present?
   end
 
+  def should_bypass_bump?(changes)
+    (changes[:category_id].present? && SiteSetting.disable_category_edit_notifications) ||
+      (changes[:tags].present? && SiteSetting.disable_tags_edit_notifications)
+  end
+
   def slugs_do_not_match
     if SiteSetting.slug_generation_method != "encoded"
       params[:slug] && @topic_view.topic.slug != params[:slug]
@@ -1103,12 +1118,17 @@ class TopicsController < ApplicationController
       raise(SiteSetting.detailed_404 ? ex : Discourse::NotFound)
     end
 
+    opts = params.slice(:page, :print, :filter_top_level_replies)
+    opts.delete(:page) if params[:page] == 0
+
     url = topic.relative_url
     url << "/#{post_number}" if post_number.to_i > 0
     url << ".json" if request.format.json?
 
-    page = params[:page]
-    url << "?page=#{page}" if page != 0
+    opts.each do |k, v|
+      s = url.include?('?') ? '&' : '?'
+      url << "#{s}#{k}=#{v}"
+    end
 
     redirect_to url, status: 301
   end
@@ -1166,7 +1186,7 @@ class TopicsController < ApplicationController
       scope: guardian,
       root: false,
       include_raw: !!params[:include_raw],
-      exclude_suggested_and_related: !!params[:replies_to_post_number] || !!params[:filter_upwards_post_id]
+      exclude_suggested_and_related: !!params[:replies_to_post_number] || !!params[:filter_upwards_post_id] || !!params[:filter_top_level_replies]
     )
 
     respond_to do |format|

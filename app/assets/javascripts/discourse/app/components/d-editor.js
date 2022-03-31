@@ -1,15 +1,20 @@
 import { ajax } from "discourse/lib/ajax";
-import { caretPosition, inCodeBlock } from "discourse/lib/utilities";
+import {
+  caretPosition,
+  inCodeBlock,
+  translateModKey,
+} from "discourse/lib/utilities";
 import discourseComputed, {
+  bind,
   observes,
   on,
 } from "discourse-common/utils/decorators";
 import { emojiSearch, isSkinTonableEmoji } from "pretty-text/emoji";
 import { emojiUrlFor, generateCookFunction } from "discourse/lib/text";
-import { later, schedule, scheduleOnce } from "@ember/runloop";
+import { schedule, scheduleOnce } from "@ember/runloop";
 import Component from "@ember/component";
 import I18n from "I18n";
-import Mousetrap from "mousetrap";
+import ItsATrap from "@discourse/itsatrap";
 import { Promise } from "rsvp";
 import { SKIP } from "discourse/lib/autocomplete";
 import { categoryHashtagTriggerRule } from "discourse/lib/category-hashtags";
@@ -17,7 +22,6 @@ import deprecated from "discourse-common/lib/deprecated";
 import discourseDebounce from "discourse-common/lib/debounce";
 import { findRawTemplate } from "discourse-common/lib/raw-templates";
 import { getRegister } from "discourse-common/lib/get-owner";
-import { isEmpty } from "@ember/utils";
 import { isTesting } from "discourse-common/config/environment";
 import { linkSeenHashtags } from "discourse/lib/link-hashtags";
 import { linkSeenMentions } from "discourse/lib/link-mentions";
@@ -31,28 +35,14 @@ import { siteDir } from "discourse/lib/text-direction";
 import { translations } from "pretty-text/emoji/data";
 import { wantsNewWindow } from "discourse/lib/intercept-click";
 import { action } from "@ember/object";
-import TextareaTextManipulation from "discourse/mixins/textarea-text-manipulation";
-
-// Our head can be a static string or a function that returns a string
-// based on input (like for numbered lists).
-function getHead(head, prev) {
-  if (typeof head === "string") {
-    return [head, head.length];
-  } else {
-    return getHead(head(prev));
-  }
-}
+import TextareaTextManipulation, {
+  getHead,
+} from "discourse/mixins/textarea-text-manipulation";
 
 function getButtonLabel(labelKey, defaultLabel) {
   // use the Font Awesome icon if the label matches the default
   return I18n.t(labelKey) === defaultLabel ? null : labelKey;
 }
-
-const OP = {
-  NONE: 0,
-  REMOVED: 1,
-  ADDED: 2,
-};
 
 const FOUR_SPACES_INDENT = "4-spaces-indent";
 
@@ -60,7 +50,7 @@ let _createCallbacks = [];
 
 class Toolbar {
   constructor(opts) {
-    const { siteSettings } = opts;
+    const { site, siteSettings } = opts;
     this.shortcuts = {};
     this.context = null;
 
@@ -125,29 +115,31 @@ class Toolbar {
       action: (...args) => this.context.send("formatCode", args),
     });
 
-    this.addButton({
-      id: "bullet",
-      group: "extras",
-      icon: "list-ul",
-      shortcut: "Shift+8",
-      title: "composer.ulist_title",
-      preventFocus: true,
-      perform: (e) => e.applyList("* ", "list_item"),
-    });
+    if (!site.mobileView) {
+      this.addButton({
+        id: "bullet",
+        group: "extras",
+        icon: "list-ul",
+        shortcut: "Shift+8",
+        title: "composer.ulist_title",
+        preventFocus: true,
+        perform: (e) => e.applyList("* ", "list_item"),
+      });
 
-    this.addButton({
-      id: "list",
-      group: "extras",
-      icon: "list-ol",
-      shortcut: "Shift+7",
-      title: "composer.olist_title",
-      preventFocus: true,
-      perform: (e) =>
-        e.applyList(
-          (i) => (!i ? "1. " : `${parseInt(i, 10) + 1}. `),
-          "list_item"
-        ),
-    });
+      this.addButton({
+        id: "list",
+        group: "extras",
+        icon: "list-ol",
+        shortcut: "Shift+7",
+        title: "composer.olist_title",
+        preventFocus: true,
+        perform: (e) =>
+          e.applyList(
+            (i) => (!i ? "1. " : `${parseInt(i, 10) + 1}. `),
+            "list_item"
+          ),
+      });
+    }
 
     if (siteSettings.support_mixed_text_direction) {
       this.addButton({
@@ -191,24 +183,12 @@ class Toolbar {
     if (button.shortcut) {
       const mac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
       const mod = mac ? "Meta" : "Ctrl";
-      let shortcutTitle = `${mod}+${button.shortcut}`;
 
-      // Mac users are used to glyphs for shortcut keys
-      if (mac) {
-        shortcutTitle = shortcutTitle
-          .replace("Shift", "\u21E7")
-          .replace("Meta", "\u2318")
-          .replace("Alt", "\u2325")
-          .replace(/\+/g, "");
-      } else {
-        shortcutTitle = shortcutTitle
-          .replace("Shift", I18n.t("shortcut_modifier_key.shift"))
-          .replace("Ctrl", I18n.t("shortcut_modifier_key.ctrl"))
-          .replace("Alt", I18n.t("shortcut_modifier_key.alt"));
-      }
+      const shortcutTitle = `${translateModKey(mod + "+")}${translateModKey(
+        button.shortcut
+      )}`;
 
       createdButton.title = `${title} (${shortcutTitle})`;
-
       this.shortcuts[`${mod}+${button.shortcut}`.toLowerCase()] = createdButton;
     } else {
       createdButton.title = title;
@@ -238,9 +218,10 @@ export default Component.extend(TextareaTextManipulation, {
   classNames: ["d-editor"],
   ready: false,
   lastSel: null,
-  _mouseTrap: null,
+  _itsatrap: null,
   showLink: true,
   emojiPickerIsActive: false,
+  emojiFilter: "",
   emojiStore: service("emoji-store"),
   isEditorFocused: false,
   processPreview: true,
@@ -271,6 +252,8 @@ export default Component.extend(TextareaTextManipulation, {
   didInsertElement() {
     this._super(...arguments);
 
+    this._previewMutationObserver = this._disablePreviewTabIndex();
+
     this._textarea = this.element.querySelector("textarea.d-editor-input");
     this._$textarea = $(this._textarea);
     this._applyEmojiAutocomplete(this._$textarea);
@@ -278,69 +261,94 @@ export default Component.extend(TextareaTextManipulation, {
 
     scheduleOnce("afterRender", this, this._readyNow);
 
-    this._mouseTrap = new Mousetrap(this._textarea);
+    this._itsatrap = new ItsATrap(this._textarea);
     const shortcuts = this.get("toolbar.shortcuts");
 
     Object.keys(shortcuts).forEach((sc) => {
       const button = shortcuts[sc];
-      this._mouseTrap.bind(sc, () => {
+      this._itsatrap.bind(sc, () => {
         button.action(button);
         return false;
       });
     });
 
+    this._itsatrap.bind("tab", () => this.indentSelection("right"));
+    this._itsatrap.bind("shift+tab", () => this.indentSelection("left"));
+
     // disable clicking on links in the preview
-    $(this.element.querySelector(".d-editor-preview")).on(
-      "click.preview",
-      (e) => {
-        if (wantsNewWindow(e)) {
-          return;
-        }
-        const $target = $(e.target);
-        if ($target.is("a.mention")) {
-          this.appEvents.trigger(
-            "click.discourse-preview-user-card-mention",
-            $target
-          );
-        }
-        if ($target.is("a.mention-group")) {
-          this.appEvents.trigger(
-            "click.discourse-preview-group-card-mention-group",
-            $target
-          );
-        }
-        if ($target.is("a")) {
-          e.preventDefault();
-          return false;
-        }
-      }
-    );
+    this.element
+      .querySelector(".d-editor-preview")
+      .addEventListener("click", this._handlePreviewLinkClick);
 
     if (this.composerEvents) {
-      this.appEvents.on("composer:insert-block", this, "_insertBlock");
-      this.appEvents.on("composer:insert-text", this, "_insertText");
-      this.appEvents.on("composer:replace-text", this, "_replaceText");
+      this.appEvents.on("composer:insert-block", this, "insertBlock");
+      this.appEvents.on("composer:insert-text", this, "insertText");
+      this.appEvents.on("composer:replace-text", this, "replaceText");
+      this.appEvents.on(
+        "composer:indent-selected-text",
+        this,
+        "indentSelection"
+      );
     }
 
     if (isTesting()) {
-      this.element.addEventListener("paste", this.paste.bind(this));
+      this.element.addEventListener("paste", this.paste);
+    }
+  },
+
+  @bind
+  _handlePreviewLinkClick(event) {
+    if (wantsNewWindow(event)) {
+      return;
+    }
+
+    if (event.target.tagName === "A") {
+      if (event.target.classList.contains("mention")) {
+        this.appEvents.trigger(
+          "click.discourse-preview-user-card-mention",
+          $(event.target)
+        );
+      }
+
+      if (event.target.classList.contains("mention-group")) {
+        this.appEvents.trigger(
+          "click.discourse-preview-group-card-mention-group",
+          $(event.target)
+        );
+      }
+
+      event.preventDefault();
+      return false;
     }
   },
 
   @on("willDestroyElement")
   _shutDown() {
     if (this.composerEvents) {
-      this.appEvents.off("composer:insert-block", this, "_insertBlock");
-      this.appEvents.off("composer:insert-text", this, "_insertText");
-      this.appEvents.off("composer:replace-text", this, "_replaceText");
+      this.appEvents.off("composer:insert-block", this, "insertBlock");
+      this.appEvents.off("composer:insert-text", this, "insertText");
+      this.appEvents.off("composer:replace-text", this, "replaceText");
+      this.appEvents.off(
+        "composer:indent-selected-text",
+        this,
+        "indentSelection"
+      );
     }
 
-    this._mouseTrap.reset();
-    $(this.element.querySelector(".d-editor-preview")).off("click.preview");
+    this._itsatrap?.destroy();
+    this._itsatrap = null;
+
+    this.element
+      .querySelector(".d-editor-preview")
+      ?.removeEventListener("click", this._handlePreviewLinkClick);
+
+    this._previewMutationObserver?.disconnect();
 
     if (isTesting()) {
       this.element.removeEventListener("paste", this.paste);
     }
+
+    this._cachedCookFunction = null;
   },
 
   @discourseComputed()
@@ -388,12 +396,14 @@ export default Component.extend(TextareaTextManipulation, {
 
       this.set("preview", cooked);
 
+      let previewPromise = Promise.resolve();
+
       if (this.siteSettings.enable_diffhtml_preview) {
         const cookedElement = document.createElement("div");
         cookedElement.innerHTML = cooked;
 
-        linkSeenHashtags($(cookedElement));
-        linkSeenMentions($(cookedElement), this.siteSettings);
+        linkSeenHashtags(cookedElement);
+        linkSeenMentions(cookedElement, this.siteSettings);
         resolveCachedShortUrls(this.siteSettings, cookedElement);
         loadOneboxes(
           cookedElement,
@@ -405,40 +415,29 @@ export default Component.extend(TextareaTextManipulation, {
           true
         );
 
-        loadScript("/javascripts/diffhtml.min.js").then(() => {
-          // changing the contents of the preview element between two uses of
-          // diff.innerHTML did not apply the diff correctly
-          window.diff.release(this.element.querySelector(".d-editor-preview"));
+        previewPromise = loadScript("/javascripts/diffhtml.min.js").then(() => {
           window.diff.innerHTML(
             this.element.querySelector(".d-editor-preview"),
-            cookedElement.innerHTML,
-            {
-              parser: {
-                rawElements: ["script", "noscript", "style", "template"],
-              },
-            }
+            cookedElement.innerHTML
           );
         });
       }
 
-      schedule("afterRender", () => {
-        if (this._state !== "inDOM" || !this.element) {
-          return;
-        }
+      previewPromise.then(() => {
+        schedule("afterRender", () => {
+          if (this._state !== "inDOM" || !this.element) {
+            return;
+          }
 
-        const preview = this.element.querySelector(".d-editor-preview");
-        if (!preview) {
-          return;
-        }
+          const preview = this.element.querySelector(".d-editor-preview");
+          if (!preview) {
+            return;
+          }
 
-        // prevents any tab focus in preview
-        preview.querySelectorAll("a").forEach((anchor) => {
-          anchor.setAttribute("tabindex", "-1");
+          if (this.previewUpdated) {
+            this.previewUpdated(preview);
+          }
         });
-
-        if (this.previewUpdated) {
-          this.previewUpdated($(preview));
-        }
       });
     });
   },
@@ -465,7 +464,7 @@ export default Component.extend(TextareaTextManipulation, {
       key: "#",
       afterComplete: (value) => {
         this.set("value", value);
-        return this._focusTextArea();
+        schedule("afterRender", this, this.focusTextArea);
       },
       transformComplete: (obj) => {
         return obj.text;
@@ -492,7 +491,7 @@ export default Component.extend(TextareaTextManipulation, {
       key: ":",
       afterComplete: (text) => {
         this.set("value", text);
-        this._focusTextArea();
+        schedule("afterRender", this, this.focusTextArea);
       },
 
       onKeyUp: (text, cp) => {
@@ -516,17 +515,7 @@ export default Component.extend(TextareaTextManipulation, {
         } else {
           $textarea.autocomplete({ cancel: true });
           this.set("emojiPickerIsActive", true);
-
-          schedule("afterRender", () => {
-            const filterInput = document.querySelector(
-              ".emoji-picker input[name='filter']"
-            );
-            if (filterInput) {
-              filterInput.value = v.term;
-
-              later(() => filterInput.dispatchEvent(new Event("input")), 50);
-            }
-          });
+          this.set("emojiFilter", v.term);
 
           return "";
         }
@@ -605,117 +594,9 @@ export default Component.extend(TextareaTextManipulation, {
     });
   },
 
-  // perform the same operation over many lines of text
-  _getMultilineContents(lines, head, hval, hlen, tail, tlen, opts) {
-    let operation = OP.NONE;
-
-    const applyEmptyLines = opts && opts.applyEmptyLines;
-
-    return lines
-      .map((l) => {
-        if (!applyEmptyLines && l.length === 0) {
-          return l;
-        }
-
-        if (
-          operation !== OP.ADDED &&
-          ((l.slice(0, hlen) === hval && tlen === 0) ||
-            (tail.length && l.slice(-tlen) === tail))
-        ) {
-          operation = OP.REMOVED;
-          if (tlen === 0) {
-            const result = l.slice(hlen);
-            [hval, hlen] = getHead(head, hval);
-            return result;
-          } else if (l.slice(-tlen) === tail) {
-            const result = l.slice(hlen, -tlen);
-            [hval, hlen] = getHead(head, hval);
-            return result;
-          }
-        } else if (operation === OP.NONE) {
-          operation = OP.ADDED;
-        } else if (operation === OP.REMOVED) {
-          return l;
-        }
-
-        const result = `${hval}${l}${tail}`;
-        [hval, hlen] = getHead(head, hval);
-        return result;
-      })
-      .join("\n");
-  },
-
-  _applySurround(sel, head, tail, exampleKey, opts) {
-    const pre = sel.pre;
-    const post = sel.post;
-
-    const tlen = tail.length;
-    if (sel.start === sel.end) {
-      if (tlen === 0) {
-        return;
-      }
-
-      const [hval, hlen] = getHead(head);
-      const example = I18n.t(`composer.${exampleKey}`);
-      this.set("value", `${pre}${hval}${example}${tail}${post}`);
-      this._selectText(pre.length + hlen, example.length);
-    } else if (opts && !opts.multiline) {
-      let [hval, hlen] = getHead(head);
-
-      if (opts.useBlockMode && sel.value.split("\n").length > 1) {
-        hval += "\n";
-        hlen += 1;
-        tail = `\n${tail}`;
-      }
-
-      if (pre.slice(-hlen) === hval && post.slice(0, tail.length) === tail) {
-        this.set(
-          "value",
-          `${pre.slice(0, -hlen)}${sel.value}${post.slice(tail.length)}`
-        );
-        this._selectText(sel.start - hlen, sel.value.length);
-      } else {
-        this.set("value", `${pre}${hval}${sel.value}${tail}${post}`);
-        this._selectText(sel.start + hlen, sel.value.length);
-      }
-    } else {
-      const lines = sel.value.split("\n");
-
-      let [hval, hlen] = getHead(head);
-      if (
-        lines.length === 1 &&
-        pre.slice(-tlen) === tail &&
-        post.slice(0, hlen) === hval
-      ) {
-        this.set(
-          "value",
-          `${pre.slice(0, -hlen)}${sel.value}${post.slice(tlen)}`
-        );
-        this._selectText(sel.start - hlen, sel.value.length);
-      } else {
-        const contents = this._getMultilineContents(
-          lines,
-          head,
-          hval,
-          hlen,
-          tail,
-          tlen,
-          opts
-        );
-
-        this.set("value", `${pre}${contents}${post}`);
-        if (lines.length === 1 && tlen > 0) {
-          this._selectText(sel.start + hlen, sel.value.length);
-        } else {
-          this._selectText(sel.start, contents.length);
-        }
-      }
-    }
-  },
-
   _applyList(sel, head, exampleKey, opts) {
     if (sel.value.indexOf("\n") !== -1) {
-      this._applySurround(sel, head, "", exampleKey, opts);
+      this.applySurround(sel, head, "", exampleKey, opts);
     } else {
       const [hval, hlen] = getHead(head);
       if (sel.start === sel.end) {
@@ -733,7 +614,7 @@ export default Component.extend(TextareaTextManipulation, {
       const post = trimmedPost.length ? `\n\n${trimmedPost}` : trimmedPost;
 
       this.set("value", `${preLines}${number}${post}`);
-      this._selectText(preLines.length, number.length);
+      this.selectText(preLines.length, number.length);
     }
   },
 
@@ -794,44 +675,21 @@ export default Component.extend(TextareaTextManipulation, {
       this.set("emojiPickerIsActive", !this.emojiPickerIsActive);
     },
 
-    emojiSelected(code) {
-      let selected = this._getSelected();
-      const captures = selected.pre.match(/\B:(\w*)$/);
-
-      if (isEmpty(captures)) {
-        if (selected.pre.match(/\S$/)) {
-          this._addText(selected, ` :${code}:`);
-        } else {
-          this._addText(selected, `:${code}:`);
-        }
-      } else {
-        let numOfRemovedChars = selected.pre.length - captures[1].length;
-        selected.pre = selected.pre.slice(
-          0,
-          selected.pre.length - captures[1].length
-        );
-        selected.start -= numOfRemovedChars;
-        selected.end -= numOfRemovedChars;
-        this._addText(selected, `${code}:`);
-      }
-    },
-
     toolbarButton(button) {
       if (this.disabled) {
         return;
       }
 
-      const selected = this._getSelected(button.trimLeading);
+      const selected = this.getSelected(button.trimLeading);
       const toolbarEvent = {
         selected,
         selectText: (from, length) =>
-          this._selectText(from, length, { scroll: false }),
+          this.selectText(from, length, { scroll: false }),
         applySurround: (head, tail, exampleKey, opts) =>
-          this._applySurround(selected, head, tail, exampleKey, opts),
+          this.applySurround(selected, head, tail, exampleKey, opts),
         applyList: (head, exampleKey, opts) =>
           this._applyList(selected, head, exampleKey, opts),
-        addText: (text) => this._addText(selected, text),
-        replaceText: (text) => this._addText({ pre: "", post: "" }, text),
+        addText: (text) => this.addText(selected, text),
         getText: () => this.value,
         toggleDirection: () => this._toggleDirection(),
       };
@@ -866,7 +724,7 @@ export default Component.extend(TextareaTextManipulation, {
         return;
       }
 
-      const sel = this._getSelected("", { lineVal: true });
+      const sel = this.getSelected("", { lineVal: true });
       const selValue = sel.value;
       const hasNewLine = selValue.indexOf("\n") !== -1;
       const isBlankLine = sel.lineVal.trim().length === 0;
@@ -878,25 +736,20 @@ export default Component.extend(TextareaTextManipulation, {
           if (isFourSpacesIndent) {
             const example = I18n.t(`composer.code_text`);
             this.set("value", `${sel.pre}    ${example}${sel.post}`);
-            return this._selectText(sel.pre.length + 4, example.length);
+            return this.selectText(sel.pre.length + 4, example.length);
           } else {
-            return this._applySurround(
-              sel,
-              "```\n",
-              "\n```",
-              "paste_code_text"
-            );
+            return this.applySurround(sel, "```\n", "\n```", "paste_code_text");
           }
         } else {
-          return this._applySurround(sel, "`", "`", "code_title");
+          return this.applySurround(sel, "`", "`", "code_title");
         }
       } else {
         if (isFourSpacesIndent) {
-          return this._applySurround(sel, "    ", "", "code_text");
+          return this.applySurround(sel, "    ", "", "code_text");
         } else {
           const preNewline = sel.pre[-1] !== "\n" && sel.pre !== "" ? "\n" : "";
           const postNewline = sel.post[0] !== "\n" ? "\n" : "";
-          return this._addText(
+          return this.addText(
             sel,
             `${preNewline}\`\`\`\n${sel.value}\n\`\`\`${postNewline}`
           );
@@ -911,5 +764,22 @@ export default Component.extend(TextareaTextManipulation, {
     focusOut() {
       this.set("isEditorFocused", false);
     },
+  },
+
+  _disablePreviewTabIndex() {
+    const observer = new MutationObserver(function () {
+      document.querySelectorAll(".d-editor-preview a").forEach((anchor) => {
+        anchor.setAttribute("tabindex", "-1");
+      });
+    });
+
+    observer.observe(document.querySelector(".d-editor-preview"), {
+      childList: true,
+      subtree: true,
+      attributes: false,
+      characterData: true,
+    });
+
+    return observer;
   },
 });

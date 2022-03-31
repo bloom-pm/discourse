@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require 'rails_helper'
-
 describe WatchedWord do
   fab!(:tl2_user) { Fabricate(:user, trust_level: TrustLevel[2]) }
   fab!(:admin) { Fabricate(:admin) }
@@ -30,6 +28,14 @@ describe WatchedWord do
         expect(result).to_not be_success
         expect(result.errors[:base]&.first).to eq(I18n.t('contains_blocked_word', word: block_word.word))
       }.to_not change { Post.count }
+    end
+
+    it "escapes the blocked word in error message" do
+      block_word = Fabricate(:watched_word, action: WatchedWord.actions[:block], word: "<a>")
+      manager = NewPostManager.new(tl2_user, raw: "Want some #{block_word.word} for cheap?", topic_id: topic.id)
+      result = manager.perform
+      expect(result).to_not be_success
+      expect(result.errors[:base]&.first).to eq(I18n.t('contains_blocked_word', word: "&lt;a&gt;"))
     end
 
     it "should prevent the post from being created" do

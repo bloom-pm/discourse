@@ -16,8 +16,6 @@ discourseModule("Integration | Component | value-list", function (hooks) {
   componentTest("adding a value", {
     template: hbs`{{value-list values=values}}`,
 
-    skip: true,
-
     beforeEach() {
       this.set("values", "vinkas\nosama");
     },
@@ -27,7 +25,7 @@ discourseModule("Integration | Component | value-list", function (hooks) {
       await selectKit().fillInFilter("eviltrout");
       await selectKit().keyboard("Enter");
 
-      assert.equal(
+      assert.strictEqual(
         count(".values .value"),
         3,
         "it adds the value to the list of values"
@@ -51,13 +49,13 @@ discourseModule("Integration | Component | value-list", function (hooks) {
     async test(assert) {
       await click(".values .value[data-index='0'] .remove-value-btn");
 
-      assert.equal(
+      assert.strictEqual(
         count(".values .value"),
         1,
         "it removes the value from the list of values"
       );
 
-      assert.equal(this.values, "osama", "it removes the expected value");
+      assert.strictEqual(this.values, "osama", "it removes the expected value");
 
       await selectKit().expand();
 
@@ -83,7 +81,7 @@ discourseModule("Integration | Component | value-list", function (hooks) {
       await selectKit().expand();
       await selectKit().selectRowByValue("maja");
 
-      assert.equal(
+      assert.strictEqual(
         count(".values .value"),
         3,
         "it adds the value to the list of values"
@@ -111,7 +109,7 @@ discourseModule("Integration | Component | value-list", function (hooks) {
       await selectKit().fillInFilter("eviltrout");
       await selectKit().selectRowByValue("eviltrout");
 
-      assert.equal(
+      assert.strictEqual(
         count(".values .value"),
         3,
         "it adds the value to the list of values"
@@ -132,14 +130,12 @@ discourseModule("Integration | Component | value-list", function (hooks) {
       this.set("values", "vinkas|osama");
     },
 
-    skip: true,
-
     async test(assert) {
       await selectKit().expand();
       await selectKit().fillInFilter("eviltrout");
       await selectKit().keyboard("Enter");
 
-      assert.equal(
+      assert.strictEqual(
         count(".values .value"),
         3,
         "it adds the value to the list of values"
