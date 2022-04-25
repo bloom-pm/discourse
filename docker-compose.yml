@@ -47,8 +47,8 @@ services:
       DISCOURSE_SECRET_KEY_BASE: "${DISCOURSE_SECRET_KEY_BASE}"
     #entrypoint: ["/bin/sh", "sleep", "10000"]
     command: ["no-compile"]
-  
-  web: 
+
+  web:
     build:
       context: ./docker
       dockerfile: ./nginx.dockerfile
@@ -58,32 +58,32 @@ services:
       - ./uploads:/var/www/discourse/public/uploads
     ports:
       - 80:80
-    environment: 
+    environment:
       DISCOURSE_HOST: "${DISCOURSE_HOST}"
     depends_on:
       - app
     command: ["/bin/sh" , "/etc/nginx/nginx.sh"]
-  
+
   cache:
     image: redis
     ports:
       - 6379:6379
-  
+
   mail:
     image: namshi/smtp
     restart: always
     volumes:
       - ./log:/var/log/exim4
-    environment: 
+    environment:
       SES_USER: "${DISCOURSE_SMTP_USER_NAME}"
       SES_PASSWORD: "${DISCOURSE_SMTP_PASSWORD}"
       SES_REGION: "${AWS_REGION}"
 
-  logrotate: 
+  logrotate:
     image: blacklabelops/logrotate
     volumes:
       - ./log:/var/lib/discourse
-    environment: 
+    environment:
       LOGS_DIRECTORIES: "/var/lib/discourse"
       LOGROTATE_SIZE: "10M"
       LOGROTATE_INTERVAL: "hourly"

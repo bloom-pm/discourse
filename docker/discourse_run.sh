@@ -1,5 +1,5 @@
 #!/bin/bash
-set -x 
+set -x
 set -e
 env
 
@@ -11,7 +11,7 @@ if [[ $OPTION == "compile" || -f discourse_first_run ]]; then
   bundle exec rake plugin:pull_compatible_all RAILS_ENV=production
   find /var/www/discourse/vendor/bundle -name tmp -type d -exec rm -rf {} +
   bundle exec rake db:prepare
-  bundle exec rake assets:precompile 
+  bundle exec rake assets:precompile
 fi
 
 #PIDFILE=/var/www/discourse/pids/puma.pid bundle exec rails s
