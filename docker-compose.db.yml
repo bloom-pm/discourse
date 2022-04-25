@@ -1,6 +1,11 @@
 version: "3.8"
 
 services:
+  app:
+    depends_on:
+      - cache
+      - db
+
   db:
     image: postgres
     restart: always
