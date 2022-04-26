@@ -5,6 +5,7 @@ FROM debian:buster-slim
 ENV PG_MAJOR 13
 ENV RUBY_ALLOCATOR /usr/lib/libjemalloc.so.1
 ENV RAILS_ENV production
+ENV BUNDLER_VERSION 2.2.26
 
 #LABEL maintainer="Sam Saffron \"https://twitter.com/samsaffron\""
 
@@ -63,6 +64,8 @@ RUN apt -y install advancecomp jhead jpegoptim libjpeg-turbo-progs optipng
 
 RUN apt -y install zlib1g-dev
 
+RUN sudo apt install python3-distutils -y # required by nodeJS https://github.com/nodejs/node/issues/30189#issuecomment-548250793
+
 RUN mkdir /jemalloc-stable && cd /jemalloc-stable &&\
       wget https://github.com/jemalloc/jemalloc/releases/download/3.6.0/jemalloc-3.6.0.tar.bz2 &&\
       tar -xjf jemalloc-3.6.0.tar.bz2 && cd jemalloc-3.6.0 && ./configure --prefix=/usr && make && make install &&\
@@ -80,7 +83,7 @@ RUN echo 'gem: --no-document' >> /usr/local/etc/gemrc &&\
 
 RUN gem update --system
 
-RUN gem install bundler --force &&\
+RUN gem install bundler -v ${BUNDLER_VERSION} --force &&\
     rm -rf /usr/local/share/ri/2.7.4/system &&\
     cd / && git clone https://github.com/discourse/pups.git
 
