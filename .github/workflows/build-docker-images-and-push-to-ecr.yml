@@ -1,0 +1,36 @@
+name: Build Docker Images and Push to AWS ECR
+
+on:
+  push:
+    branches: [ testing ]
+  pull_request:
+    branches: [ testing ]
+
+jobs:
+  proxy:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: 673099801448.dkr.ecr.eu-west-1.amazonaws.com/discourse-proxy
+    steps:
+      - uses: actions/checkout@v3
+      - name: Setup upterm session
+        uses: lhotari/action-upterm@v1
+      - name: Build
+        run: |
+          docker build -t $IMAGE_TAG -f nginx.dockerfile ./docker
+      - name: Push
+        run: |
+          docker push $IMAGE_TAG
+
+  api:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_TAG: 673099801448.dkr.ecr.eu-west-1.amazonaws.com/discourse-api
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build
+        run: |
+          docker build -t $IMAGE_TAG -f dockerfile .
+      - name: Push
+        run: |
+          docker push $IMAGE_TAG
