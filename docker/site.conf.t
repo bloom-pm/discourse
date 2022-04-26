@@ -40,7 +40,7 @@ server {
 
   resolver 127.0.0.11 valid=30s;
 
-  set $upstream app:3000;
+  set $upstream localhost:3000;
 
   access_log /var/log/nginx/access.log log_discourse;
 
