@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [ testing ]
 
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_COMMUNITY_CI_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_COMMUNITY_CI_SECRET_ACCESS_KEY }}
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+
 jobs:
   proxy:
     runs-on: ubuntu-latest
@@ -13,12 +18,12 @@ jobs:
       IMAGE_TAG: 673099801448.dkr.ecr.eu-west-1.amazonaws.com/discourse-proxy
     steps:
       - uses: actions/checkout@v3
-      - name: Setup upterm session
-        uses: lhotari/action-upterm@v1
-      - name: Build
+      - name: Build docker image
         run: |
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin 673099801448.dkr.ecr.eu-west-1.amazonaws.com
+          docker pull $IMAGE_TAG
           docker build -t $IMAGE_TAG -f nginx.dockerfile ./docker
-      - name: Push
+      - name: Push docker image to AWS ECR
         run: |
           docker push $IMAGE_TAG
 
@@ -28,9 +33,32 @@ jobs:
       IMAGE_TAG: 673099801448.dkr.ecr.eu-west-1.amazonaws.com/discourse-api
     steps:
       - uses: actions/checkout@v3
-      - name: Build
+      - name: Install awscli
+        run: pip install --upgrade awscli
+      - name: Pull .env from S3
         run: |
-          docker build -t $IMAGE_TAG -f dockerfile .
-      - name: Push
+          aws s3 sync s3://bloom-config-testing/env-files/commnuity/api.env ./.env
+          cat .env >> $GITHUB_ENV
+      - name: Setup upterm session
+        uses: lhotari/action-upterm@v1
+      - name: Build docker image
+        run: |
+          aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin 673099801448.dkr.ecr.eu-west-1.amazonaws.com
+          docker pull $IMAGE_TAG
+          docker build --build-arg DISCOURSE_MAXMIND_LICENSE_KEY=${DISCOURSE_MAXMIND_LICENSE_KEY} -t $IMAGE_TAG -f ./docker/dockerfile .
+      - name: Compile assets and upload them to S3
+        run: |
+          docker network create discourse
+          docker run --rm -d --name discourse_db -e POSTGRES_DB=discourse -e POSTGRES_USER=discourse -e POSTGRES_PASSWORD=password --network discourse postgres:13.4-alpine
+          docker run --rm -d --name discourse_cache --network discourse redis:alpine
+          docker run --rm -i --name assets_compiler --env-file api.env -e DISCOURSE_DB_HOST=discourse_db -e DISCOURSE_DB_PASSWORD=password -e DISCOURSE_REDIS_HOST=discourse_cache --network discourse $IMAGE_TAG 'bundle exec rake db:prepare && bundle exec rake assets:precompile && bundle exec rake s3:upload'
+      - name: Push docker image to AWS ECR
         run: |
           docker push $IMAGE_TAG
+          # update the ECS task def and update the service to run the latest task def
+          #
+          #
+          # 1. push image to ECR with new revision hash
+          # 2. Update task definition to use the new revision hash
+          # 3. Update the service running the task definition to use the new task definition revision
+          # 673099801448.dkr.ecr.eu-west-1.amazonaws.com/discourse-api:hash
