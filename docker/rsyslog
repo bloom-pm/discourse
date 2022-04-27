@@ -1,5 +1,0 @@
-#!/bin/bash
-exec 2>&1
-cd /
-rm -f /var/run/rsyslogd.pid
-exec rsyslogd -n
