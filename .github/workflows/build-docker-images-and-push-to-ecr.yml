@@ -29,12 +29,6 @@ jobs:
             echo "::set-output name=aws-ecs-task-def::commnuity-testing"
             echo "::set-output name=aws-ecs-service::commnuity-testing"
           fi
-      - name: Log
-        run: |
-          echo "steps.branch_based.outputs.aws-s3-bloom-config-bucket"
-          echo "${{ steps.branch_based.outputs.aws-s3-bloom-config-bucket }}"
-          echo "::set-output name=aws-ecs-task-def::commnuity-testing"
-          echo "::set-output name=aws-ecs-service::commnuity-testing"
 
   build-proxy:
     runs-on: ubuntu-latest
