@@ -119,9 +119,13 @@ jobs:
 
       - name: Download task definition
         run: |
+          echo "${{ needs.setup-env.outputs.aws-ecs-task-def }}"
+          echo "${{ needs.build-proxy.outputs.docker-image }}"
+          echo "${{ needs.build-api.outputs.docker-image }}"
+          echo "${{ needs.setup-env.outputs.aws-ecs-service }}"
           aws ecs describe-task-definition --task-definition ${{ needs.setup-env.outputs.aws-ecs-task-def }} --query taskDefinition > task-definition.json
 
-      - name: Fill in the new image IDs in the Amazon ECS task definition
+      - name: Update Task Definition Proxy Image
         id: proxy-task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
@@ -129,11 +133,11 @@ jobs:
           container-name: proxy
           image: ${{ needs.build-proxy.outputs.docker-image }}
 
-      - name: Fill in the new image IDs in the Amazon ECS task definition
+      - name: Update Task Definition API Image
         id: api-task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
+          task-definition: ${{ steps.proxy-task-def.outputs.task-definition }}
           container-name: api
           image: ${{ needs.build-api.outputs.docker-image }}
 
