@@ -33,7 +33,7 @@ jobs:
   build-proxy:
     runs-on: ubuntu-latest
     outputs:
-      docker-image: "test"
+      docker-image: ${{ steps.build-image.outputs.image }}
     steps:
       # - name: Configure AWS credentials
         # uses: aws-actions/configure-aws-credentials@v1
@@ -163,7 +163,7 @@ jobs:
       - name: Deploy Amazon ECS task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
-          task-definition: ${{ steps.task-def.outputs.api-task-definition }}
+          task-definition: ${{ steps.api-task-def.outputs.api-task-definition }}
           service: ${{ needs.setup-env.outputs.aws-ecs-service }}
           cluster: bloom
           wait-for-service-stability: true
