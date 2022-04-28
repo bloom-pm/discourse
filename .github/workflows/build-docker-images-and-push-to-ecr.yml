@@ -59,6 +59,7 @@ jobs:
           docker build -t $AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --cache-from $AWS_ECR_REGISTRY/$ECR_REPOSITORY -f ./docker/nginx.dockerfile ./docker
           docker push $AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "::set-output name=image::$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
   build-api:
     runs-on: ubuntu-latest
@@ -96,11 +97,13 @@ jobs:
           docker build -t $AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --cache-from $AWS_ECR_REGISTRY/$ECR_REPOSITORY -f ./docker/dockerfile --build-arg DISCOURSE_MAXMIND_LICENSE_KEY=${DISCOURSE_MAXMIND_LICENSE_KEY} .
           docker push $AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "::set-output name=image::$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
       - name: Compile assets and upload them to S3
         env:
           API_DOCKER_IMAGE: ${{ steps.build-image.outputs.image }}
         run: |
+          echo "${{ steps.build-image.outputs.image }}"
           docker network create discourse
           docker run --rm -d --name discourse_db -e POSTGRES_DB=discourse -e POSTGRES_USER=discourse -e POSTGRES_PASSWORD=password --network discourse postgres:13.4-alpine
           docker run --rm -d --name discourse_cache --network discourse redis:alpine
