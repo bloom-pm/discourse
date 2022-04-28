@@ -33,42 +33,37 @@ jobs:
   build-proxy:
     runs-on: ubuntu-latest
     outputs:
-      docker-image: ${{ steps.build-image.outputs.image }}
+      docker-image: ${{ steps.docker-image.outputs.image }}
     steps:
-      # - name: Configure AWS credentials
-        # uses: aws-actions/configure-aws-credentials@v1
-        # with:
-          # aws-access-key-id: ${{ secrets.AWS_COMMUNITY_CI_ACCESS_KEY_ID }}
-          # aws-secret-access-key: ${{ secrets.AWS_COMMUNITY_CI_SECRET_ACCESS_KEY }}
-          # aws-region: ${{ secrets.AWS_REGION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_COMMUNITY_CI_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_COMMUNITY_CI_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-      # - name: Login to Amazon ECR
-        # id: login-ecr
-        # uses: aws-actions/amazon-ecr-login@v1
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v1
 
-      # - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      # - name: Build, tag, and push image to Amazon ECR
-        # id: build-image
-        # env:
-          # AWS_ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          # ECR_REPOSITORY: discourse-proxy
-          # IMAGE_TAG: ${{ github.sha }}
-        # run: |
-          # docker pull $AWS_ECR_REGISTRY/$ECR_REPOSITORY
-          # docker build -t $AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --cache-from $AWS_ECR_REGISTRY/$ECR_REPOSITORY -f ./docker/nginx.dockerfile ./docker
-          # docker push $AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          # echo "::set-output name=image::$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          # echo "$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-      - name: Output
-        id: build-image
+      - name: Set docker image name and tag
+        id: docker-image
         env:
-          AWS_ECR_REGISTRY: 673099801448.dkr.ecr.eu-west-1.amazonaws.com
+          AWS_ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
           ECR_REPOSITORY: discourse-proxy
           IMAGE_TAG: ${{ github.sha }}
         run: |
           echo "::set-output name=image::$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
-          echo "$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "::set-output name=untagged-image::$AWS_ECR_REGISTRY/$ECR_REPOSITORY"
+
+      - name: Build, tag, and push image to Amazon ECR
+        id: build-image
+        run: |
+          docker pull ${{ steps.docker-image.outputs.untagged-image }}
+          docker build -t ${{ steps.docker-image.outputs.image }} --cache-from ${{ steps.docker-image.outputs.untagged-image }} -f ./docker/nginx.dockerfile ./docker
+          docker push ${{ steps.docker-image.outputs.image }}
 
   build-api:
     runs-on: ubuntu-latest
@@ -163,7 +158,7 @@ jobs:
       - name: Deploy Amazon ECS task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
-          task-definition: ${{ steps.api-task-def.outputs.api-task-definition }}
+          task-definition: ${{ steps.api-task-def.outputs.task-definition }}
           service: ${{ needs.setup-env.outputs.aws-ecs-service }}
           cluster: bloom
           wait-for-service-stability: true
