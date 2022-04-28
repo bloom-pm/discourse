@@ -1,20 +1,22 @@
-# NAME:     discourse/base
-# VERSION:  release
-FROM debian:buster-slim
+# This code comes from with minor modifications:
+#  - https://github.com/discourse/discourse_docker/blob/93906f14f4a2df88aea11340fb1b11efbc4a785f/image/base/slim.Dockerfile
+#  - https://github.com/discourse/discourse_docker/blob/93906f14f4a2df88aea11340fb1b11efbc4a785f/image/base/release.Dockerfile
+FROM debian:bullseye-slim
+
+ARG DISCOURSE_MAXMIND_LICENSE_KEY
 
 ENV PG_MAJOR 13
 ENV RUBY_ALLOCATOR /usr/lib/libjemalloc.so.1
 ENV RAILS_ENV production
-
-#LABEL maintainer="Sam Saffron \"https://twitter.com/samsaffron\""
+ENV DISCOURSE_MAXMIND_LICENSE_KEY=$DISCOURSE_MAXMIND_LICENSE_KEY
+ENV BUNDLER_VERSION 2.3.5
 
 RUN echo 2.0.`date +%Y%m%d` > /VERSION
 
-RUN apt update && apt install -y gnupg sudo curl
+RUN echo 'deb http://deb.debian.org/debian bullseye-backports main' > /etc/apt/sources.list.d/bullseye-backports.list
 RUN echo "debconf debconf/frontend select Teletype" | debconf-set-selections
-RUN apt update && apt -y install fping
+RUN apt update && apt -y install gnupg sudo curl fping
 RUN sh -c "fping proxy && echo 'Acquire { Retries \"0\"; HTTP { Proxy \"http://proxy:3128\";}; };' > /etc/apt/apt.conf.d/40proxy && apt update || true"
-RUN apt -y install software-properties-common
 RUN apt-mark hold initscripts
 RUN apt -y upgrade
 
@@ -24,7 +26,7 @@ ENV LANG en_US.UTF-8
 ENV LANGUAGE en_US.UTF-8
 
 RUN curl https://apt.postgresql.org/pub/repos/apt/ACCC4CF8.asc | apt-key add -
-RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ buster-pgdg main" | \
+RUN echo "deb http://apt.postgresql.org/pub/repos/apt/ bullseye-pgdg main" | \
         tee /etc/apt/sources.list.d/postgres.list
 RUN curl --silent --location https://deb.nodesource.com/setup_16.x | sudo bash -
 RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add -
@@ -33,14 +35,15 @@ RUN apt -y update
 # install these without recommends to avoid pulling in e.g.
 # X11 libraries, mailutils
 RUN apt -y install --no-install-recommends git rsyslog logrotate cron ssh-client less
-RUN apt -y install build-essential rsync \
+RUN apt -y install autoconf build-essential ca-certificates rsync \
                        libxslt-dev libcurl4-openssl-dev \
                        libssl-dev libyaml-dev libtool \
+                       libpcre3 libpcre3-dev zlib1g zlib1g-dev \
                        libxml2-dev gawk parallel \
-                       postgresql-client-${PG_MAJOR} \
+                       postgresql-${PG_MAJOR} postgresql-client-${PG_MAJOR} \
                        postgresql-contrib-${PG_MAJOR} libpq-dev libreadline-dev \
                        anacron wget \
-                       psmisc vim whois brotli libunwind-dev \
+                       psmisc whois brotli libunwind-dev \
                        libtcmalloc-minimal4 cmake \
                        pngcrush pngquant
 RUN sed -i -e 's/start -q anacron/anacron -s/' /etc/cron.d/anacron
@@ -58,38 +61,24 @@ RUN cd / &&\
     npm install -g terser &&\
     npm install -g uglify-js
 
-
-RUN apt -y install advancecomp jhead jpegoptim libjpeg-turbo-progs optipng
-
-RUN apt -y install zlib1g-dev
-
-RUN mkdir /jemalloc-stable && cd /jemalloc-stable &&\
-      wget https://github.com/jemalloc/jemalloc/releases/download/3.6.0/jemalloc-3.6.0.tar.bz2 &&\
-      tar -xjf jemalloc-3.6.0.tar.bz2 && cd jemalloc-3.6.0 && ./configure --prefix=/usr && make && make install &&\
-      cd / && rm -rf /jemalloc-stable
-
-RUN mkdir /jemalloc-new && cd /jemalloc-new &&\
-      wget https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2 &&\
-      tar -xjf jemalloc-5.2.1.tar.bz2 && cd jemalloc-5.2.1 && ./configure --prefix=/usr --with-install-suffix=5.2.1 && make build_lib && make install_lib &&\
-      cd / && rm -rf /jemalloc-new
-
-RUN echo 'gem: --no-document' >> /usr/local/etc/gemrc &&\
-    mkdir /src && cd /src && git clone https://github.com/sstephenson/ruby-build.git &&\
-    cd /src/ruby-build && ./install.sh &&\
-    cd / && rm -rf /src/ruby-build && (ruby-build 2.7.4 /usr/local)
-
-RUN gem update --system
-
-RUN gem install bundler --force &&\
-    rm -rf /usr/local/share/ri/2.7.4/system &&\
-    cd / && git clone https://github.com/discourse/pups.git
-
-
-ADD docker/install-imagemagick /tmp/install-imagemagick
+ADD ./docker/install-imagemagick /tmp/install-imagemagick
 RUN /tmp/install-imagemagick
 
-# Validate install
-RUN ruby -Eutf-8 -e "v = \`convert -version\`; %w{png tiff jpeg freetype heic}.each { |f| unless v.include?(f); STDERR.puts('no ' + f +  ' support in imagemagick'); exit(-1); end }"
+ADD ./docker/install-jemalloc /tmp/install-jemalloc
+RUN /tmp/install-jemalloc
+
+ADD ./docker/install-oxipng /tmp/install-oxipng
+RUN /tmp/install-oxipng
+
+ADD ./docker/install-ruby /tmp/install-ruby
+RUN /tmp/install-ruby
+
+RUN echo 'gem: --no-document' >> /usr/local/etc/gemrc &&\
+    gem update --system
+
+RUN gem install "bundler:${BUNDLER_VERSION}" pups --force &&\
+    mkdir -p /pups/bin/ &&\
+    ln -s /usr/local/bin/pups /pups/bin/pups
 
 # This tool allows us to disable huge page support for our current process
 # since the flag is preserved through forks and execs it can be used on any
@@ -98,44 +87,33 @@ ADD ./docker/thpoff.c /src/thpoff.c
 RUN gcc -o /usr/local/sbin/thpoff /src/thpoff.c && rm /src/thpoff.c
 
 # clean up for docker squash
-RUN   rm -fr /usr/share/man &&\
-      rm -fr /usr/share/doc &&\
-      rm -fr /usr/share/vim/vim74/tutor &&\
-      rm -fr /usr/share/vim/vim74/doc &&\
-      rm -fr /usr/share/vim/vim74/lang &&\
-      rm -fr /usr/local/share/doc &&\
-      rm -fr /usr/local/share/ruby-build &&\
-      rm -fr /root/.gem &&\
-      rm -fr /root/.npm &&\
-      rm -fr /tmp/* &&\
-      rm -fr /usr/share/vim/vim74/spell/en*
+RUN rm -fr /usr/share/man &&\
+    rm -fr /usr/share/doc &&\
+    rm -fr /usr/share/vim/vim74/doc &&\
+    rm -fr /usr/share/vim/vim74/lang &&\
+    rm -fr /usr/share/vim/vim74/spell/en* &&\
+    rm -fr /usr/share/vim/vim74/tutor &&\
+    rm -fr /usr/local/share/doc &&\
+    rm -fr /usr/local/share/ri &&\
+    rm -fr /usr/local/share/ruby-build &&\
+    rm -fr /var/lib/apt/lists/* &&\
+    rm -fr /root/.gem &&\
+    rm -fr /root/.npm &&\
+    rm -fr /tmp/*
 
-
-# this can probably be done, but I worry that people changing PG locales will have issues
-# cd /usr/share/locale && rm -fr `ls -d */ | grep -v en`
-
-RUN mkdir -p /etc/runit/3.d
-RUN ls
-ADD ./docker/runit1 /etc/runit/1
-ADD ./docker/runit1.d-clean-pids /etc/runit/1.d/cleanup-pids
-ADD ./docker/runit1.d-anacron /etc/runit/1.d/anacron
-ADD ./docker/runit1.d /etc/runit/1.d/00-fix-var-logs
-ADD ./docker/runit2 /etc/runit/2
-ADD ./docker/runit3 /etc/runit/3
-ADD ./docker/boot /sbin/boot
-
-ADD ./docker/cron /etc/service/cron/run
-ADD ./docker/rsyslog /etc/service/rsyslog/run
-ADD ./docker/cron.d-anacron /etc/cron.d/anacron
-
-RUN chmod +x /etc/service/cron/run && chmod +x /etc/service/rsyslog/run && chmod +x /etc/cron.d/anacron
-
+# this is required for arch64 which uses buildx
+# see https://github.com/docker/buildx/issues/150
+RUN rm -f /etc/service
 
 # Discourse specific bits
 RUN useradd discourse -s /bin/bash -m -U &&\
     mkdir -p /var/www/discourse &&\
-    cd /var/www/discourse 
+    mkdir -p /var/www/discourse/public/javascripts &&\
+    mkdir -p /var/www/discourse/log
 WORKDIR /var/www/discourse
+
+COPY ./docker/etc/  /etc
+COPY ./docker/sbin/ /sbin
 
 ADD ["./config.ru", "./.ruby-version.sample","./Brewfile","./package.json","./README.md","./.rubocop.yml","./.eslintignore","./Gemfile.lock","./.prettierrc","./Gemfile","./.prettierignore","./.ruby-gemset.sample","./translator.yml","./Rakefile","./.licensed.yml","./lefthook.yml","./yarn.lock","./.eslintrc","./.template-lintrc.js","./.rspec_parallel","./CONTRIBUTING.md","./LICENSE.txt","./.rspec", "./"] .
 ADD "script/" "script/"
@@ -148,32 +126,22 @@ ADD "test/" "test/"
 ADD "bin/" "bin"
 ADD "images/" "images/"
 ADD "vendor/" "vendor/"
-ADD "docker/discourse_install.sh" "./"
-RUN mkdir pids
-RUN chmod 0777 pids
-RUN chmod +x discourse_install.sh 
-RUN ./discourse_install.sh
-RUN mkdir -p tmp/sockets
-RUN chmod -R 0755 tmp/
-ADD "docker/discourse_run.sh" "./"
-RUN chmod +x discourse_run.sh
 
-RUN cd plugins && git clone https://github.com/discourse/docker_manager.git  &&\
-           git clone https://github.com/angusmcleod/discourse-events.git &&\
-           git clone https://github.com/davidtaylorhq/discourse-whos-online.git &&\
-           git clone https://github.com/discourse/discourse-checklist.git &&\
-           git clone https://github.com/discourse/discourse-data-explorer.git &&\
-           git clone https://github.com/BeXcellent/discourse-allowiframe.git 
+RUN chown -R discourse:discourse /var/www/discourse
 
-RUN  mkdir -p pids/ 
-RUN chmod -R 0777  pids/
-RUN touch  pids/puma.pid
-RUN chmod 0777  pids/puma.pid
-RUN  mkdir -p /var/www/discourse/tmp/pids
-RUN chmod -R 0777  /var/www/discourse/tmp
+RUN sudo -u discourse bundle config --local deployment true &&\
+    sudo -u discourse bundle config --local path ./vendor/bundle &&\
+    sudo -u discourse bundle config --local without test development &&\
+    sudo -u discourse bundle install --jobs 4 &&\
+    sudo -u discourse yarn install --production &&\
+    sudo -u discourse yarn cache clean &&\
+    bundle exec rake maxminddb:get &&\
+    chown -R discourse:discourse tmp public &&\
+    find /var/www/discourse/vendor/bundle -name tmp -type d -exec rm -rf {} +
 
-RUN bundle exec rails plugin:install_all_gems
-
-COPY docker/discourse_first_run . 
-ENTRYPOINT ["/bin/bash", "./discourse_run.sh"]
-CMD ["compile"]
+RUN cd plugins && git clone https://github.com/discourse/docker_manager.git &&\
+    git clone https://github.com/angusmcleod/discourse-events.git &&\
+    git clone https://github.com/davidtaylorhq/discourse-whos-online.git &&\
+    git clone https://github.com/discourse/discourse-checklist.git &&\
+    git clone https://github.com/discourse/discourse-data-explorer.git &&\
+    git clone https://github.com/BeXcellent/discourse-allowiframe.git

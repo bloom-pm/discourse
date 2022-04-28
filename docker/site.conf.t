@@ -4,7 +4,7 @@ types {
     application/wasm wasm;
 }
 
- 
+
 
 # inactive means we keep stuff around for 1440m minutes regardless of last access (1 week)
 # levels means it is a 2 deep hierarchy cause we can have lots of files
@@ -40,7 +40,7 @@ server {
 
   resolver 127.0.0.11 valid=30s;
 
-  set $upstream app:3000;
+  set $upstream localhost:3000;
 
   access_log /var/log/nginx/access.log log_discourse;
 
@@ -87,7 +87,7 @@ server {
     internal;
   }
 
-   
+
   location / {
     root $public;
     add_header ETag "";
@@ -204,7 +204,7 @@ server {
           add_header Access-Control-Allow-Origin *;
           try_files $uri =404;
       }
-      
+
       try_files $uri @discourse;
       break;
     }

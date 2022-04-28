@@ -1,0 +1,164 @@
+name: Build Docker Images and Push to AWS ECR
+
+on:
+  push:
+    branches: [testing, master]
+  # TODO remove pull request after done testing
+  pull_request:
+    branches: [testing]
+
+jobs:
+  setup-env:
+    runs-on: ubuntu-latest
+    outputs:
+      aws-s3-bloom-config-bucket: ${{ steps.branch_based.outputs.aws-s3-bloom-config-bucket }}
+      aws-ecs-task-def: ${{ steps.branch_based.outputs.aws-ecs-task-def }}
+      aws-ecs-service: ${{ steps.branch_based.outputs.aws-ecs-service }}
+    steps:
+      - name: Set Variables Depending on Current Branch
+        id: branch_based
+        run: |
+          echo "Running on branch ${{ github.ref }}"
+          if [ "${{ github.ref }}" = "refs/heads/master" ]; then
+            echo "::set-output name=aws-s3-bloom-config-bucket::bloom-config-production"
+            echo "::set-output name=aws-ecs-task-def::community-production"
+            echo "::set-output name=aws-ecs-service::community-production"
+          # TODO uncomment and delete next line elif [ "${{ github.ref }}" = "refs/heads/testing" ]; then
+          else
+            echo "::set-output name=aws-s3-bloom-config-bucket::bloom-config-testing"
+            echo "::set-output name=aws-ecs-task-def::community-testing"
+            echo "::set-output name=aws-ecs-service::community-testing"
+          fi
+
+  build-proxy:
+    runs-on: ubuntu-latest
+    outputs:
+      docker-image: ${{ steps.docker-image.outputs.image }}
+    steps:
+      # - name: Configure AWS credentials
+        # uses: aws-actions/configure-aws-credentials@v1
+        # with:
+          # aws-access-key-id: ${{ secrets.AWS_COMMUNITY_CI_ACCESS_KEY_ID }}
+          # aws-secret-access-key: ${{ secrets.AWS_COMMUNITY_CI_SECRET_ACCESS_KEY }}
+          # aws-region: ${{ secrets.AWS_REGION }}
+
+      # - name: Login to Amazon ECR
+        # id: login-ecr
+        # uses: aws-actions/amazon-ecr-login@v1
+
+      # - uses: actions/checkout@v3
+
+      - name: Set docker image name and tag
+        id: docker-image
+        env:
+          AWS_ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          ECR_REPOSITORY: discourse-proxy
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "::set-output name=image::$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "::set-output name=untagged-image::$AWS_ECR_REGISTRY/$ECR_REPOSITORY"
+
+      # - name: Build, tag, and push image to Amazon ECR
+        # id: build-image
+        # run: |
+          # docker pull ${{ steps.docker-image.outputs.untagged-image }}
+          # docker build -t ${{ steps.docker-image.outputs.image }} --cache-from ${{ steps.docker-image.outputs.untagged-image }} -f ./docker/nginx.dockerfile ./docker
+          # docker push ${{ steps.docker-image.outputs.image }}
+
+  build-api:
+    runs-on: ubuntu-latest
+    needs: setup-env
+    outputs:
+      docker-image: ${{ steps.build-image.outputs.image }}
+    steps:
+      # - name: Configure AWS credentials
+        # uses: aws-actions/configure-aws-credentials@v1
+        # with:
+          # aws-access-key-id: ${{ secrets.AWS_COMMUNITY_CI_ACCESS_KEY_ID }}
+          # aws-secret-access-key: ${{ secrets.AWS_COMMUNITY_CI_SECRET_ACCESS_KEY }}
+          # aws-region: ${{ secrets.AWS_REGION }}
+
+      # - name: Login to Amazon ECR
+        # id: login-ecr
+        # uses: aws-actions/amazon-ecr-login@v1
+
+      # - uses: actions/checkout@v3
+
+      # - name: Pull .env from S3
+        # run: aws s3 cp "s3://${{ needs.setup-env.outputs.aws-s3-bloom-config-bucket }}/community/api.env" ./.env
+
+      # - name: Set environment variables
+        # run: cat .env >> $GITHUB_ENV
+
+      # - name: Build, tag, and push image to Amazon ECR
+        # id: build-image
+        # env:
+          # AWS_ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          # ECR_REPOSITORY: discourse-api
+          # IMAGE_TAG: ${{ github.sha }}
+        # run: |
+          # docker pull $AWS_ECR_REGISTRY/$ECR_REPOSITORY
+          # docker build -t $AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --cache-from $AWS_ECR_REGISTRY/$ECR_REPOSITORY -f ./docker/dockerfile --build-arg DISCOURSE_MAXMIND_LICENSE_KEY=${DISCOURSE_MAXMIND_LICENSE_KEY} .
+          # docker push $AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+      - name: Output
+        id: build-image
+        env:
+          AWS_ECR_REGISTRY: 673099801448.dkr.ecr.eu-west-1.amazonaws.com
+          ECR_REPOSITORY: discourse-api
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          echo "::set-output name=image::$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          echo "$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+
+      # - name: Compile assets and upload them to S3
+        # env:
+          # API_DOCKER_IMAGE: ${{ steps.build-image.outputs.image }}
+        # run: |
+          # echo "${{ steps.build-image.outputs.image }}"
+          # docker network create discourse
+          # docker run --rm -d --name discourse_db -e POSTGRES_DB=discourse -e POSTGRES_USER=discourse -e POSTGRES_PASSWORD=password --network discourse postgres:13.4-alpine
+          # docker run --rm -d --name discourse_cache --network discourse redis:alpine
+          # docker run --rm -i --name assets_compiler --env-file .env -e DISCOURSE_DB_HOST=discourse_db -e DISCOURSE_DB_PASSWORD=password -e DISCOURSE_REDIS_HOST=discourse_cache --network discourse $API_DOCKER_IMAGE sh -c 'bundle exec rake db:prepare && bundle exec rake assets:precompile && bundle exec rake s3:upload_assets'
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [setup-env, build-proxy, build-api]
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v1
+        with:
+          aws-access-key-id: ${{ secrets.AWS_COMMUNITY_CI_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_COMMUNITY_CI_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Download task definition
+        run: |
+          echo "${{ needs.setup-env.outputs.aws-ecs-task-def }}"
+          echo "${{ needs.build-proxy.outputs.docker-image }}"
+          echo "${{ needs.build-api.outputs.docker-image }}"
+          echo "${{ needs.setup-env.outputs.aws-ecs-service }}"
+          aws ecs describe-task-definition --task-definition ${{ needs.setup-env.outputs.aws-ecs-task-def }} --query taskDefinition > task-definition.json
+
+      - name: Update Task Definition Proxy Image
+        id: proxy-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: task-definition.json
+          container-name: proxy
+          image: ${{ needs.build-proxy.outputs.docker-image }}
+
+      - name: Update Task Definition API Image
+        id: api-task-def
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ steps.proxy-task-def.outputs.task-definition }}
+          container-name: api
+          image: ${{ needs.build-api.outputs.docker-image }}
+
+      - name: Deploy Amazon ECS task definition
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
+        with:
+          task-definition: ${{ steps.api-task-def.outputs.task-definition }}
+          service: ${{ needs.setup-env.outputs.aws-ecs-service }}
+          cluster: bloom
+          wait-for-service-stability: true
