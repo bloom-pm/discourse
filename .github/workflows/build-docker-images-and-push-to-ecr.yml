@@ -80,7 +80,7 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Pull .env from S3
-        run: aws s3 cp "s3://${{ needs.setup-env.outputs.aws-s3-bloom-config-bucket }}/env-files/community/api.env" ./.env
+        run: aws s3 cp "s3://${{ needs.setup-env.outputs.aws-s3-bloom-config-bucket }}/community/api.env" ./.env
 
       - name: Set environment variables
         run: cat .env >> $GITHUB_ENV
