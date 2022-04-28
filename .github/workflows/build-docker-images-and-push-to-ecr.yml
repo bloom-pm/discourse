@@ -15,22 +15,23 @@ jobs:
   proxy:
     runs-on: ubuntu-latest
     env:
-      IMAGE_TAG: 673099801448.dkr.ecr.eu-west-1.amazonaws.com/discourse-proxy
+      DOCKER_IMAGE_TAG: 673099801448.dkr.ecr.eu-west-1.amazonaws.com/discourse-proxy
     steps:
       - uses: actions/checkout@v3
       - name: Build docker image
         run: |
+          export DOCKER_IMAGE_TAG_WITH_REVISION="${DOCKER_IMAGE_TAG}:${GITHUB_SHA}"
           aws ecr get-login-password | docker login --username AWS --password-stdin 673099801448.dkr.ecr.eu-west-1.amazonaws.com
-          docker pull $IMAGE_TAG
-          docker build -t $IMAGE_TAG -f ./docker/nginx.dockerfile ./docker
+          docker pull $DOCKER_IMAGE_TAG_WITH_REVISION
+          docker build -t $DOCKER_IMAGE_TAG_WITH_REVISION -f ./docker/nginx.dockerfile ./docker
       - name: Push docker image to AWS ECR
         run: |
-          docker push $IMAGE_TAG
+          docker push $DOCKER_IMAGE_TAG_WITH_REVISION
 
   api:
     runs-on: ubuntu-latest
     env:
-      IMAGE_TAG: 673099801448.dkr.ecr.eu-west-1.amazonaws.com/discourse-api
+      DOCKER_IMAGE_TAG: 673099801448.dkr.ecr.eu-west-1.amazonaws.com/discourse-api
     steps:
       - uses: actions/checkout@v3
       - name: Install awscli
@@ -41,6 +42,7 @@ jobs:
           cat .env >> $GITHUB_ENV
       - name: Build docker image
         run: |
+          export DOCKER_IMAGE_TAG_WITH_REVISION="${DOCKER_IMAGE_TAG}:${GITHUB_SHA}"
           aws ecr get-login-password | docker login --username AWS --password-stdin 673099801448.dkr.ecr.eu-west-1.amazonaws.com
           docker pull $IMAGE_TAG
           docker build --build-arg DISCOURSE_MAXMIND_LICENSE_KEY=${DISCOURSE_MAXMIND_LICENSE_KEY} -t $IMAGE_TAG -f ./docker/dockerfile .
