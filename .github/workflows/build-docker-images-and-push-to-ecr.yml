@@ -33,31 +33,40 @@ jobs:
   build-proxy:
     runs-on: ubuntu-latest
     outputs:
-      docker-image: ${{ steps.build-image.outputs.image }}
+      docker-image: "test"
     steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_COMMUNITY_CI_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_COMMUNITY_CI_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      # - name: Configure AWS credentials
+        # uses: aws-actions/configure-aws-credentials@v1
+        # with:
+          # aws-access-key-id: ${{ secrets.AWS_COMMUNITY_CI_ACCESS_KEY_ID }}
+          # aws-secret-access-key: ${{ secrets.AWS_COMMUNITY_CI_SECRET_ACCESS_KEY }}
+          # aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+      # - name: Login to Amazon ECR
+        # id: login-ecr
+        # uses: aws-actions/amazon-ecr-login@v1
 
-      - uses: actions/checkout@v3
+      # - uses: actions/checkout@v3
 
-      - name: Build, tag, and push image to Amazon ECR
+      # - name: Build, tag, and push image to Amazon ECR
+        # id: build-image
+        # env:
+          # AWS_ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          # ECR_REPOSITORY: discourse-proxy
+          # IMAGE_TAG: ${{ github.sha }}
+        # run: |
+          # docker pull $AWS_ECR_REGISTRY/$ECR_REPOSITORY
+          # docker build -t $AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --cache-from $AWS_ECR_REGISTRY/$ECR_REPOSITORY -f ./docker/nginx.dockerfile ./docker
+          # docker push $AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          # echo "::set-output name=image::$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          # echo "$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+      - name: Output
         id: build-image
         env:
-          AWS_ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          AWS_ECR_REGISTRY: 673099801448.dkr.ecr.eu-west-1.amazonaws.com
           ECR_REPOSITORY: discourse-proxy
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker pull $AWS_ECR_REGISTRY/$ECR_REPOSITORY
-          docker build -t $AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --cache-from $AWS_ECR_REGISTRY/$ECR_REPOSITORY -f ./docker/nginx.dockerfile ./docker
-          docker push $AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "::set-output name=image::$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           echo "$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
@@ -67,47 +76,54 @@ jobs:
     outputs:
       docker-image: ${{ steps.build-image.outputs.image }}
     steps:
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v1
-        with:
-          aws-access-key-id: ${{ secrets.AWS_COMMUNITY_CI_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_COMMUNITY_CI_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+      # - name: Configure AWS credentials
+        # uses: aws-actions/configure-aws-credentials@v1
+        # with:
+          # aws-access-key-id: ${{ secrets.AWS_COMMUNITY_CI_ACCESS_KEY_ID }}
+          # aws-secret-access-key: ${{ secrets.AWS_COMMUNITY_CI_SECRET_ACCESS_KEY }}
+          # aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Login to Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v1
+      # - name: Login to Amazon ECR
+        # id: login-ecr
+        # uses: aws-actions/amazon-ecr-login@v1
 
-      - uses: actions/checkout@v3
+      # - uses: actions/checkout@v3
 
-      - name: Pull .env from S3
-        run: aws s3 cp "s3://${{ needs.setup-env.outputs.aws-s3-bloom-config-bucket }}/community/api.env" ./.env
+      # - name: Pull .env from S3
+        # run: aws s3 cp "s3://${{ needs.setup-env.outputs.aws-s3-bloom-config-bucket }}/community/api.env" ./.env
 
-      - name: Set environment variables
-        run: cat .env >> $GITHUB_ENV
+      # - name: Set environment variables
+        # run: cat .env >> $GITHUB_ENV
 
-      - name: Build, tag, and push image to Amazon ECR
+      # - name: Build, tag, and push image to Amazon ECR
+        # id: build-image
+        # env:
+          # AWS_ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          # ECR_REPOSITORY: discourse-api
+          # IMAGE_TAG: ${{ github.sha }}
+        # run: |
+          # docker pull $AWS_ECR_REGISTRY/$ECR_REPOSITORY
+          # docker build -t $AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --cache-from $AWS_ECR_REGISTRY/$ECR_REPOSITORY -f ./docker/dockerfile --build-arg DISCOURSE_MAXMIND_LICENSE_KEY=${DISCOURSE_MAXMIND_LICENSE_KEY} .
+          # docker push $AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+      - name: Output
         id: build-image
         env:
-          AWS_ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+          AWS_ECR_REGISTRY: 673099801448.dkr.ecr.eu-west-1.amazonaws.com
           ECR_REPOSITORY: discourse-api
           IMAGE_TAG: ${{ github.sha }}
         run: |
-          docker pull $AWS_ECR_REGISTRY/$ECR_REPOSITORY
-          docker build -t $AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG --cache-from $AWS_ECR_REGISTRY/$ECR_REPOSITORY -f ./docker/dockerfile --build-arg DISCOURSE_MAXMIND_LICENSE_KEY=${DISCOURSE_MAXMIND_LICENSE_KEY} .
-          docker push $AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
           echo "::set-output name=image::$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           echo "$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
 
-      - name: Compile assets and upload them to S3
-        env:
-          API_DOCKER_IMAGE: ${{ steps.build-image.outputs.image }}
-        run: |
-          echo "${{ steps.build-image.outputs.image }}"
-          docker network create discourse
-          docker run --rm -d --name discourse_db -e POSTGRES_DB=discourse -e POSTGRES_USER=discourse -e POSTGRES_PASSWORD=password --network discourse postgres:13.4-alpine
-          docker run --rm -d --name discourse_cache --network discourse redis:alpine
-          docker run --rm -i --name assets_compiler --env-file .env -e DISCOURSE_DB_HOST=discourse_db -e DISCOURSE_DB_PASSWORD=password -e DISCOURSE_REDIS_HOST=discourse_cache --network discourse $API_DOCKER_IMAGE sh -c 'bundle exec rake db:prepare && bundle exec rake assets:precompile && bundle exec rake s3:upload_assets'
+      # - name: Compile assets and upload them to S3
+        # env:
+          # API_DOCKER_IMAGE: ${{ steps.build-image.outputs.image }}
+        # run: |
+          # echo "${{ steps.build-image.outputs.image }}"
+          # docker network create discourse
+          # docker run --rm -d --name discourse_db -e POSTGRES_DB=discourse -e POSTGRES_USER=discourse -e POSTGRES_PASSWORD=password --network discourse postgres:13.4-alpine
+          # docker run --rm -d --name discourse_cache --network discourse redis:alpine
+          # docker run --rm -i --name assets_compiler --env-file .env -e DISCOURSE_DB_HOST=discourse_db -e DISCOURSE_DB_PASSWORD=password -e DISCOURSE_REDIS_HOST=discourse_cache --network discourse $API_DOCKER_IMAGE sh -c 'bundle exec rake db:prepare && bundle exec rake assets:precompile && bundle exec rake s3:upload_assets'
 
   deploy:
     runs-on: ubuntu-latest
