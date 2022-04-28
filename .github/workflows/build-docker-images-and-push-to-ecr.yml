@@ -51,7 +51,7 @@ jobs:
           docker network create discourse
           docker run --rm -d --name discourse_db -e POSTGRES_DB=discourse -e POSTGRES_USER=discourse -e POSTGRES_PASSWORD=password --network discourse postgres:13.4-alpine
           docker run --rm -d --name discourse_cache --network discourse redis:alpine
-          docker run --rm -i --name assets_compiler --env-file api.env -e DISCOURSE_DB_HOST=discourse_db -e DISCOURSE_DB_PASSWORD=password -e DISCOURSE_REDIS_HOST=discourse_cache --network discourse $IMAGE_TAG 'bundle exec rake db:prepare && bundle exec rake assets:precompile && bundle exec rake s3:upload'
+          docker run --rm -i --name assets_compiler --env-file .env -e DISCOURSE_DB_HOST=discourse_db -e DISCOURSE_DB_PASSWORD=password -e DISCOURSE_REDIS_HOST=discourse_cache --network discourse $IMAGE_TAG sh -c 'bundle exec rake db:prepare && bundle exec rake assets:precompile && bundle exec rake s3:upload_assets'
       - name: Push docker image to AWS ECR
         run: |
           docker push $IMAGE_TAG
