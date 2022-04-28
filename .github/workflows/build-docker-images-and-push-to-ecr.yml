@@ -58,12 +58,12 @@ jobs:
           echo "::set-output name=image::$AWS_ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
           echo "::set-output name=untagged-image::$AWS_ECR_REGISTRY/$ECR_REPOSITORY"
 
-      - name: Build, tag, and push image to Amazon ECR
-        id: build-image
-        run: |
-          docker pull ${{ steps.docker-image.outputs.untagged-image }}
-          docker build -t ${{ steps.docker-image.outputs.image }} --cache-from ${{ steps.docker-image.outputs.untagged-image }} -f ./docker/nginx.dockerfile ./docker
-          docker push ${{ steps.docker-image.outputs.image }}
+      # - name: Build, tag, and push image to Amazon ECR
+        # id: build-image
+        # run: |
+          # docker pull ${{ steps.docker-image.outputs.untagged-image }}
+          # docker build -t ${{ steps.docker-image.outputs.image }} --cache-from ${{ steps.docker-image.outputs.untagged-image }} -f ./docker/nginx.dockerfile ./docker
+          # docker push ${{ steps.docker-image.outputs.image }}
 
   build-api:
     runs-on: ubuntu-latest
