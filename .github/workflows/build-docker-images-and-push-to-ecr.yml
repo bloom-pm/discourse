@@ -79,7 +79,7 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Pull .env from S3
-        run: aws s3 cp "s3://${{ steps.setup-env.outputs.aws-s3-bloom-config-bucket }}/env-files/commnuity/api.env" ./.env
+        run: aws s3 cp "s3://${{ needs.setup-env.outputs.aws-s3-bloom-config-bucket }}/env-files/commnuity/api.env" ./.env
 
       - name: Set environment variables
         run: cat .env >> $GITHUB_ENV
@@ -118,7 +118,7 @@ jobs:
 
       - name: Download task definition
         run: |
-          aws ecs describe-task-definition --task-definition ${{ steps.setup-env.outputs.aws-ecs-task-def }} --query taskDefinition > task-definition.json
+          aws ecs describe-task-definition --task-definition ${{ needs.setup-env.outputs.aws-ecs-task-def }} --query taskDefinition > task-definition.json
 
       - name: Fill in the new image IDs in the Amazon ECS task definition
         id: proxy-task-def
@@ -140,6 +140,6 @@ jobs:
         uses: aws-actions/amazon-ecs-deploy-task-definition@v1
         with:
           task-definition: ${{ steps.task-def.outputs.api-task-definition }}
-          service: ${{ steps.setup-env.outputs.aws-ecs-service }}
+          service: ${{ needs.setup-env.outputs.aws-ecs-service }}
           cluster: bloom
           wait-for-service-stability: true
