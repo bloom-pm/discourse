@@ -49,17 +49,17 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_COMMUNITY_CI_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Pull .env from S3
-        run: aws s3 cp s3://bloom-config-testing/env-files/commnuity/api.env ./.env
-
-      - name: Set environment variables
-        run: cat .env >> $GITHUB_ENV
-
       - name: Login to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v1
 
       - uses: actions/checkout@v3
+
+      - name: Pull .env from S3
+        run: aws s3 cp s3://bloom-config-testing/env-files/commnuity/api.env ./.env
+
+      - name: Set environment variables
+        run: cat .env >> $GITHUB_ENV
 
       - name: Build, tag, and push image to Amazon ECR
         id: build-image
