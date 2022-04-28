@@ -38,7 +38,7 @@ jobs:
         run: pip install --upgrade awscli
       - name: Pull .env from S3
         run: |
-          aws s3 sync s3://bloom-config-testing/env-files/commnuity/api.env ./.env
+          aws s3 cp s3://bloom-config-testing/env-files/commnuity/api.env ./.env
           cat .env >> $GITHUB_ENV
       - name: Build docker image
         run: |
