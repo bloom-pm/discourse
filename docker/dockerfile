@@ -108,6 +108,7 @@ RUN rm -f /etc/service
 # Discourse specific bits
 RUN useradd discourse -s /bin/bash -m -U &&\
     mkdir -p /var/www/discourse &&\
+    mkdir -p /var/www/discourse/public/javascripts &&\
     mkdir -p /var/www/discourse/log
 WORKDIR /var/www/discourse
 
