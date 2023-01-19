@@ -262,7 +262,8 @@ const ApplicationRoute = DiscourseRoute.extend(OpenComposer, {
   },
 
   handleShowLogin() {
-    if (this.siteSettings.enable_discourse_connect) {
+    const indexforce = (new URL(window.location.toString())).search.indexOf('force=email')
+    if (this.siteSettings.enable_discourse_connect && indexforce === -1) {
       const returnPath = encodeURIComponent(window.location.pathname);
       window.location = getURL("/session/sso?return_path=" + returnPath);
     } else {

@@ -1,3 +1,9 @@
+!/assets/.gitkeep
+!/uploads/.gitkeep
+/pgdata
+/docker/pgdata
+/uploads
+/assets
 /copyright
 /coverage
 /data
