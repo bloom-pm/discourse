@@ -5,7 +5,7 @@ import { NotificationLevels } from "discourse/lib/notification-levels";
 import { ajax } from "discourse/lib/ajax";
 import getURL from "discourse-common/lib/get-url";
 import { h } from "virtual-dom";
-import { later } from "@ember/runloop";
+import discourseLater from "discourse-common/lib/later";
 import { wantsNewWindow } from "discourse/lib/intercept-click";
 
 const flatten = (array) => [].concat.apply([], array);
@@ -95,8 +95,8 @@ export default createWidget("hamburger-menu", {
   },
 
   lookupCount(type) {
-    const tts = this.register.lookup("topic-tracking-state:main");
-    return tts ? tts.lookupCount(type) : 0;
+    const tts = this.register.lookup("service:topic-tracking-state");
+    return tts ? tts.lookupCount({ type }) : 0;
   },
 
   generalLinks() {
@@ -355,7 +355,11 @@ export default createWidget("hamburger-menu", {
   },
 
   html(attrs, state) {
-    if (!state.loaded) {
+    if (
+      this.currentUser &&
+      !this.currentUser.redesigned_user_menu_enabled &&
+      !state.loaded
+    ) {
       this.refreshReviewableCount(state);
     }
 
@@ -366,23 +370,26 @@ export default createWidget("hamburger-menu", {
   },
 
   clickOutsideMobile(e) {
-    const $centeredElement = $(document.elementFromPoint(e.clientX, e.clientY));
-    if (
-      $centeredElement.parents(".panel").length &&
-      !$centeredElement.hasClass("header-cloak")
-    ) {
+    const centeredElement = document.elementFromPoint(e.clientX, e.clientY);
+    const parents = document
+      .elementsFromPoint(e.clientX, e.clientY)
+      .some((ele) => ele.classList.contains("panel"));
+    if (!centeredElement.classList.contains("header-cloak") && parents) {
       this.sendWidgetAction("toggleHamburger");
     } else {
-      const $window = $(window);
-      const windowWidth = $window.width();
-      const $panel = $(".menu-panel");
-      $panel.addClass("animate");
-      const panelOffsetDirection = this.site.mobileView ? "left" : "right";
-      $panel.css(panelOffsetDirection, -windowWidth);
-      const $headerCloak = $(".header-cloak");
-      $headerCloak.addClass("animate");
-      $headerCloak.css("opacity", 0);
-      later(() => this.sendWidgetAction("toggleHamburger"), 200);
+      const windowWidth = document.body.offsetWidth;
+      const panel = document.querySelector(".menu-panel");
+      panel.classList.add("animate");
+      let offsetDirection = this.site.mobileView ? -1 : 1;
+      offsetDirection =
+        document.querySelector("html").classList["direction"] === "rtl"
+          ? -offsetDirection
+          : offsetDirection;
+      panel.style.setProperty("--offset", `${offsetDirection * windowWidth}px`);
+      const headerCloak = document.querySelector(".header-cloak");
+      headerCloak.classList.add("animate");
+      headerCloak.style.setProperty("--opacity", 0);
+      discourseLater(() => this.sendWidgetAction("toggleHamburger"), 200);
     }
   },
 
@@ -391,6 +398,14 @@ export default createWidget("hamburger-menu", {
       this.clickOutsideMobile(e);
     } else {
       this.sendWidgetAction("toggleHamburger");
+    }
+  },
+
+  keyDown(e) {
+    if (e.key === "Escape") {
+      this.sendWidgetAction("toggleHamburger");
+      e.preventDefault();
+      return false;
     }
   },
 });

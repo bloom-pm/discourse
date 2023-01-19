@@ -1,12 +1,12 @@
 import PanEvents, {
   SWIPE_DISTANCE_THRESHOLD,
-  SWIPE_VELOCITY,
   SWIPE_VELOCITY_THRESHOLD,
 } from "discourse/mixins/pan-events";
-import { cancel, later, schedule } from "@ember/runloop";
+import { cancel, schedule } from "@ember/runloop";
+import discourseLater from "discourse-common/lib/later";
 import Docking from "discourse/mixins/docking";
 import MountWidget from "discourse/components/mount-widget";
-import Mousetrap from "mousetrap";
+import ItsATrap from "@discourse/itsatrap";
 import RerenderOnDoNotDisturbChange from "discourse/mixins/rerender-on-do-not-disturb-change";
 import { observes } from "discourse-common/utils/decorators";
 import { topicTitleDecorators } from "discourse/components/topic-title";
@@ -23,72 +23,85 @@ const SiteHeaderComponent = MountWidget.extend(
     _isPanning: false,
     _panMenuOrigin: "right",
     _panMenuOffset: 0,
-    _scheduledMovingAnimation: null,
     _scheduledRemoveAnimate: null,
     _topic: null,
-    _mousetrap: null,
+    _itsatrap: null,
 
     @observes(
       "currentUser.unread_notifications",
       "currentUser.unread_high_priority_notifications",
-      "currentUser.reviewable_count"
+      "currentUser.all_unread_notifications_count",
+      "currentUser.reviewable_count", // TODO: remove this when redesigned_user_menu_enabled is removed
+      "currentUser.unseen_reviewable_count",
+      "session.defaultColorSchemeIsDark",
+      "session.darkModeAvailable"
     )
     notificationsChanged() {
       this.queueRerender();
     },
 
-    _animateOpening($panel) {
-      $panel.css({ right: "", left: "" });
+    @observes("site.narrowDesktopView")
+    narrowDesktopViewChanged() {
+      this.eventDispatched("dom:clean", "header");
+
+      if (this._dropDownHeaderEnabled()) {
+        this.appEvents.on(
+          "sidebar-hamburger-dropdown:rendered",
+          this,
+          "_animateMenu"
+        );
+      }
+    },
+
+    _animateOpening(panel) {
+      const headerCloak = document.querySelector(".header-cloak");
+      panel.classList.add("animate");
+      headerCloak.classList.add("animate");
+      this._scheduledRemoveAnimate = discourseLater(() => {
+        panel.classList.remove("animate");
+        headerCloak.classList.remove("animate");
+      }, 200);
+      panel.style.setProperty("--offset", 0);
+      headerCloak.style.setProperty("--opacity", 0.5);
       this._panMenuOffset = 0;
     },
 
-    _animateClosing($panel, menuOrigin, windowWidth) {
-      $panel.css(menuOrigin, -windowWidth);
+    _animateClosing(panel, menuOrigin) {
+      const windowWidth = document.body.offsetWidth;
       this._animate = true;
-      schedule("afterRender", () => {
-        this.eventDispatched("dom:clean", "header");
-        this._panMenuOffset = 0;
-      });
+      const headerCloak = document.querySelector(".header-cloak");
+      panel.classList.add("animate");
+      headerCloak.classList.add("animate");
+      const offsetDirection = menuOrigin === "left" ? -1 : 1;
+      panel.style.setProperty("--offset", `${offsetDirection * windowWidth}px`);
+      headerCloak.style.setProperty("--opacity", 0);
+      this._scheduledRemoveAnimate = discourseLater(() => {
+        panel.classList.remove("animate");
+        headerCloak.classList.remove("animate");
+        schedule("afterRender", () => {
+          this.eventDispatched("dom:clean", "header");
+          this._panMenuOffset = 0;
+        });
+      }, 200);
     },
 
     _isRTL() {
-      return $("html").css("direction") === "rtl";
+      return document.querySelector("html").classList["direction"] === "rtl";
     },
 
     _leftMenuClass() {
-      return this._isRTL() ? ".user-menu" : ".hamburger-panel";
+      return this._isRTL() ? "user-menu" : "hamburger-panel";
     },
 
-    _leftMenuAction() {
-      return this._isRTL() ? "toggleUserMenu" : "toggleHamburger";
-    },
-
-    _rightMenuAction() {
-      return this._isRTL() ? "toggleHamburger" : "toggleUserMenu";
-    },
-
-    _handlePanDone(offset, event) {
-      const $window = $(window);
-      const windowWidth = $window.width();
-      const $menuPanels = $(".menu-panel");
+    _handlePanDone(event) {
+      const menuPanels = document.querySelectorAll(".menu-panel");
       const menuOrigin = this._panMenuOrigin;
-      this._shouldMenuClose(event, menuOrigin)
-        ? (offset += SWIPE_VELOCITY)
-        : (offset -= SWIPE_VELOCITY);
-      $menuPanels.each((idx, panel) => {
-        const $panel = $(panel);
-        const $headerCloak = $(".header-cloak");
-        $panel.css(menuOrigin, -offset);
-        $headerCloak.css("opacity", Math.min(0.5, (300 - offset) / 600));
-        if (offset > windowWidth) {
-          this._animateClosing($panel, menuOrigin, windowWidth);
-        } else if (offset <= 0) {
-          this._animateOpening($panel);
+      menuPanels.forEach((panel) => {
+        panel.classList.remove("moving");
+        if (this._shouldMenuClose(event, menuOrigin)) {
+          this._animateClosing(panel, menuOrigin);
         } else {
-          //continue to open or close menu
-          this._scheduledMovingAnimation = window.requestAnimationFrame(() =>
-            this._handlePanDone(offset, event)
-          );
+          this._animateOpening(panel);
         }
       });
     },
@@ -114,15 +127,23 @@ const SiteHeaderComponent = MountWidget.extend(
 
     panStart(e) {
       const center = e.center;
-      const $centeredElement = $(document.elementFromPoint(center.x, center.y));
+      const panOverValidElement = document
+        .elementsFromPoint(center.x, center.y)
+        .some(
+          (ele) =>
+            ele.classList.contains("panel-body") ||
+            ele.classList.contains("header-cloak")
+        );
       if (
-        ($centeredElement.hasClass("panel-body") ||
-          $centeredElement.hasClass("header-cloak") ||
-          $centeredElement.parents(".panel-body").length) &&
+        panOverValidElement &&
         (e.direction === "left" || e.direction === "right")
       ) {
         e.originalEvent.preventDefault();
         this._isPanning = true;
+        const panel = document.querySelector(".menu-panel");
+        if (panel) {
+          panel.classList.add("moving");
+        }
       } else {
         this._isPanning = false;
       }
@@ -133,57 +154,53 @@ const SiteHeaderComponent = MountWidget.extend(
         return;
       }
       this._isPanning = false;
-      $(".menu-panel").each((idx, panel) => {
-        const $panel = $(panel);
-        let offset = $panel.css("right");
-        if (this._panMenuOrigin === "left") {
-          offset = $panel.css("left");
-        }
-        offset = Math.abs(parseInt(offset, 10));
-        this._handlePanDone(offset, e);
-      });
+      this._handlePanDone(e);
     },
 
     panMove(e) {
       if (!this._isPanning) {
         return;
       }
-      const $menuPanels = $(".menu-panel");
-      $menuPanels.each((idx, panel) => {
-        const $panel = $(panel);
-        const $headerCloak = $(".header-cloak");
-        if (this._panMenuOrigin === "right") {
-          const pxClosed = Math.min(0, -e.deltaX + this._panMenuOffset);
-          $panel.css("right", pxClosed);
-          $headerCloak.css("opacity", Math.min(0.5, (300 + pxClosed) / 600));
-        } else {
-          const pxClosed = Math.min(0, e.deltaX + this._panMenuOffset);
-          $panel.css("left", pxClosed);
-          $headerCloak.css("opacity", Math.min(0.5, (300 + pxClosed) / 600));
-        }
-      });
+      const panel = document.querySelector(".menu-panel");
+      const headerCloak = document.querySelector(".header-cloak");
+      if (this._panMenuOrigin === "right") {
+        const pxClosed = Math.min(0, -e.deltaX + this._panMenuOffset);
+        panel.style.setProperty("--offset", `${-pxClosed}px`);
+        headerCloak.style.setProperty(
+          "--opacity",
+          Math.min(0.5, (300 + pxClosed) / 600)
+        );
+      } else {
+        const pxClosed = Math.min(0, e.deltaX + this._panMenuOffset);
+        panel.style.setProperty("--offset", `${pxClosed}px`);
+        headerCloak.style.setProperty(
+          "--opacity",
+          Math.min(0.5, (300 + pxClosed) / 600)
+        );
+      }
     },
 
-    dockCheck(info) {
-      const $header = $("header.d-header");
+    dockCheck() {
+      const header = document.querySelector("header.d-header");
 
       if (this.docAt === null) {
-        if (!($header && $header.length === 1)) {
+        if (!header) {
           return;
         }
-        this.docAt = $header.offset().top;
+        this.docAt = header.offsetTop;
       }
 
-      const $body = $("body");
-      const offset = info.offset();
+      const main = document.querySelector(".ember-application");
+      const offsetTop = main ? main.offsetTop : 0;
+      const offset = window.pageYOffset - offsetTop;
       if (offset >= this.docAt) {
         if (!this.dockedHeader) {
-          $body.addClass("docked");
+          document.body.classList.add("docked");
           this.dockedHeader = true;
         }
       } else {
         if (this.dockedHeader) {
-          $body.removeClass("docked");
+          document.body.classList.remove("docked");
           this.dockedHeader = false;
         }
       }
@@ -197,62 +214,76 @@ const SiteHeaderComponent = MountWidget.extend(
 
     willRender() {
       if (this.get("currentUser.staff")) {
-        $("body").addClass("staff");
+        document.body.classList.add("staff");
       }
     },
 
     didInsertElement() {
       this._super(...arguments);
-      $(window).on("resize.discourse-menu-panel", () => this.afterRender());
+      this._resizeDiscourseMenuPanel = () => this.afterRender();
+      window.addEventListener("resize", this._resizeDiscourseMenuPanel);
 
       this.appEvents.on("header:show-topic", this, "setTopic");
       this.appEvents.on("header:hide-topic", this, "setTopic");
 
+      if (this.currentUser?.redesigned_user_menu_enabled) {
+        this.appEvents.on("user-menu:rendered", this, "_animateMenu");
+      }
+
+      if (this._dropDownHeaderEnabled()) {
+        this.appEvents.on(
+          "sidebar-hamburger-dropdown:rendered",
+          this,
+          "_animateMenu"
+        );
+      }
+
       this.dispatch("notifications:changed", "user-notifications");
       this.dispatch("header:keyboard-trigger", "header");
-      this.dispatch("search-autocomplete:after-complete", "search-term");
       this.dispatch("user-menu:navigation", "user-menu");
 
       this.appEvents.on("dom:clean", this, "_cleanDom");
 
-      if (
-        this.currentUser &&
-        !this.get("currentUser.read_first_notification")
-      ) {
-        document.body.classList.add("unread-first-notification");
-      }
-
-      // Allow first notification to be dismissed on a click anywhere
-      if (
-        this.currentUser &&
-        !this.get("currentUser.read_first_notification") &&
-        !this.get("currentUser.enforcedSecondFactor")
-      ) {
-        this._dismissFirstNotification = (e) => {
-          if (document.body.classList.contains("unread-first-notification")) {
-            document.body.classList.remove("unread-first-notification");
-          }
-          if (
-            !e.target.closest("#current-user") &&
-            !e.target.closest(".ring-backdrop") &&
-            this.currentUser &&
-            !this.get("currentUser.read_first_notification") &&
-            !this.get("currentUser.enforcedSecondFactor")
-          ) {
-            this.eventDispatched(
-              "header:dismiss-first-notification-mask",
-              "header"
-            );
-          }
-        };
-        document.addEventListener("click", this._dismissFirstNotification, {
-          once: true,
-        });
+      if (this.currentUser) {
+        this.currentUser.on("status-changed", this, "queueRerender");
       }
 
       const header = document.querySelector("header.d-header");
-      this._mousetrap = new Mousetrap(header);
-      this._mousetrap.bind(["right", "left"], (e) => {
+      this._itsatrap = new ItsATrap(header);
+      const dirs = this.currentUser?.redesigned_user_menu_enabled
+        ? ["up", "down"]
+        : ["right", "left"];
+      this._itsatrap.bind(dirs, (e) => this._handleArrowKeysNav(e));
+    },
+
+    _handleArrowKeysNav(event) {
+      if (this.currentUser?.redesigned_user_menu_enabled) {
+        const activeTab = document.querySelector(
+          ".menu-tabs-container .btn.active"
+        );
+        if (activeTab) {
+          let activeTabNumber = Number(
+            document.activeElement.dataset.tabNumber ||
+              activeTab.dataset.tabNumber
+          );
+          const maxTabNumber =
+            document.querySelectorAll(".menu-tabs-container .btn").length - 1;
+          const isNext = event.key === "ArrowDown";
+          let nextTab = isNext ? activeTabNumber + 1 : activeTabNumber - 1;
+          if (isNext && nextTab > maxTabNumber) {
+            nextTab = 0;
+          }
+          if (!isNext && nextTab < 0) {
+            nextTab = maxTabNumber;
+          }
+          event.preventDefault();
+          document
+            .querySelector(
+              `.menu-tabs-container .btn[data-tab-number='${nextTab}']`
+            )
+            .focus();
+        }
+      } else {
         const activeTab = document.querySelector(".glyphs .menu-link.active");
 
         if (activeTab) {
@@ -262,11 +293,11 @@ const SiteHeaderComponent = MountWidget.extend(
           }
 
           this.appEvents.trigger("user-menu:navigation", {
-            key: e.key,
+            key: event.key,
             tabNumber: Number(focusedTab.dataset.tabNumber),
           });
         }
-      });
+      }
     },
 
     _cleanDom() {
@@ -279,24 +310,39 @@ const SiteHeaderComponent = MountWidget.extend(
     willDestroyElement() {
       this._super(...arguments);
 
-      $(window).off("resize.discourse-menu-panel");
+      window.removeEventListener("resize", this._resizeDiscourseMenuPanel);
 
       this.appEvents.off("header:show-topic", this, "setTopic");
       this.appEvents.off("header:hide-topic", this, "setTopic");
       this.appEvents.off("dom:clean", this, "_cleanDom");
+      if (this.currentUser?.redesigned_user_menu_enabled) {
+        this.appEvents.off("user-menu:rendered", this, "_animateMenu");
+      }
+
+      if (this._dropDownHeaderEnabled()) {
+        this.appEvents.off(
+          "sidebar-hamburger-dropdown:rendered",
+          this,
+          "_animateMenu"
+        );
+      }
+
+      if (this.currentUser) {
+        this.currentUser.off("status-changed", this, "queueRerender");
+      }
 
       cancel(this._scheduledRemoveAnimate);
-      window.cancelAnimationFrame(this._scheduledMovingAnimation);
 
-      this._mousetrap.reset();
-
-      document.removeEventListener("click", this._dismissFirstNotification);
+      this._itsatrap?.destroy();
+      this._itsatrap = null;
     },
 
     buildArgs() {
       return {
         topic: this._topic,
         canSignUp: this.canSignUp,
+        sidebarEnabled: this.sidebarEnabled,
+        showSidebar: this.showSidebar,
       };
     },
 
@@ -307,26 +353,26 @@ const SiteHeaderComponent = MountWidget.extend(
           cb(this._topic, headerTitle, "header-title")
         );
       }
+      this._animateMenu();
+    },
 
-      const $menuPanels = $(".menu-panel");
-      if ($menuPanels.length === 0) {
-        if (this.site.mobileView) {
-          this._animate = true;
-        }
+    _animateMenu() {
+      const menuPanels = document.querySelectorAll(".menu-panel");
+
+      if (menuPanels.length === 0) {
+        this._animate = this.site.mobileView || this.site.narrowDesktopView;
         return;
       }
 
-      const $window = $(window);
-      const windowWidth = $window.width();
+      const windowWidth = document.body.offsetWidth;
+      const viewMode =
+        this.site.mobileView || this.site.narrowDesktopView
+          ? "slide-in"
+          : "drop-down";
 
-      const headerWidth = $("#main-outlet .container").width() || 1100;
-      const remaining = (windowWidth - headerWidth) / 2;
-      const viewMode = remaining < 50 ? "slide-in" : "drop-down";
-
-      $menuPanels.each((idx, panel) => {
-        const $panel = $(panel);
-        const $headerCloak = $(".header-cloak");
-        let width = parseInt($panel.attr("data-max-width"), 10) || 300;
+      menuPanels.forEach((panel) => {
+        const headerCloak = document.querySelector(".header-cloak");
+        let width = parseInt(panel.getAttribute("data-max-width"), 10) || 300;
         if (windowWidth - width < 50) {
           width = windowWidth - 50;
         }
@@ -334,57 +380,52 @@ const SiteHeaderComponent = MountWidget.extend(
           this._panMenuOffset = -width;
         }
 
-        $panel.removeClass("drop-down slide-in").addClass(viewMode);
+        panel.classList.remove("drop-down");
+        panel.classList.remove("slide-in");
+        panel.classList.add(viewMode);
         if (this._animate || this._panMenuOffset !== 0) {
-          $headerCloak.css("opacity", 0);
           if (
-            this.site.mobileView &&
-            $panel.parent(this._leftMenuClass()).length > 0
+            (this.site.mobileView || this.site.narrowDesktopView) &&
+            panel.parentElement.classList.contains(this._leftMenuClass())
           ) {
             this._panMenuOrigin = "left";
-            $panel.css("left", -windowWidth);
+            panel.style.setProperty("--offset", `${-windowWidth}px`);
           } else {
             this._panMenuOrigin = "right";
-            $panel.css("right", -windowWidth);
+            panel.style.setProperty("--offset", `${windowWidth}px`);
           }
+          headerCloak.style.setProperty("--opacity", 0);
         }
 
-        const $panelBody = $(".panel-body", $panel);
+        const panelBody = panel.querySelector(".panel-body");
 
         // We use a mutationObserver to check for style changes, so it's important
-        // we don't set it if it doesn't change. Same goes for the $panelBody!
-        const style = $panel.prop("style");
+        // we don't set it if it doesn't change. Same goes for the panelBody!
 
-        if (viewMode === "drop-down") {
-          const $buttonPanel = $("header ul.icons");
-          if ($buttonPanel.length === 0) {
+        if (!this.site.mobileView && !this.site.narrowDesktopView) {
+          const buttonPanel = document.querySelectorAll("header ul.icons");
+          if (buttonPanel.length === 0) {
             return;
           }
 
           // These values need to be set here, not in the css file - this is to deal with the
           // possibility of the window being resized and the menu changing from .slide-in to .drop-down.
-          if (style.top !== "100%" || style.height !== "auto") {
-            $panel.css({ top: "100%", height: "auto" });
+          if (panel.style.top !== "100%" || panel.style.height !== "auto") {
+            panel.style.setProperty("top", "100%");
+            panel.style.setProperty("height", "auto");
           }
-
-          $("body").addClass("drop-down-mode");
         } else {
-          if (this.site.mobileView) {
-            $headerCloak.show();
-          }
+          headerCloak.style.display = "block";
 
-          const menuTop = this.site.mobileView ? headerTop() : headerHeight();
+          const menuTop = headerTop();
 
-          const winHeightOffset = 16;
-          let initialWinHeight = window.innerHeight
-            ? window.innerHeight
-            : $(window).height();
+          const winHeightOffset = this.currentUser?.redesigned_user_menu_enabled
+            ? 0
+            : 16;
+          let initialWinHeight = window.innerHeight;
           const winHeight = initialWinHeight - winHeightOffset;
 
-          let height;
-          if (this.site.mobileView) {
-            height = winHeight - menuTop;
-          }
+          let height = winHeight - menuTop;
 
           const isIPadApp = document.body.classList.contains("footer-nav-ipad"),
             heightProp = isIPadApp ? "max-height" : "height",
@@ -394,53 +435,93 @@ const SiteHeaderComponent = MountWidget.extend(
             height = winHeight - menuTop - iPadOffset;
           }
 
-          if ($panelBody.prop("style").height !== "100%") {
-            $panelBody.height("100%");
+          if (panelBody.style.height !== "100%") {
+            panelBody.style.setProperty("height", "100%");
           }
-          if (style.top !== menuTop + "px" || style[heightProp] !== height) {
-            $panel.css({ top: menuTop + "px", [heightProp]: height });
-            $(".header-cloak").css({ top: menuTop + "px" });
+          if (
+            panel.style.top !== `${menuTop}px` ||
+            panel.style[heightProp] !== `${height}px`
+          ) {
+            panel.style.top = `${menuTop}px`;
+            panel.style.setProperty(heightProp, `${height}px`);
+            if (headerCloak) {
+              headerCloak.style.top = `${menuTop}px`;
+            }
           }
-          $("body").removeClass("drop-down-mode");
         }
 
-        $panel.width(width);
-        if (this._animate) {
-          $panel.addClass("animate");
-          $headerCloak.addClass("animate");
-          this._scheduledRemoveAnimate = later(() => {
-            $panel.removeClass("animate");
-            $headerCloak.removeClass("animate");
-          }, 200);
+        // TODO: remove the if condition when redesigned_user_menu_enabled is
+        // removed
+        if (!panel.classList.contains("revamped")) {
+          panel.style.setProperty("width", `${width}px`);
         }
-        $panel.css({ right: "", left: "" });
-        $headerCloak.css("opacity", 0.5);
+        if (this._animate) {
+          this._animateOpening(panel);
+        }
         this._animate = false;
       });
+    },
+
+    _dropDownHeaderEnabled() {
+      return (
+        (!this.sidebarEnabled &&
+          this.siteSettings.navigation_menu !== "legacy") ||
+        this.site.narrowDesktopView
+      );
     },
   }
 );
 
 export default SiteHeaderComponent.extend({
   classNames: ["d-header-wrap"],
+  classNameBindings: ["site.mobileView::drop-down-mode"],
+
+  init() {
+    this._super(...arguments);
+
+    this._resizeObserver = null;
+  },
+
+  didInsertElement() {
+    this._super(...arguments);
+
+    this.appEvents.on("site-header:force-refresh", this, "queueRerender");
+
+    const header = document.querySelector(".d-header-wrap");
+    if (header) {
+      schedule("afterRender", () => {
+        document.documentElement.style.setProperty(
+          "--header-offset",
+          `${header.offsetHeight}px`
+        );
+      });
+    }
+
+    if ("ResizeObserver" in window) {
+      this._resizeObserver = new ResizeObserver((entries) => {
+        for (let entry of entries) {
+          if (entry.contentRect) {
+            document.documentElement.style.setProperty(
+              "--header-offset",
+              entry.contentRect.height + "px"
+            );
+          }
+        }
+      });
+
+      this._resizeObserver.observe(header);
+    }
+  },
+
+  willDestroyElement() {
+    this._super(...arguments);
+
+    this._resizeObserver?.disconnect();
+    this.appEvents.off("site-header:force-refresh", this, "queueRerender");
+  },
 });
 
-export function headerHeight() {
-  const $header = $("header.d-header");
-
-  // Header may not exist in tests (e.g. in the user menu component test).
-  if ($header.length === 0) {
-    return 0;
-  }
-
-  const headerOffset = $header.offset();
-  const headerOffsetTop = headerOffset ? headerOffset.top : 0;
-  return $header.outerHeight() + headerOffsetTop - $(window).scrollTop();
-}
-
 export function headerTop() {
-  const $header = $("header.d-header");
-  const headerOffset = $header.offset();
-  const headerOffsetTop = headerOffset ? headerOffset.top : 0;
-  return headerOffsetTop - $(window).scrollTop();
+  const header = document.querySelector("header.d-header");
+  return header.offsetTop ? header.offsetTop : 0;
 }

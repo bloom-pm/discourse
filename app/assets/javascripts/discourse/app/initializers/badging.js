@@ -1,4 +1,4 @@
-// Updates the PWA badging if avaliable
+// Updates the PWA badging if available
 export default {
   name: "badging",
   after: "message-bus",
@@ -8,20 +8,25 @@ export default {
       return;
     } // must have the Badging API
 
-    const user = container.lookup("current-user:main");
+    const user = container.lookup("service:current-user");
     if (!user) {
       return;
     } // must be logged in
 
-    this.notifications =
-      user.unread_notifications + user.unread_high_priority_notifications;
+    const appEvents = container.lookup("service:app-events");
+    appEvents.on("notifications:changed", () => {
+      let notifications;
+      if (user.redesigned_user_menu_enabled) {
+        notifications = user.all_unread_notifications_count;
+        if (user.unseen_reviewable_count) {
+          notifications += user.unseen_reviewable_count;
+        }
+      } else {
+        notifications =
+          user.unread_notifications + user.unread_high_priority_notifications;
+      }
 
-    container
-      .lookup("service:app-events")
-      .on("notifications:changed", this, "_updateBadge");
-  },
-
-  _updateBadge() {
-    navigator.setAppBadge(this.notifications);
+      navigator.setAppBadge(notifications);
+    });
   },
 };

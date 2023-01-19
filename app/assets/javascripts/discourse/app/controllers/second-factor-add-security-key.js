@@ -13,11 +13,23 @@ export default Controller.extend(ModalFunctionality, {
   errorMessage: null,
 
   onShow() {
+    let securityKeyName;
+    if (this.capabilities.isIOS && !this.capabilities.isIpadOS) {
+      securityKeyName = I18n.t(
+        "user.second_factor.security_key.iphone_default_name"
+      );
+    } else if (this.capabilities.isAndroid) {
+      securityKeyName = I18n.t(
+        "user.second_factor.security_key.android_default_name"
+      );
+    } else {
+      securityKeyName = I18n.t("user.second_factor.security_key.default_name");
+    }
     // clear properties every time because the controller is a singleton
     this.setProperties({
       errorMessage: null,
       loading: true,
-      securityKeyName: I18n.t("user.second_factor.security_key.default_name"),
+      securityKeyName,
       webauthnUnsupported: !isWebauthnSupported(),
     });
 
@@ -73,7 +85,7 @@ export default Controller.extend(ModalFunctionality, {
           name: this.model.username_lower,
         },
         pubKeyCredParams: this.supported_algorithms.map((alg) => {
-          return { type: "public-key", alg: alg };
+          return { type: "public-key", alg };
         }),
         excludeCredentials: this.existing_active_credential_ids.map(
           (credentialId) => {
@@ -87,7 +99,7 @@ export default Controller.extend(ModalFunctionality, {
         attestation: "none",
         authenticatorSelection: {
           // see https://chromium.googlesource.com/chromium/src/+/master/content/browser/webauth/uv_preferred.md for why
-          // default value of preferred is not necesarrily what we want, it limits webauthn to only devices that support
+          // default value of preferred is not necessarily what we want, it limits webauthn to only devices that support
           // user verification, which usually requires entering a PIN
           userVerification: "discouraged",
         },

@@ -103,7 +103,7 @@ export default createWidget("home-logo", {
         : { src: getURL(url), alt: title };
 
     const imgElement = h(`img#site-logo.${key}`, {
-      key: key,
+      key,
       attributes,
     });
 
@@ -136,7 +136,7 @@ export default createWidget("home-logo", {
     }
     e.preventDefault();
 
-    DiscourseURL.routeToTag($(e.target).closest("a")[0]);
+    DiscourseURL.routeToTag(e.target.closest("a"));
     return false;
   },
 });

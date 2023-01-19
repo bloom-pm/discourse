@@ -1,6 +1,8 @@
-import { later } from "@ember/runloop";
+import discourseLater from "discourse-common/lib/later";
 import { createWidget } from "discourse/widgets/widget";
 import { h } from "virtual-dom";
+import showModal from "discourse/lib/show-modal";
+import I18n from "I18n";
 
 const UserMenuAction = {
   QUICK_ACCESS: "quickAccess",
@@ -154,7 +156,7 @@ createWidget("user-menu-links", {
 
     glyphs.push(this.bookmarksGlyph());
 
-    if (this.siteSettings.enable_personal_messages || this.currentUser.staff) {
+    if (this.currentUser?.can_send_private_messages) {
       glyphs.push(this.messagesGlyph());
     }
 
@@ -249,7 +251,23 @@ export default createWidget("user-menu", {
   },
 
   dismissNotifications() {
-    return this.state.markRead();
+    const unreadHighPriorityNotifications = this.currentUser.get(
+      "unread_high_priority_notifications"
+    );
+
+    if (unreadHighPriorityNotifications > 0) {
+      return showModal("dismiss-notification-confirmation").setProperties({
+        confirmationMessage: I18n.t(
+          "notifications.dismiss_confirmation.body.default",
+          {
+            count: unreadHighPriorityNotifications,
+          }
+        ),
+        dismissNotifications: () => this.state.markRead(),
+      });
+    } else {
+      return this.state.markRead();
+    }
   },
 
   itemsLoaded({ hasUnread, markRead }) {
@@ -265,22 +283,25 @@ export default createWidget("user-menu", {
   },
 
   clickOutsideMobile(e) {
-    const $centeredElement = $(document.elementFromPoint(e.clientX, e.clientY));
-    if (
-      $centeredElement.parents(".panel").length &&
-      !$centeredElement.hasClass("header-cloak")
-    ) {
+    const centeredElement = document.elementFromPoint(e.clientX, e.clientY);
+    const parents = document
+      .elementsFromPoint(e.clientX, e.clientY)
+      .some((ele) => ele.classList.contains("panel"));
+    if (!centeredElement.classList.contains("header-cloak") && parents) {
       this.sendWidgetAction("toggleUserMenu");
     } else {
-      const $window = $(window);
-      const windowWidth = $window.width();
-      const $panel = $(".menu-panel");
-      $panel.addClass("animate");
-      $panel.css("right", -windowWidth);
-      const $headerCloak = $(".header-cloak");
-      $headerCloak.addClass("animate");
-      $headerCloak.css("opacity", 0);
-      later(() => this.sendWidgetAction("toggleUserMenu"), 200);
+      const windowWidth = document.body.offsetWidth;
+      const panel = document.querySelector(".menu-panel");
+      panel.classList.add("animate");
+      let offsetDirection =
+        document.querySelector("html").classList["direction"] === "rtl"
+          ? -1
+          : 1;
+      panel.style.setProperty("--offset", `${offsetDirection * windowWidth}px`);
+      const headerCloak = document.querySelector(".header-cloak");
+      headerCloak.classList.add("animate");
+      headerCloak.style.setProperty("--opacity", 0);
+      discourseLater(() => this.sendWidgetAction("toggleUserMenu"), 200);
     }
   },
 
@@ -289,6 +310,14 @@ export default createWidget("user-menu", {
       this.clickOutsideMobile(e);
     } else {
       this.sendWidgetAction("toggleUserMenu");
+    }
+  },
+
+  keyDown(e) {
+    if (e.key === "Escape") {
+      this.sendWidgetAction("toggleUserMenu");
+      e.preventDefault();
+      return false;
     }
   },
 

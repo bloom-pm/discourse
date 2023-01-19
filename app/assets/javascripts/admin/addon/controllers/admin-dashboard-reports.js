@@ -2,8 +2,7 @@ import Controller from "@ember/controller";
 import { INPUT_DELAY } from "discourse-common/config/environment";
 import discourseComputed from "discourse-common/utils/decorators";
 import discourseDebounce from "discourse-common/lib/debounce";
-
-const { get } = Ember;
+import { get } from "@ember/object";
 
 export default Controller.extend({
   filter: null,
@@ -13,13 +12,13 @@ export default Controller.extend({
     "filter",
     "siteSettings.dashboard_hidden_reports"
   )
-  filterReports(reports, filter) {
+  filteredReports(reports, filter) {
     if (filter) {
       filter = filter.toLowerCase();
       reports = reports.filter((report) => {
         return (
-          (get(report, "title") || "").toLowerCase().indexOf(filter) > -1 ||
-          (get(report, "description") || "").toLowerCase().indexOf(filter) > -1
+          (get(report, "title") || "").toLowerCase().includes(filter) ||
+          (get(report, "description") || "").toLowerCase().includes(filter)
         );
       });
     }

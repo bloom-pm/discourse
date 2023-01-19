@@ -6,6 +6,9 @@ export default function (name, opts) {
   opts = opts || {};
 
   let container = getOwner(this);
+  if (container.isDestroying || container.isDestroyed) {
+    return;
+  }
 
   // We use the container here because modals are like singletons
   // in Discourse. Only one can be shown with a particular state.
@@ -41,8 +44,14 @@ export default function (name, opts) {
   route.render(fullName, renderArgs);
   if (opts.title) {
     modalController.set("title", I18n.t(opts.title));
+  } else if (opts.titleTranslated) {
+    modalController.set("title", opts.titleTranslated);
   } else {
     modalController.set("title", null);
+  }
+
+  if (opts.titleAriaElementId) {
+    modalController.set("titleAriaElementId", opts.titleAriaElementId);
   }
 
   if (opts.panels) {

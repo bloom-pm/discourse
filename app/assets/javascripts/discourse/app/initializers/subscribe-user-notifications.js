@@ -1,4 +1,3 @@
-import EmberObject, { set } from "@ember/object";
 // Subscribes to user events on the message bus
 import {
   alertChannel,
@@ -12,139 +11,259 @@ import {
   unsubscribe as unsubscribePushNotifications,
 } from "discourse/lib/push-notifications";
 import { isTesting } from "discourse-common/config/environment";
+import Notification from "discourse/models/notification";
+import { bind } from "discourse-common/utils/decorators";
 
 export default {
   name: "subscribe-user-notifications",
   after: "message-bus",
 
   initialize(container) {
-    const user = container.lookup("current-user:main");
-    const bus = container.lookup("message-bus:main");
-    const appEvents = container.lookup("service:app-events");
+    this.currentUser = container.lookup("service:current-user");
 
-    if (user) {
-      bus.subscribe("/reviewable_counts", (data) => {
-        user.set("reviewable_count", data.reviewable_count);
-      });
+    if (!this.currentUser) {
+      return;
+    }
 
-      bus.subscribe(
-        `/notification/${user.get("id")}`,
-        (data) => {
-          const store = container.lookup("service:store");
-          const oldUnread = user.get("unread_notifications");
-          const oldHighPriority = user.get(
-            "unread_high_priority_notifications"
-          );
+    this.messageBus = container.lookup("service:message-bus");
+    this.store = container.lookup("service:store");
+    this.messageBus = container.lookup("service:message-bus");
+    this.appEvents = container.lookup("service:app-events");
+    this.siteSettings = container.lookup("service:site-settings");
+    this.site = container.lookup("service:site");
+    this.router = container.lookup("router:main");
 
-          user.setProperties({
-            unread_notifications: data.unread_notifications,
-            unread_high_priority_notifications:
-              data.unread_high_priority_notifications,
-            read_first_notification: data.read_first_notification,
-          });
+    this.reviewableCountsChannel = this.currentUser.redesigned_user_menu_enabled
+      ? `/reviewable_counts/${this.currentUser.id}`
+      : "/reviewable_counts";
 
-          if (
-            oldUnread !== data.unread_notifications ||
-            oldHighPriority !== data.unread_high_priority_notifications
-          ) {
-            appEvents.trigger("notifications:changed");
+    this.messageBus.subscribe(
+      this.reviewableCountsChannel,
+      this.onReviewableCounts
+    );
 
-            if (
-              site.mobileView &&
-              (data.unread_notifications - oldUnread > 0 ||
-                data.unread_high_priority_notifications - oldHighPriority > 0)
-            ) {
-              appEvents.trigger("header:update-topic", null, 5000);
-            }
-          }
+    this.messageBus.subscribe(
+      `/notification/${this.currentUser.id}`,
+      this.onNotification,
+      this.currentUser.notification_channel_position
+    );
 
-          const stale = store.findStale(
-            "notification",
-            {},
-            { cacheKey: "recent-notifications" }
-          );
-          const lastNotification =
-            data.last_notification && data.last_notification.notification;
+    this.messageBus.subscribe(
+      `/user-drafts/${this.currentUser.id}`,
+      this.onUserDrafts
+    );
 
-          if (stale && stale.hasResults && lastNotification) {
-            const oldNotifications = stale.results.get("content");
-            const staleIndex = oldNotifications.findIndex(
-              (n) => n.id === lastNotification.id
-            );
+    this.messageBus.subscribe(
+      `/do-not-disturb/${this.currentUser.id}`,
+      this.onDoNotDisturb
+    );
 
-            if (staleIndex === -1) {
-              // this gets a bit tricky, unread pms are bumped to front
-              let insertPosition = 0;
-              if (lastNotification.notification_type !== 6) {
-                insertPosition = oldNotifications.findIndex(
-                  (n) => n.notification_type !== 6 || n.read
-                );
-                insertPosition =
-                  insertPosition === -1
-                    ? oldNotifications.length - 1
-                    : insertPosition;
-              }
-              oldNotifications.insertAt(
-                insertPosition,
-                EmberObject.create(lastNotification)
-              );
-            }
+    this.messageBus.subscribe(
+      `/user-status`,
+      this.onUserStatus,
+      this.currentUser.status?.message_bus_last_id
+    );
 
-            for (let idx = 0; idx < data.recent.length; idx++) {
-              let old;
-              while ((old = oldNotifications[idx])) {
-                const info = data.recent[idx];
+    this.messageBus.subscribe("/categories", this.onCategories);
 
-                if (old.get("id") !== info[0]) {
-                  oldNotifications.removeAt(idx);
-                } else {
-                  if (old.get("read") !== info[1]) {
-                    old.set("read", info[1]);
-                  }
-                  break;
-                }
-              }
-              if (!old) {
-                break;
-              }
-            }
-          }
-        },
-        user.notification_channel_position
-      );
+    this.messageBus.subscribe("/client_settings", this.onClientSettings);
 
-      bus.subscribe(`/do-not-disturb/${user.get("id")}`, (data) => {
-        user.updateDoNotDisturbStatus(data.ends_at);
-      });
+    if (!isTesting()) {
+      this.messageBus.subscribe(alertChannel(this.currentUser), this.onAlert);
 
-      const site = container.lookup("site:main");
-      const siteSettings = container.lookup("site-settings:main");
-      const router = container.lookup("router:main");
+      initDesktopNotifications(this.messageBus, this.appEvents);
 
-      bus.subscribe("/categories", (data) => {
-        (data.categories || []).forEach((c) => site.updateCategory(c));
-        (data.deleted_categories || []).forEach((id) =>
-          site.removeCategory(id)
+      if (isPushNotificationsEnabled(this.currentUser)) {
+        disableDesktopNotifications();
+        registerPushNotifications(
+          this.currentUser,
+          this.router,
+          this.appEvents
         );
-      });
-
-      bus.subscribe("/client_settings", (data) =>
-        set(siteSettings, data.name, data.value)
-      );
-
-      if (!isTesting()) {
-        bus.subscribe(alertChannel(user), (data) =>
-          onNotification(data, siteSettings, user)
-        );
-        initDesktopNotifications(bus, appEvents);
-
-        if (isPushNotificationsEnabled(user, site.mobileView)) {
-          disableDesktopNotifications();
-          registerPushNotifications(user, site.mobileView, router, appEvents);
-        } else {
-          unsubscribePushNotifications(user);
-        }
+      } else {
+        unsubscribePushNotifications(this.currentUser);
       }
     }
+  },
+
+  teardown() {
+    if (!this.currentUser) {
+      return;
+    }
+
+    this.messageBus.unsubscribe(
+      this.reviewableCountsChannel,
+      this.onReviewableCounts
+    );
+
+    this.messageBus.unsubscribe(
+      `/notification/${this.currentUser.id}`,
+      this.onNotification
+    );
+
+    this.messageBus.unsubscribe(
+      `/user-drafts/${this.currentUser.id}`,
+      this.onUserDrafts
+    );
+
+    this.messageBus.unsubscribe(
+      `/do-not-disturb/${this.currentUser.id}`,
+      this.onDoNotDisturb
+    );
+
+    this.messageBus.unsubscribe(`/user-status`, this.onUserStatus);
+
+    this.messageBus.unsubscribe("/categories", this.onCategories);
+
+    this.messageBus.unsubscribe("/client_settings", this.onClientSettings);
+
+    this.messageBus.unsubscribe(alertChannel(this.currentUser), this.onAlert);
+  },
+
+  @bind
+  onReviewableCounts(data) {
+    if (data.reviewable_count >= 0) {
+      this.currentUser.updateReviewableCount(data.reviewable_count);
+    }
+
+    if (this.currentUser.redesigned_user_menu_enabled) {
+      this.currentUser.set(
+        "unseen_reviewable_count",
+        data.unseen_reviewable_count
+      );
+    }
+  },
+
+  @bind
+  onNotification(data) {
+    const oldUnread = this.currentUser.unread_notifications;
+    const oldHighPriority = this.currentUser.unread_high_priority_notifications;
+    const oldAllUnread = this.currentUser.all_unread_notifications_count;
+
+    this.currentUser.setProperties({
+      unread_notifications: data.unread_notifications,
+      unread_high_priority_notifications:
+        data.unread_high_priority_notifications,
+      read_first_notification: data.read_first_notification,
+      all_unread_notifications_count: data.all_unread_notifications_count,
+      grouped_unread_notifications: data.grouped_unread_notifications,
+      new_personal_messages_notifications_count:
+        data.new_personal_messages_notifications_count,
+    });
+
+    if (
+      oldUnread !== data.unread_notifications ||
+      oldHighPriority !== data.unread_high_priority_notifications ||
+      oldAllUnread !== data.all_unread_notifications_count
+    ) {
+      this.appEvents.trigger("notifications:changed");
+
+      if (
+        this.site.mobileView &&
+        (data.unread_notifications - oldUnread > 0 ||
+          data.unread_high_priority_notifications - oldHighPriority > 0 ||
+          data.all_unread_notifications_count - oldAllUnread > 0)
+      ) {
+        this.appEvents.trigger("header:update-topic", null, 5000);
+      }
+    }
+
+    const stale = this.store.findStale(
+      "notification",
+      {},
+      { cacheKey: "recent-notifications" }
+    );
+    const lastNotification = data.last_notification?.notification;
+
+    if (stale?.hasResults && lastNotification) {
+      const oldNotifications = stale.results.get("content");
+      const staleIndex = oldNotifications.findIndex(
+        (n) => n.id === lastNotification.id
+      );
+
+      if (staleIndex === -1) {
+        let insertPosition = 0;
+
+        // high priority and unread notifications are first
+        if (!lastNotification.high_priority || lastNotification.read) {
+          const nextPosition = oldNotifications.findIndex(
+            (n) => !n.high_priority || n.read
+          );
+
+          if (nextPosition !== -1) {
+            insertPosition = nextPosition;
+          }
+        }
+
+        oldNotifications.insertAt(
+          insertPosition,
+          Notification.create(lastNotification)
+        );
+      }
+
+      // remove stale notifications and update existing ones
+      const read = Object.fromEntries(data.recent);
+      const newNotifications = oldNotifications
+        .map((notification) => {
+          if (read[notification.id] !== undefined) {
+            notification.set("read", read[notification.id]);
+            return notification;
+          }
+        })
+        .filter(Boolean);
+
+      stale.results.set("content", newNotifications);
+    }
+  },
+
+  @bind
+  onUserDrafts(data) {
+    this.currentUser.updateDraftProperties(data);
+  },
+
+  @bind
+  onDoNotDisturb(data) {
+    this.currentUser.updateDoNotDisturbStatus(data.ends_at);
+  },
+
+  @bind
+  onUserStatus(data) {
+    this.appEvents.trigger("user-status:changed", data);
+  },
+
+  @bind
+  onCategories(data) {
+    (data.categories || []).forEach((c) => {
+      const mutedCategoryIds = this.currentUser.muted_category_ids?.concat(
+        this.currentUser.indirectly_muted_category_ids
+      );
+
+      if (
+        mutedCategoryIds &&
+        mutedCategoryIds.includes(c.parent_category_id) &&
+        !mutedCategoryIds.includes(c.id)
+      ) {
+        this.currentUser.set(
+          "indirectly_muted_category_ids",
+          this.currentUser.indirectly_muted_category_ids.concat(c.id)
+        );
+      }
+
+      return this.site.updateCategory(c);
+    });
+
+    (data.deleted_categories || []).forEach((id) =>
+      this.site.removeCategory(id)
+    );
+  },
+
+  @bind
+  onClientSettings(data) {
+    this.siteSettings[data.name] = data.value;
+  },
+
+  @bind
+  onAlert(data) {
+    return onNotification(data, this.siteSettings, this.currentUser);
   },
 };

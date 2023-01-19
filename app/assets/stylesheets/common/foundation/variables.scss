@@ -1,5 +1,6 @@
 // --------------------------------------------------
 // Variables used throughout the theme
+// this file is injected into every theme CSS file
 // --------------------------------------------------
 
 // Layout dimensions
@@ -9,11 +10,12 @@ $small-width: 800px !default;
 $medium-width: 995px !default;
 $large-width: 1110px !default;
 
-$input-padding: 4px 10px;
 $topic-body-width: 690px;
 $topic-body-width-padding: 11px;
 $topic-avatar-width: 45px;
 $reply-area-max-width: 1475px !default;
+
+$d-sidebar-width: 16em !default;
 
 // Brand color variables
 // --------------------------------------------------
@@ -50,7 +52,7 @@ $base-font-size-larger: var(--base-font-size-larger) !default;
 $base-font-size-largest: var(--base-font-size-largest) !default;
 $heading-font-family: var(--heading-font-family) !default;
 
-// Font-size defintions, multiplier ^ (step / interval)
+// Font-size definitions, multiplier ^ (step / interval)
 $font-up-6: var(--font-up-6) !default;
 $font-up-5: var(--font-up-5) !default;
 $font-up-4: var(--font-up-4) !default;
@@ -65,8 +67,6 @@ $font-down-4: var(--font-down-4) !default;
 $font-down-5: var(--font-down-5) !default;
 $font-down-6: var(--font-down-6) !default;
 
-$font-size-ios-input: var(--font-size-ios-input) !default;
-
 // Common line-heights
 $line-height-small: var(--line-height-small) !default;
 $line-height-medium: var(--line-height-medium) !default;
@@ -80,6 +80,7 @@ $line-height-large: var(--line-height-large) !default;
 $z-layers: (
   "max": 9999,
   "modal": (
+    "dialog": 1700,
     "tooltip": 1600,
     "popover": 1500,
     "dropdown": 1400,
@@ -137,6 +138,7 @@ $box-shadow: (
   "menu-panel": 0 12px 12px rgba(0, 0, 0, 0.15),
   "card": 0 4px 14px rgba(0, 0, 0, 0.15),
   "dropdown": 0 2px 3px 0 rgba(0, 0, 0, 0.2),
+  "dropdown-lite": 0px 2px 12px 0px rgba(0, 0, 0, 0.1),
   "header": 0 2px 4px -1px rgba(0, 0, 0, 0.25),
   "footer-nav": 0 0 2px 0 rgba(0, 0, 0, 0.25),
   "kbd": (
@@ -180,9 +182,9 @@ $box-shadow: (
   @return rgb($r_r, $r_g, $r_b);
 }
 
-// Replaces dark-light-diff($primary, $secondary, 50%, -50%)
-@function blend-primary-secondary($percent) {
-  @return srgb-scale($primary, $secondary, $percent);
+// Replaces dark-light-diff($primary,50%)
+@function blend-two-colors($color1, $color2, $percent) {
+  @return srgb-scale($color1, $color2, $percent);
 }
 
 @function blend-header-primary-background($percent) {

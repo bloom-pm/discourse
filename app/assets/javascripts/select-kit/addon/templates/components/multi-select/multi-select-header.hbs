@@ -1,18 +1,12 @@
-<div class="choices">
-  {{#each selectedContent as |item|}}
-    {{component selectKit.options.selectedNameComponent
-      tabindex=tabindex
-      item=item
-      selectKit=selectKit
-    }}
+<div class="select-kit-header-wrapper">
+  {{#each this.icons as |icon|}}
+    {{d-icon icon}}
   {{/each}}
 
-  {{#unless hasReachedMaximumSelection}}
-    <div class="choice input-wrapper">
-      {{component selectKit.options.filterComponent
-        selectKit=selectKit
-        id=(concat selectKit.uniqueID "-filter")
-      }}
-    </div>
-  {{/unless}}
+  <MultiSelect::FormatSelectedContent
+    @content={{or this.selectedContent this.selectKit.noneItem}}
+    @selectKit={{this.selectKit}}
+  />
+
+  {{d-icon this.caretIcon class="caret-icon"}}
 </div>

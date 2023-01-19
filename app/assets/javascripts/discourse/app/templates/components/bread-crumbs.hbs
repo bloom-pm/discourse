@@ -1,36 +1,55 @@
-{{#each categoryBreadcrumbs as |breadcrumb|}}
+{{#each this.categoryBreadcrumbs as |breadcrumb|}}
   {{#if breadcrumb.hasOptions}}
-    {{category-drop
-      category=breadcrumb.category
-      categories=breadcrumb.options
-      tagId=tag.id
-      options=(hash
-        parentCategory=breadcrumb.parentCategory
-        subCategory=breadcrumb.isSubcategory
-        noSubcategories=breadcrumb.noSubcategories
-        autoFilterable=true
-      )
-    }}
+    <li>
+      <CategoryDrop
+        @category={{breadcrumb.category}}
+        @categories={{breadcrumb.options}}
+        @tagId={{this.tag.id}}
+        @editingCategory={{this.editingCategory}}
+        @editingCategoryTab={{this.editingCategoryTab}}
+        @options={{hash
+          parentCategory=breadcrumb.parentCategory
+          subCategory=breadcrumb.isSubcategory
+          noSubcategories=breadcrumb.noSubcategories
+          autoFilterable=true
+        }}
+      />
+    </li>
   {{/if}}
 {{/each}}
 
-{{#if siteSettings.tagging_enabled}}
-  {{#if additionalTags}}
-    {{tags-intersection-chooser
-      currentCategory=category
-      mainTag=tag.id
-      additionalTags=additionalTags
-      options=(hash
-        categoryId=category.id
-      )
-    }}
+{{#if this.showTagsSection}}
+  {{#if this.additionalTags}}
+    <li>
+      <TagsIntersectionChooser
+        @currentCategory={{this.category}}
+        @mainTag={{this.tag.id}}
+        @additionalTags={{this.additionalTags}}
+        @options={{hash categoryId=this.category.id}}
+      />
+    </li>
   {{else}}
-    {{tag-drop
-      currentCategory=category
-      noSubcategories=noSubcategories
-      tagId=tag.id
-    }}
+    <li>
+      <TagDrop
+        @currentCategory={{this.category}}
+        @noSubcategories={{this.noSubcategories}}
+        @tagId={{this.tag.id}}
+      />
+    </li>
   {{/if}}
 {{/if}}
 
-{{plugin-outlet name="bread-crumbs-right" connectorTagName="li" tagName=""}}
+<PluginOutlet
+  @name="bread-crumbs-right"
+  @connectorTagName="li"
+  @args={{hash
+    tagId=this.tag.id
+    additionalTags=this.additionalTags
+    noSubcategories=this.noSubcategories
+    showTagsSection=this.showTagsSection
+    currentCategory=this.category
+    categoryBreadcrumbs=this.categoryBreadcrumbs
+    editingCategory=this.editingCategory
+    editingCategoryTab=this.editingCategoryTab
+  }}
+/>

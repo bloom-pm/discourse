@@ -5,15 +5,18 @@ import Draft from "discourse/models/draft";
 import I18n from "I18n";
 import LoadMore from "discourse/mixins/load-more";
 import Post from "discourse/models/post";
-import bootbox from "bootbox";
+import { NEW_TOPIC_KEY } from "discourse/models/composer";
 import { getOwner } from "discourse-common/lib/get-owner";
 import { observes } from "discourse-common/utils/decorators";
 import { on } from "@ember/object/evented";
 import { popupAjaxError } from "discourse/lib/ajax-error";
-import { schedule } from "@ember/runloop";
+import { next, schedule } from "@ember/runloop";
+import { inject as service } from "@ember/service";
 
 export default Component.extend(LoadMore, {
   tagName: "ul",
+  dialog: service(),
+  _lastDecoratedElement: null,
 
   _initialize: on("init", function () {
     const filter = this.get("stream.filter");
@@ -30,13 +33,11 @@ export default Component.extend(LoadMore, {
   classNames: ["user-stream"],
 
   @observes("stream.user.id")
-  _scrollTopOnModelChange: function () {
+  _scrollTopOnModelChange() {
     schedule("afterRender", () => $(document).scrollTop(0));
   },
 
   _inserted: on("didInsertElement", function () {
-    this.bindScrolling({ name: "user-stream-view" });
-
     $(window).on("resize.discourse-on-scroll", () => this.scrolled());
 
     $(this.element).on(
@@ -47,17 +48,46 @@ export default Component.extend(LoadMore, {
     $(this.element).on("click.discourse-redirect", ".excerpt a", (e) => {
       return ClickTrack.trackClick(e, this.siteSettings);
     });
+    this._updateLastDecoratedElement();
+    this._scrollToLastPosition();
   }),
 
   // This view is being removed. Shut down operations
   _destroyed: on("willDestroyElement", function () {
-    this.unbindScrolling("user-stream-view");
     $(window).unbind("resize.discourse-on-scroll");
     $(this.element).off("click.details-disabled", "details.disabled");
 
     // Unbind link tracking
     $(this.element).off("click.discourse-redirect", ".excerpt a");
   }),
+
+  _updateLastDecoratedElement() {
+    const nodes = this.element.querySelectorAll(".user-stream-item");
+    if (nodes.length === 0) {
+      return;
+    }
+    const lastElement = nodes[nodes.length - 1];
+    if (lastElement === this._lastDecoratedElement) {
+      return;
+    }
+    this._lastDecoratedElement = lastElement;
+  },
+
+  _scrollToLastPosition() {
+    const scrollTo = this.session.userStreamScrollPosition;
+    if (scrollTo >= 0) {
+      schedule("afterRender", () => {
+        if (this.element && !this.isDestroying && !this.isDestroyed) {
+          next(() => window.scrollTo(0, scrollTo));
+        }
+      });
+    }
+  },
+
+  scrolled() {
+    this._super(...arguments);
+    this.session.set("userStreamScrollPosition", window.scrollY);
+  },
 
   actions: {
     removeBookmark(userAction) {
@@ -98,22 +128,22 @@ export default Component.extend(LoadMore, {
 
     removeDraft(draft) {
       const stream = this.stream;
-      bootbox.confirm(
-        I18n.t("drafts.remove_confirmation"),
-        I18n.t("no_value"),
-        I18n.t("yes_value"),
-        (confirmed) => {
-          if (confirmed) {
-            Draft.clear(draft.draft_key, draft.sequence)
-              .then(() => {
-                stream.remove(draft);
-              })
-              .catch((error) => {
-                popupAjaxError(error);
-              });
-          }
-        }
-      );
+
+      this.dialog.yesNoConfirm({
+        message: I18n.t("drafts.remove_confirmation"),
+        didConfirm: () => {
+          Draft.clear(draft.draft_key, draft.sequence)
+            .then(() => {
+              stream.remove(draft);
+              if (draft.draft_key === NEW_TOPIC_KEY) {
+                this.currentUser.set("has_topic_draft", false);
+              }
+            })
+            .catch((error) => {
+              popupAjaxError(error);
+            });
+        },
+      });
     },
 
     loadMore() {
@@ -123,7 +153,15 @@ export default Component.extend(LoadMore, {
 
       this.set("loading", true);
       const stream = this.stream;
-      stream.findItems().then(() => this.set("loading", false));
+      stream.findItems().then(() => {
+        this.set("loading", false);
+        let element = this._lastDecoratedElement?.nextElementSibling;
+        while (element) {
+          this.trigger("user-stream:new-item-inserted", element);
+          element = element.nextElementSibling;
+        }
+        this._updateLastDecoratedElement();
+      });
     },
   },
 });

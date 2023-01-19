@@ -1,9 +1,11 @@
-{{combo-box
-  filterable=true
-  valueProperty="value"
-  content=groupOptions
-  value=groupId
-  allowAny=filter.allow_any
-  none="admin.dashboard.reports.groups"
-  onChange=(action "onChange")
-}}
+<ComboBox
+  @valueProperty="value"
+  @content={{this.groupOptions}}
+  @value={{this.groupId}}
+  @onChange={{action "onChange"}}
+  @options={{hash
+    allowAny=this.filter.allow_any
+    filterable=true
+    none="admin.dashboard.reports.groups"
+  }}
+/>

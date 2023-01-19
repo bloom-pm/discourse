@@ -17,6 +17,11 @@ export function addTagsHtmlCallback(callback, options) {
   callbacks.splice(i, 0, callback);
 }
 
+export function clearTagsHtmlCallbacks() {
+  callbacks = null;
+  priorities = null;
+}
+
 export default function (topic, params) {
   let tags = topic.tags;
   let buffer = "";
@@ -55,7 +60,13 @@ export default function (topic, params) {
     if (tags) {
       for (let i = 0; i < tags.length; i++) {
         buffer +=
-          renderTag(tags[i], { isPrivateMessage, tagsForUser, tagName }) + " ";
+          renderTag(tags[i], {
+            description:
+              topic.tags_descriptions && topic.tags_descriptions[tags[i]],
+            isPrivateMessage,
+            tagsForUser,
+            tagName,
+          }) + " ";
       }
     }
 

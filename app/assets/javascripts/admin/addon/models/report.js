@@ -163,9 +163,23 @@ const Report = EmberObject.extend({
     return this._computeTrend(prev, total, higherIsBetter);
   },
 
-  @discourseComputed("prev30Days", "lastThirtyDaysCount", "higher_is_better")
-  thirtyDaysTrend(prev30Days, lastThirtyDaysCount, higherIsBetter) {
-    return this._computeTrend(prev30Days, lastThirtyDaysCount, higherIsBetter);
+  @discourseComputed(
+    "prev30Days",
+    "prev_period",
+    "lastThirtyDaysCount",
+    "higher_is_better"
+  )
+  thirtyDaysTrend(
+    prev30Days,
+    prev_period,
+    lastThirtyDaysCount,
+    higherIsBetter
+  ) {
+    return this._computeTrend(
+      prev30Days ?? prev_period,
+      lastThirtyDaysCount,
+      higherIsBetter
+    );
   },
 
   @discourseComputed("type")
@@ -236,10 +250,15 @@ const Report = EmberObject.extend({
     );
   },
 
-  @discourseComputed("prev30Days", "lastThirtyDaysCount")
-  thirtyDaysCountTitle(prev30Days, lastThirtyDaysCount) {
+  @discourseComputed("prev30Days", "prev_period")
+  canDisplayTrendIcon(prev30Days, prev_period) {
+    return prev30Days ?? prev_period;
+  },
+
+  @discourseComputed("prev30Days", "prev_period", "lastThirtyDaysCount")
+  thirtyDaysCountTitle(prev30Days, prev_period, lastThirtyDaysCount) {
     return this.changeTitle(
-      prev30Days,
+      prev30Days ?? prev_period,
       lastThirtyDaysCount,
       "in the previous 30 day period"
     );
@@ -335,7 +354,7 @@ const Report = EmberObject.extend({
             value,
             type,
             property: mainProperty,
-            formatedValue: value ? escapeExpression(value) : "—",
+            formattedValue: value ? escapeExpression(value) : "—",
           };
         },
       };
@@ -345,7 +364,7 @@ const Report = EmberObject.extend({
   _userLabel(properties, row) {
     const username = row[properties.username];
 
-    const formatedValue = () => {
+    const formattedValue = () => {
       const userId = row[properties.id];
 
       const user = EmberObject.create({
@@ -367,14 +386,14 @@ const Report = EmberObject.extend({
 
     return {
       value: username,
-      formatedValue: username ? formatedValue() : "—",
+      formattedValue: username ? formattedValue() : "—",
     };
   },
 
   _topicLabel(properties, row) {
     const topicTitle = row[properties.title];
 
-    const formatedValue = () => {
+    const formattedValue = () => {
       const topicId = row[properties.id];
       const href = getURL(`/t/-/${topicId}`);
       return `<a href='${href}'>${escapeExpression(topicTitle)}</a>`;
@@ -382,7 +401,7 @@ const Report = EmberObject.extend({
 
     return {
       value: topicTitle,
-      formatedValue: topicTitle ? formatedValue() : "—",
+      formattedValue: topicTitle ? formattedValue() : "—",
     };
   },
 
@@ -395,7 +414,7 @@ const Report = EmberObject.extend({
     return {
       property: properties.title,
       value: postTitle,
-      formatedValue:
+      formattedValue:
         postTitle && href
           ? `<a href='${href}'>${escapeExpression(postTitle)}</a>`
           : "—",
@@ -405,14 +424,14 @@ const Report = EmberObject.extend({
   _secondsLabel(value) {
     return {
       value: toNumber(value),
-      formatedValue: durationTiny(value),
+      formattedValue: durationTiny(value),
     };
   },
 
   _percentLabel(value) {
     return {
       value: toNumber(value),
-      formatedValue: value ? `${value}%` : "—",
+      formattedValue: value ? `${value}%` : "—",
     };
   },
 
@@ -421,25 +440,25 @@ const Report = EmberObject.extend({
       ? true
       : options.formatNumbers;
 
-    const formatedValue = () => (formatNumbers ? number(value) : value);
+    const formattedValue = () => (formatNumbers ? number(value) : value);
 
     return {
       value: toNumber(value),
-      formatedValue: value ? formatedValue() : "—",
+      formattedValue: value ? formattedValue() : "—",
     };
   },
 
   _bytesLabel(value) {
     return {
       value: toNumber(value),
-      formatedValue: I18n.toHumanSize(value),
+      formattedValue: I18n.toHumanSize(value),
     };
   },
 
   _dateLabel(value, date, format = "LL") {
     return {
       value,
-      formatedValue: value ? date.format(format) : "—",
+      formattedValue: value ? date.format(format) : "—",
     };
   },
 
@@ -448,14 +467,14 @@ const Report = EmberObject.extend({
 
     return {
       value,
-      formatedValue: value ? escaped : "—",
+      formattedValue: value ? escaped : "—",
     };
   },
 
   _linkLabel(properties, row) {
     const property = properties[0];
     const value = getURL(row[property]);
-    const formatedValue = (href, anchor) => {
+    const formattedValue = (href, anchor) => {
       return `<a href="${escapeExpression(href)}">${escapeExpression(
         anchor
       )}</a>`;
@@ -463,7 +482,7 @@ const Report = EmberObject.extend({
 
     return {
       value,
-      formatedValue: value ? formatedValue(value, row[properties[1]]) : "—",
+      formattedValue: value ? formattedValue(value, row[properties[1]]) : "—",
     };
   },
 
@@ -503,7 +522,120 @@ const Report = EmberObject.extend({
   },
 });
 
+export const WEEKLY_LIMIT_DAYS = 365;
+export const DAILY_LIMIT_DAYS = 34;
+
+function applyAverage(value, start, end) {
+  const count = end.diff(start, "day") + 1; // 1 to include start
+  return parseFloat((value / count).toFixed(2));
+}
+
 Report.reopenClass({
+  groupingForDatapoints(count) {
+    if (count < DAILY_LIMIT_DAYS) {
+      return "daily";
+    }
+
+    if (count >= DAILY_LIMIT_DAYS && count < WEEKLY_LIMIT_DAYS) {
+      return "weekly";
+    }
+
+    if (count >= WEEKLY_LIMIT_DAYS) {
+      return "monthly";
+    }
+  },
+
+  unitForDatapoints(count) {
+    if (count >= DAILY_LIMIT_DAYS && count < WEEKLY_LIMIT_DAYS) {
+      return "week";
+    } else if (count >= WEEKLY_LIMIT_DAYS) {
+      return "month";
+    } else {
+      return "day";
+    }
+  },
+
+  unitForGrouping(grouping) {
+    switch (grouping) {
+      case "monthly":
+        return "month";
+      case "weekly":
+        return "week";
+      default:
+        return "day";
+    }
+  },
+
+  collapse(model, data, grouping) {
+    grouping = grouping || Report.groupingForDatapoints(data.length);
+
+    if (grouping === "daily") {
+      return data;
+    } else if (grouping === "weekly" || grouping === "monthly") {
+      const isoKind = grouping === "weekly" ? "isoWeek" : "month";
+      const kind = grouping === "weekly" ? "week" : "month";
+      const startMoment = moment(model.start_date, "YYYY-MM-DD");
+
+      let currentIndex = 0;
+      let currentStart = startMoment.clone().startOf(isoKind);
+      let currentEnd = startMoment.clone().endOf(isoKind);
+      const transformedData = [
+        {
+          x: currentStart.format("YYYY-MM-DD"),
+          y: 0,
+        },
+      ];
+
+      let appliedAverage = false;
+      data.forEach((d) => {
+        const date = moment(d.x, "YYYY-MM-DD");
+
+        if (
+          !date.isSame(currentStart) &&
+          !date.isBetween(currentStart, currentEnd)
+        ) {
+          if (model.average) {
+            transformedData[currentIndex].y = applyAverage(
+              transformedData[currentIndex].y,
+              currentStart,
+              currentEnd
+            );
+
+            appliedAverage = true;
+          }
+
+          currentIndex += 1;
+          currentStart = currentStart.add(1, kind).startOf(isoKind);
+          currentEnd = currentEnd.add(1, kind).endOf(isoKind);
+        } else {
+          appliedAverage = false;
+        }
+
+        if (transformedData[currentIndex]) {
+          transformedData[currentIndex].y += d.y;
+        } else {
+          transformedData[currentIndex] = {
+            x: d.x,
+            y: d.y,
+          };
+        }
+      });
+
+      if (model.average && !appliedAverage) {
+        transformedData[currentIndex].y = applyAverage(
+          transformedData[currentIndex].y,
+          currentStart,
+          moment(model.end_date).subtract(1, "day") // remove 1 day as model end date is at 00:00 of next day
+        );
+      }
+
+      return transformedData;
+    }
+
+    // ensure we return something if grouping is unknown
+    return data;
+  },
+
   fillMissingDates(report, options = {}) {
     const dataField = options.dataField || "data";
     const filledField = options.filledField || "data";
@@ -559,7 +691,7 @@ Report.reopenClass({
         Report.fillMissingDates(json.report);
       }
 
-      const model = Report.create({ type: type });
+      const model = Report.create({ type });
       model.setProperties(json.report);
 
       if (json.report.related_report) {

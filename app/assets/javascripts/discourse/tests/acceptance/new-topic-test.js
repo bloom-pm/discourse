@@ -1,7 +1,7 @@
 import {
   acceptance,
   exists,
-  queryAll,
+  query,
 } from "discourse/tests/helpers/qunit-helpers";
 import selectKit from "discourse/tests/helpers/select-kit-helper";
 import { test } from "qunit";
@@ -23,19 +23,19 @@ acceptance("New Topic - Authenticated", function (needs) {
     );
 
     assert.ok(exists(".composer-fields"), "it opens composer");
-    assert.equal(
-      queryAll("#reply-title").val().trim(),
+    assert.strictEqual(
+      query("#reply-title").value.trim(),
       "topic title",
       "it pre-fills topic title"
     );
-    assert.equal(
-      queryAll(".d-editor-input").val().trim(),
+    assert.strictEqual(
+      query(".d-editor-input").value.trim(),
       "topic body",
       "it pre-fills topic body"
     );
-    assert.equal(
+    assert.strictEqual(
       selectKit(".category-chooser").header().value(),
-      1,
+      "1",
       "it selects desired category"
     );
   });

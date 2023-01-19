@@ -11,11 +11,8 @@
   #revisions {
     max-width: 90vw;
   }
-  #display-modes {
-    display: none;
-  }
   #revision-numbers {
-    line-height: $line-height-large;
+    line-height: var(--line-height-large);
   }
   img {
     max-width: 95%;

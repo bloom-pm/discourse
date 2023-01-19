@@ -16,9 +16,21 @@ $breakpoints: (
   extra-large: 1140px,
 );
 
-@mixin breakpoint($bp, $rule: max-width, $type: screen) {
+@mixin breakpoint($bp, $rule: max-width, $type: screen, $sidebar: false) {
   @media #{$type} and (#{$rule}: map-get($breakpoints, $bp)) {
     @content;
+  }
+
+  // if you want to consider the sidebar in your breakpoint
+  // you can pass in $sidebar: true
+  // note that your breakpoint will need to be at the root level
+  @if $sidebar {
+    // when the sidebar is shown, we want to increase the breakpoints by the width of the sidebar
+    @media #{$type} and (#{$rule}: calc(#{map-get($breakpoints, $bp)} + #{$d-sidebar-width})) {
+      .has-sidebar-page {
+        @content;
+      }
+    }
   }
 }
 
@@ -69,11 +81,29 @@ $breakpoints: (
   text-overflow: ellipsis;
   word-wrap: break-word;
   -webkit-line-clamp: $lines;
+  -moz-box-orient: vertical;
   -webkit-box-orient: vertical;
 }
 
 //
 // --------------------------------------------------
+
+$vpad: 0.5em;
+$hpad: 0.65em;
+
+// for consistent sizing across inputs, buttons and dropdowns
+@mixin form-item-sizing {
+  border: 1px solid transparent;
+  font-size: var(--font-0);
+  line-height: normal;
+  box-sizing: border-box;
+  padding: $vpad $hpad;
+  .ios-device & {
+    font-size: var(--font-size-ios-input);
+    padding-top: $vpad * 0.8;
+    padding-bottom: $vpad * 0.8;
+  }
+}
 
 @mixin sticky {
   position: -webkit-sticky;
@@ -84,13 +114,12 @@ $breakpoints: (
 
 @mixin user-select($mode) {
   -webkit-user-select: $mode;
-  -moz-user-select: $mode;
-  -ms-user-select: $mode;
   user-select: $mode;
 }
 
 @mixin unselectable {
   @include user-select(none);
+  cursor: default;
 }
 
 // Stuff we repeat
@@ -101,7 +130,6 @@ $breakpoints: (
 
 // We still need -webkit for latest iPhone and Safari
 @mixin transform($transforms) {
-  -webkit-transform: $transforms;
   transform: $transforms;
 }
 
@@ -119,9 +147,6 @@ $breakpoints: (
 }
 
 @mixin fa-rotate($degrees, $rotation) {
-  -ms-filter: "progid:DXImageTransform.Microsoft.BasicImage(rotation=#{$rotation})";
-  -webkit-transform: rotate($degrees);
-  -ms-transform: rotate($degrees);
   transform: rotate($degrees);
 }
 
@@ -209,4 +234,15 @@ $breakpoints: (
   } @else {
     @return url("#{$path}");
   }
+}
+
+@mixin mention() {
+  display: inline-block; // https://bugzilla.mozilla.org/show_bug.cgi?id=1656119
+  font-size: 0.93em;
+  font-weight: normal;
+  color: var(--primary);
+  padding: 0 0.3em 0.07em;
+  background: var(--primary-low);
+  border-radius: 0.6em;
+  text-decoration: none;
 }

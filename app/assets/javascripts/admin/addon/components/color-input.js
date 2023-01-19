@@ -1,8 +1,6 @@
 import { action, computed } from "@ember/object";
-import loadScript, { loadCSS } from "discourse/lib/load-script";
 import Component from "@ember/component";
 import { observes } from "discourse-common/utils/decorators";
-import { schedule } from "@ember/runloop";
 
 /**
   An input field for a color.
@@ -22,52 +20,54 @@ export default Component.extend({
     return this.onlyHex ? 6 : null;
   }),
 
-  @action
-  onHexInput(color) {
-    this.attrs.onChangeColor && this.attrs.onChangeColor(color || "");
+  normalizedHexValue: computed("hexValue", function () {
+    return this.normalize(this.hexValue);
+  }),
+
+  normalize(color) {
+    if (this._valid(color)) {
+      if (!color.startsWith("#")) {
+        color = "#" + color;
+      }
+      if (color.length === 4) {
+        color =
+          "#" +
+          color
+            .slice(1)
+            .split("")
+            .map((hex) => hex + hex)
+            .join("");
+      }
+    }
+    return color;
   },
 
-  @observes("hexValue", "brightnessValue", "valid")
-  hexValueChanged: function () {
-    const hex = this.hexValue;
-    let text = this.element.querySelector("input.hex-input");
-
-    this.attrs.onChangeColor && this.attrs.onChangeColor(hex);
-
-    if (this.valid) {
-      this.styleSelection &&
-        text.setAttribute(
-          "style",
-          "color: " +
-            (this.brightnessValue > 125 ? "black" : "white") +
-            "; background-color: #" +
-            hex +
-            ";"
-        );
-
-      if (this.pickerLoaded) {
-        $(this.element.querySelector(".picker")).spectrum({
-          color: "#" + hex,
-        });
-      }
-    } else {
-      this.styleSelection && text.setAttribute("style", "");
+  @action
+  onHexInput(color) {
+    if (this.attrs.onChangeColor) {
+      this.attrs.onChangeColor(this.normalize(color || ""));
     }
   },
 
-  didInsertElement() {
-    loadScript("/javascripts/spectrum.js").then(() => {
-      loadCSS("/javascripts/spectrum.css").then(() => {
-        schedule("afterRender", () => {
-          $(this.element.querySelector(".picker"))
-            .spectrum({ color: "#" + this.hexValue })
-            .on("change.spectrum", (me, color) => {
-              this.set("hexValue", color.toHexString().replace("#", ""));
-            });
-          this.set("pickerLoaded", true);
-        });
-      });
-    });
-    schedule("afterRender", () => this.hexValueChanged());
+  @action
+  onPickerInput(event) {
+    this.set("hexValue", event.target.value.replace("#", ""));
+  },
+
+  @observes("hexValue", "brightnessValue", "valid")
+  hexValueChanged() {
+    const hex = this.hexValue;
+
+    if (this.attrs.onChangeColor) {
+      this.attrs.onChangeColor(this.normalize(hex));
+    }
+
+    if (this._valid()) {
+      this.element.querySelector(".picker").value = this.normalize(hex);
+    }
+  },
+
+  _valid(color = this.hexValue) {
+    return /^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(color);
   },
 });

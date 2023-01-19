@@ -1,25 +1,10 @@
 import DiscourseRoute from "discourse/routes/discourse";
 import I18n from "I18n";
 import User from "discourse/models/user";
+import { action } from "@ember/object";
+import { bind } from "discourse-common/utils/decorators";
 
 export default DiscourseRoute.extend({
-  titleToken() {
-    const username = this.modelFor("user").username;
-    if (username) {
-      return [I18n.t("user.profile"), username];
-    }
-  },
-
-  actions: {
-    undoRevokeApiKey(key) {
-      key.undoRevoke();
-    },
-
-    revokeApiKey(key) {
-      key.revoke();
-    },
-  },
-
   beforeModel() {
     if (this.siteSettings.hide_user_profiles_from_public && !this.currentUser) {
       this.replaceWith("discovery");
@@ -46,6 +31,7 @@ export default DiscourseRoute.extend({
     return user
       .findDetails()
       .then(() => user.findStaffInfo())
+      .then(() => user.trackStatus())
       .catch(() => this.replaceWith("/404"));
   },
 
@@ -66,8 +52,10 @@ export default DiscourseRoute.extend({
     this._super(...arguments);
 
     const user = this.modelFor("user");
-    this.messageBus.subscribe(`/u/${user.username_lower}`, (data) =>
-      user.loadUserAction(data)
+    this.messageBus.subscribe(`/u/${user.username_lower}`, this.onUserMessage);
+    this.messageBus.subscribe(
+      `/u/${user.username_lower}/counters`,
+      this.onUserCountersMessage
     );
   },
 
@@ -75,9 +63,53 @@ export default DiscourseRoute.extend({
     this._super(...arguments);
 
     const user = this.modelFor("user");
-    this.messageBus.unsubscribe(`/u/${user.username_lower}`);
+    this.messageBus.unsubscribe(
+      `/u/${user.username_lower}`,
+      this.onUserMessage
+    );
+    this.messageBus.unsubscribe(
+      `/u/${user.username_lower}/counters`,
+      this.onUserCountersMessage
+    );
+    user.stopTrackingStatus();
 
     // Remove the search context
     this.searchService.set("searchContext", null);
+  },
+
+  @bind
+  onUserMessage(data) {
+    const user = this.modelFor("user");
+    return user.loadUserAction(data);
+  },
+
+  @bind
+  onUserCountersMessage(data) {
+    const user = this.modelFor("user");
+    user.setProperties(data);
+
+    Object.entries(data).forEach(([key, value]) =>
+      this.appEvents.trigger(
+        `count-updated:${user.username_lower}:${key}`,
+        value
+      )
+    );
+  },
+
+  titleToken() {
+    const username = this.modelFor("user").username;
+    if (username) {
+      return [I18n.t("user.profile"), username];
+    }
+  },
+
+  @action
+  undoRevokeApiKey(key) {
+    key.undoRevoke();
+  },
+
+  @action
+  revokeApiKey(key) {
+    key.revoke();
   },
 });

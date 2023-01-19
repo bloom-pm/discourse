@@ -1,64 +1,84 @@
-import componentTest, {
-  setupRenderingTest,
-} from "discourse/tests/helpers/component-test";
-import { discourseModule } from "discourse/tests/helpers/qunit-helpers";
-import hbs from "htmlbars-inline-precompile";
+import { module, test } from "qunit";
+import { setupRenderingTest } from "discourse/tests/helpers/component-test";
+import { fillIn, render } from "@ember/test-helpers";
+import { hbs } from "ember-cli-htmlbars";
 import selectKit from "discourse/tests/helpers/select-kit-helper";
+import { exists, paste, query } from "discourse/tests/helpers/qunit-helpers";
+import pretender, { response } from "../../../helpers/create-pretender";
 
-discourseModule(
+module(
   "Integration | Component | select-kit/email-group-user-chooser",
   function (hooks) {
     setupRenderingTest(hooks);
 
     hooks.beforeEach(function () {
       this.set("subject", selectKit());
-      this.setProperties({
-        value: [],
-        onChange() {},
-      });
     });
 
-    componentTest("autofocus option set to true", {
-      template: hbs`{{email-group-user-chooser
-        value=value
-        onChange=onChange
-        options=(hash
-          autofocus=true
-        )
-      }}`,
+    test("pasting", async function (assert) {
+      await render(hbs`<EmailGroupUserChooser/>`);
 
-      async test(assert) {
-        this.subject;
-        assert.ok(
-          this.subject.header().el()[0].classList.contains("is-focused"),
-          "select-kit header has is-focused class"
-        );
-        assert.ok(
-          this.subject.filter().el()[0].querySelector(".filter-input")
-            .autofocus,
-          "filter input has autofocus attribute"
-        );
-      },
+      await this.subject.expand();
+      await paste(query(".filter-input"), "foo,bar");
+
+      assert.equal(this.subject.header().value(), "foo,bar");
     });
 
-    componentTest("without autofocus", {
-      template: hbs`{{email-group-user-chooser
-        value=value
-        onChange=onChange
-      }}`,
+    test("doesn't show user status by default", async function (assert) {
+      pretender.get("/u/search/users", () =>
+        response({
+          users: [
+            {
+              username: "test-user",
+              status: {
+                description: "off to dentist",
+                emoji: "tooth",
+              },
+            },
+          ],
+        })
+      );
 
-      async test(assert) {
-        this.subject;
-        assert.ok(
-          !this.subject.header().el()[0].classList.contains("is-focused"),
-          "select-kit header doesn't have is-focused class"
-        );
-        assert.ok(
-          !this.subject.filter().el()[0].querySelector(".filter-input")
-            .autofocus,
-          "filter input doesn't have autofocus attribute"
-        );
-      },
+      await render(hbs`<EmailGroupUserChooser />`);
+      await this.subject.expand();
+      await fillIn(".filter-input", "test-user");
+
+      assert.notOk(exists(".user-status-message"));
+    });
+
+    test("shows user status if enabled", async function (assert) {
+      const status = {
+        description: "off to dentist",
+        emoji: "tooth",
+      };
+      pretender.get("/u/search/users", () =>
+        response({
+          users: [
+            {
+              username: "test-user",
+              status,
+            },
+          ],
+        })
+      );
+
+      await render(hbs`<EmailGroupUserChooser @showUserStatus=true />`);
+      await this.subject.expand();
+      await fillIn(".filter-input", "test-user");
+
+      assert.ok(exists(".user-status-message"), "user status is rendered");
+      assert.equal(
+        query(".user-status-message .emoji").alt,
+        status.emoji,
+        "status emoji is correct"
+      );
+      assert.equal(
+        query(
+          ".user-status-message .user-status-message-description"
+        ).innerText.trim(),
+        status.description,
+        "status description is correct"
+      );
     });
   }
 );

@@ -1,9 +1,19 @@
 import DiscourseRoute from "discourse/routes/discourse";
+import I18n from "I18n";
+import { action } from "@ember/object";
 
 export default DiscourseRoute.extend({
   model() {
-    let userDraftsStream = this.modelFor("user").get("userDraftsStream");
-    return userDraftsStream.load(this.site).then(() => userDraftsStream);
+    const user = this.modelFor("user");
+    const draftsStream = user.get("userDraftsStream");
+    draftsStream.reset();
+
+    return draftsStream.findItems(this.site).then(() => {
+      return {
+        stream: draftsStream,
+        emptyState: this.emptyState(),
+      };
+    });
   },
 
   renderTemplate() {
@@ -14,6 +24,12 @@ export default DiscourseRoute.extend({
     controller.set("model", model);
   },
 
+  emptyState() {
+    const title = I18n.t("user_activity.no_drafts_title");
+    const body = I18n.t("user_activity.no_drafts_body");
+    return { title, body };
+  },
+
   activate() {
     this.appEvents.on("draft:destroyed", this, this.refresh);
   },
@@ -22,10 +38,9 @@ export default DiscourseRoute.extend({
     this.appEvents.off("draft:destroyed", this, this.refresh);
   },
 
-  actions: {
-    didTransition() {
-      this.controllerFor("user-activity")._showFooter();
-      return true;
-    },
+  @action
+  didTransition() {
+    this.controllerFor("user-activity")._showFooter();
+    return true;
   },
 });

@@ -43,12 +43,11 @@ const TopicList = RestModel.extend({
   canLoadMore: notEmpty("more_topics_url"),
 
   forEachNew(topics, callback) {
-    const topicIds = [];
-
-    this.topics.forEach((topic) => (topicIds[topic.id] = true));
+    const topicIds = new Set();
+    this.topics.forEach((topic) => topicIds.add(topic.id));
 
     topics.forEach((topic) => {
-      if (!topicIds[topic.id]) {
+      if (!topicIds.has(topic.id)) {
         callback(topic);
       }
     });
@@ -121,7 +120,7 @@ const TopicList = RestModel.extend({
   loadBefore(topic_ids, storeInSession) {
     // refresh dupes
     this.topics.removeObjects(
-      this.topics.filter((topic) => topic_ids.indexOf(topic.id) >= 0)
+      this.topics.filter((topic) => topic_ids.includes(topic.id))
     );
 
     const url = `${getURL("/")}${this.filter}.json?topic_ids=${topic_ids.join(

@@ -1,12 +1,25 @@
 import { alias, match } from "@ember/object/computed";
-import { next, schedule, throttle } from "@ember/runloop";
+import { schedule, throttle } from "@ember/runloop";
 import DiscourseURL from "discourse/lib/url";
 import Mixin from "@ember/object/mixin";
 import afterTransition from "discourse/lib/after-transition";
 import { escapeExpression } from "discourse/lib/utilities";
-import headerOutletHeights from "discourse/lib/header-outlet-height";
 import { inject as service } from "@ember/service";
 import { wantsNewWindow } from "discourse/lib/intercept-click";
+import { bind } from "discourse-common/utils/decorators";
+import discourseLater from "discourse-common/lib/later";
+
+const DEFAULT_SELECTOR = "#main-outlet";
+
+let _cardClickListenerSelectors = [DEFAULT_SELECTOR];
+
+export function addCardClickListenerSelector(selector) {
+  _cardClickListenerSelectors.push(selector);
+}
+
+export function resetCardClickListenerSelector() {
+  _cardClickListenerSelectors = [DEFAULT_SELECTOR];
+}
 
 export default Mixin.create({
   router: service(),
@@ -26,7 +39,7 @@ export default Mixin.create({
   isFixed: false,
   isDocked: false,
 
-  _show(username, $target) {
+  _show(username, target, event) {
     // No user card for anon
     if (this.siteSettings.hide_user_profiles_from_public && !this.currentUser) {
       return false;
@@ -35,21 +48,24 @@ export default Mixin.create({
     username = escapeExpression(username.toString());
 
     // Don't show if nested
-    if ($target.parents(".card-content").length) {
+    if (target.closest(".card-content")) {
       this._close();
-      DiscourseURL.routeTo($target.attr("href"));
+      DiscourseURL.routeTo(target.href);
       return false;
     }
 
+    this.appEvents.trigger("card:show", username, target, event);
+
     const currentUsername = this.username;
-    if (username === currentUsername && this.loading === username) {
+    if (username === currentUsername || this.loading === username) {
+      this._positionCard($(target));
       return;
     }
 
-    const postId = $target.parents("article").data("post-id");
+    const closestArticle = target.closest("article");
+    const postId = closestArticle?.dataset?.postId || null;
     const wasVisible = this.visible;
     const previousTarget = this.cardTarget;
-    const target = $target[0];
 
     if (wasVisible) {
       this._close();
@@ -69,7 +85,10 @@ export default Mixin.create({
       post,
     });
 
-    this._showCallback(username, $target);
+    this.appEvents.trigger("user-card:show", { username });
+    this._showCallback(username, $(target)).then((user) => {
+      this.appEvents.trigger("user-card:after-show", { user });
+    });
 
     // We bind scrolling on mobile after cards are shown to hide them if user scrolls
     if (this.site.mobileView) {
@@ -81,56 +100,25 @@ export default Mixin.create({
 
   didInsertElement() {
     this._super(...arguments);
-    afterTransition($(this.element), this._hide.bind(this));
+    afterTransition($(this.element), this._hide);
     const id = this.elementId;
     const triggeringLinkClass = this.triggeringLinkClass;
-    const clickOutsideEventName = `mousedown.outside-${id}`;
-    const clickDataExpand = `click.discourse-${id}`;
-    const clickMention = `click.discourse-${id}-${triggeringLinkClass}`;
     const previewClickEvent = `click.discourse-preview-${id}-${triggeringLinkClass}`;
     const mobileScrollEvent = "scroll.mobile-card-cloak";
 
     this.setProperties({
-      clickOutsideEventName,
-      clickDataExpand,
-      clickMention,
+      boundCardClickHandler: this._cardClickHandler,
       previewClickEvent,
       mobileScrollEvent,
     });
 
-    $("html")
-      .off(clickOutsideEventName)
-      .on(clickOutsideEventName, (e) => {
-        if (this.visible) {
-          const $target = $(e.target);
-          if (
-            $target.closest(`[data-${id}]`).data(id) ||
-            $target.closest(`a.${triggeringLinkClass}`).length > 0 ||
-            $target.closest(`#${id}`).length > 0
-          ) {
-            return;
-          }
+    document.addEventListener("mousedown", this._clickOutsideHandler);
+    document.addEventListener("keyup", this._escListener);
 
-          this._close();
-        }
-
-        return true;
-      });
-
-    $("#main-outlet").on(clickDataExpand, `[data-${id}]`, (e) => {
-      if (wantsNewWindow(e)) {
-        return;
-      }
-      const $target = $(e.currentTarget);
-      return this._show($target.data(id), $target);
-    });
-
-    $("#main-outlet").on(clickMention, `a.${triggeringLinkClass}`, (e) => {
-      if (wantsNewWindow(e)) {
-        return;
-      }
-      const $target = $(e.currentTarget);
-      return this._show($target.text().replace(/^@/, ""), $target);
+    _cardClickListenerSelectors.forEach((selector) => {
+      document
+        .querySelector(selector)
+        .addEventListener("click", this.boundCardClickHandler);
     });
 
     this.appEvents.on(previewClickEvent, this, "_previewClick");
@@ -140,11 +128,48 @@ export default Mixin.create({
       this,
       "_topicHeaderTrigger"
     );
+
+    this.appEvents.on("card:close", this, "_close");
   },
 
-  _topicHeaderTrigger(username, $target) {
+  @bind
+  _cardClickHandler(event) {
+    if (this.avatarSelector) {
+      let matched = this._showCardOnClick(
+        event,
+        this.avatarSelector,
+        (el) => el.dataset[this.avatarDataAttrKey]
+      );
+
+      if (matched) {
+        return; // Don't need to check for mention click; it's an avatar click
+      }
+    }
+
+    // Mention click
+    this._showCardOnClick(event, this.mentionSelector, (el) =>
+      el.innerText.replace(/^@/, "")
+    );
+  },
+
+  _showCardOnClick(event, selector, transformText) {
+    let matchingEl = event.target.closest(selector);
+    if (matchingEl) {
+      if (wantsNewWindow(event)) {
+        return true;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      return this._show(transformText(matchingEl), matchingEl, event);
+    }
+
+    return false;
+  },
+
+  _topicHeaderTrigger(username, target) {
     this.setProperties({ isFixed: true, isDocked: true });
-    return this._show(username, $target);
+    return this._show(username, target);
   },
 
   _bindMobileScroll() {
@@ -212,10 +237,9 @@ export default Mixin.create({
               }
             }
 
-            position.top -= this._calculateTopOffset(
-              $("#main-outlet").offset(),
-              headerOutletHeights()
-            );
+            // It looks better to have the card aligned slightly higher
+            position.top -= 24;
+
             if (isFixed) {
               position.top -= $("html").scrollTop();
               //if content is fixed and will be cut off on the bottom, display it above...
@@ -256,21 +280,17 @@ export default Mixin.create({
         // note: we DO NOT use afterRender here cause _positionCard may
         // run afterwards, if we allowed this to happen the usercard
         // may be offscreen and we may scroll all the way to it on focus
-        next(null, () => {
-          const firstLink = this.element.querySelector("a");
-          firstLink && firstLink.focus();
-        });
+        if (event.pointerId === -1) {
+          discourseLater(() => {
+            const firstLink = this.element.querySelector("a");
+            firstLink && firstLink.focus();
+          }, 350);
+        }
       }
     });
   },
 
-  // some plugins/themes modify the page layout and may
-  // need to override this calculation for the card to
-  // position correctly
-  _calculateTopOffset(mainOutletOffset, outletHeights) {
-    return mainOutletOffset.top - outletHeights;
-  },
-
+  @bind
   _hide() {
     if (!this.visible) {
       $(this.element).css({ left: -9999, top: -9999 });
@@ -297,18 +317,22 @@ export default Mixin.create({
     }
 
     this._hide();
+    this.appEvents.trigger("card:hide");
   },
 
   willDestroyElement() {
     this._super(...arguments);
-    const clickOutsideEventName = this.clickOutsideEventName;
-    const clickDataExpand = this.clickDataExpand;
-    const clickMention = this.clickMention;
+
+    document.removeEventListener("mousedown", this._clickOutsideHandler);
+    document.removeEventListener("keyup", this._escListener);
+
+    _cardClickListenerSelectors.forEach((selector) => {
+      document
+        .querySelector(selector)
+        .removeEventListener("click", this.boundCardClickHandler);
+    });
+
     const previewClickEvent = this.previewClickEvent;
-
-    $("html").off(clickOutsideEventName);
-    $("#main").off(clickDataExpand).off(clickMention);
-
     this.appEvents.off(previewClickEvent, this, "_previewClick");
 
     this.appEvents.off(
@@ -317,15 +341,35 @@ export default Mixin.create({
       "_topicHeaderTrigger"
     );
 
+    this.appEvents.off("card:close", this, "_close");
     this._hide();
   },
 
-  keyUp(e) {
-    if (e.keyCode === 27) {
-      // ESC
-      const target = this.cardTarget;
+  @bind
+  _clickOutsideHandler(event) {
+    if (this.visible) {
+      if (
+        event.target
+          .closest(`[data-${this.elementId}]`)
+          ?.getAttribute(`data-${this.elementId}`) ||
+        event.target.closest(`a.${this.triggeringLinkClass}`) ||
+        event.target.closest(`#${this.elementId}`)
+      ) {
+        return;
+      }
+
       this._close();
-      target.focus();
+    }
+
+    return true;
+  },
+
+  @bind
+  _escListener(event) {
+    if (this.visible && event.key === "Escape") {
+      this.cardTarget?.focus();
+      this._close();
+      return;
     }
   },
 });

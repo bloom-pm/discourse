@@ -1,9 +1,9 @@
 import Category from "discourse/models/category";
 import Component from "@ember/component";
 import I18n from "I18n";
-import bootbox from "bootbox";
 import { bufferedProperty } from "discourse/mixins/buffered-content";
 import discourseComputed from "discourse-common/utils/decorators";
+import { inject as service } from "@ember/service";
 import { isEmpty } from "@ember/utils";
 import { or } from "@ember/object/computed";
 import { popupAjaxError } from "discourse/lib/ajax-error";
@@ -12,8 +12,20 @@ export default Component.extend(bufferedProperty("host"), {
   editToggled: false,
   tagName: "tr",
   categoryId: null,
+  category: null,
+  dialog: service(),
 
   editing: or("host.isNew", "editToggled"),
+
+  init() {
+    this._super(...arguments);
+
+    const host = this.host;
+    const categoryId = host.category_id || this.site.uncategorized_category_id;
+    const category = Category.findById(categoryId);
+
+    host.set("category", category);
+  },
 
   @discourseComputed("buffered.host", "host.isSaving")
   cantSave(host, isSaving) {
@@ -50,12 +62,13 @@ export default Component.extend(bufferedProperty("host"), {
     },
 
     delete() {
-      bootbox.confirm(I18n.t("admin.embedding.confirm_delete"), (result) => {
-        if (result) {
-          this.host.destroyRecord().then(() => {
+      return this.dialog.confirm({
+        message: I18n.t("admin.embedding.confirm_delete"),
+        didConfirm: () => {
+          return this.host.destroyRecord().then(() => {
             this.deleteHost(this.host);
           });
-        }
+        },
       });
     },
 

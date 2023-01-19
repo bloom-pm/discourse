@@ -2,13 +2,14 @@ import Controller, { inject as controller } from "@ember/controller";
 import { alias, sort } from "@ember/object/computed";
 import GrantBadgeController from "discourse/mixins/grant-badge-controller";
 import I18n from "I18n";
-import bootbox from "bootbox";
 import discourseComputed from "discourse-common/utils/decorators";
 import { next } from "@ember/runloop";
 import { popupAjaxError } from "discourse/lib/ajax-error";
+import { inject as service } from "@ember/service";
 
 export default Controller.extend(GrantBadgeController, {
   adminUser: controller(),
+  dialog: service(),
   user: alias("adminUser.model"),
   userBadges: alias("model"),
   allBadges: alias("badges"),
@@ -49,7 +50,7 @@ export default Controller.extend(GrantBadgeController, {
       let result = {
         badge: badges[0].badge,
         granted_at: lastGranted,
-        badges: badges,
+        badges,
         count: badges.length,
         grouped: true,
       };
@@ -61,7 +62,7 @@ export default Controller.extend(GrantBadgeController, {
   },
 
   actions: {
-    expandGroup: function (userBadge) {
+    expandGroup(userBadge) {
       const model = this.model;
       model.set("expandedBadges", model.get("expandedBadges") || []);
       model.get("expandedBadges").pushObject(userBadge.badge.id);
@@ -90,18 +91,14 @@ export default Controller.extend(GrantBadgeController, {
     },
 
     revokeBadge(userBadge) {
-      return bootbox.confirm(
-        I18n.t("admin.badges.revoke_confirm"),
-        I18n.t("no_value"),
-        I18n.t("yes_value"),
-        (result) => {
-          if (result) {
-            userBadge.revoke().then(() => {
-              this.model.removeObject(userBadge);
-            });
-          }
-        }
-      );
+      return this.dialog.yesNoConfirm({
+        message: I18n.t("admin.badges.revoke_confirm"),
+        didConfirm: () => {
+          return userBadge.revoke().then(() => {
+            this.model.removeObject(userBadge);
+          });
+        },
+      });
     },
   },
 });

@@ -1,31 +1,25 @@
-{{#conditional-loading-spinner condition=loading}}
-  {{#if hasIncoming}}
-    <div class="show-mores">
-      <a tabindex="0" href {{action showInserted}} class="alert alert-info clickable">
-        {{count-i18n key="topic_count_" suffix="latest" count=2}}
-      </a>
-    </div>
-  {{/if}}
-
-  {{#if topics}}
-    {{topic-list
-      showPosters=showPosters
-      hideMobileAvatar=hideMobileAvatar
-      hideCategory=hideCategory
-      topics=topics
-      expandExcerpts=expandExcerpts
-      bulkSelectEnabled=bulkSelectEnabled
-      canBulkSelect=canBulkSelect
-      selected=selected
-      tagsForUser=tagsForUser
-      onScroll=onScroll
-      scrollOnLoad=scrollOnLoad
-    }}
+<ConditionalLoadingSpinner @condition={{this.loading}}>
+  {{#if this.topics}}
+    <TopicList
+      @showPosters={{this.showPosters}}
+      @hideCategory={{this.hideCategory}}
+      @topics={{this.topics}}
+      @expandExcerpts={{this.expandExcerpts}}
+      @bulkSelectEnabled={{this.bulkSelectEnabled}}
+      @bulkSelectAction={{this.bulkSelectAction}}
+      @canBulkSelect={{this.canBulkSelect}}
+      @selected={{this.selected}}
+      @tagsForUser={{this.tagsForUser}}
+      @onScroll={{this.onScroll}}
+      @scrollOnLoad={{this.scrollOnLoad}}
+      @toggleBulkSelect={{this.toggleBulkSelect}}
+      @updateAutoAddTopicsToBulkSelect={{this.updateAutoAddTopicsToBulkSelect}}
+    />
   {{else}}
-    {{#unless loadingMore}}
+    {{#unless this.loadingMore}}
       <div class="alert alert-info">
         {{i18n "choose_topic.none_found"}}
       </div>
     {{/unless}}
   {{/if}}
-{{/conditional-loading-spinner}}
+</ConditionalLoadingSpinner>

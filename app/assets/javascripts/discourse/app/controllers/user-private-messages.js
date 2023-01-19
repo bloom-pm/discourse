@@ -1,61 +1,135 @@
 import Controller, { inject as controller } from "@ember/controller";
-import { action } from "@ember/object";
-import { alias, and, equal } from "@ember/object/computed";
+import { action, computed } from "@ember/object";
+import { inject as service } from "@ember/service";
+import { alias, and, equal, readOnly } from "@ember/object/computed";
+import { cached, tracked } from "@glimmer/tracking";
 import I18n from "I18n";
-import Topic from "discourse/models/topic";
-import bootbox from "bootbox";
-import discourseComputed from "discourse-common/utils/decorators";
+import DiscourseURL from "discourse/lib/url";
 
-export default Controller.extend({
-  userTopicsList: controller("user-topics-list"),
-  user: controller(),
+const customUserNavMessagesDropdownRows = [];
 
-  pmView: false,
-  viewingSelf: alias("user.viewingSelf"),
-  isGroup: equal("pmView", "groups"),
-  currentPath: alias("router._router.currentPath"),
-  selected: alias("userTopicsList.selected"),
-  bulkSelectEnabled: alias("userTopicsList.bulkSelectEnabled"),
-  showToggleBulkSelect: true,
-  pmTaggingEnabled: alias("site.can_tag_pms"),
-  tagId: null,
+export function registerCustomUserNavMessagesDropdownRow(
+  routeName,
+  name,
+  icon
+) {
+  customUserNavMessagesDropdownRows.push({
+    routeName,
+    name,
+    icon,
+  });
+}
 
-  showNewPM: and("user.viewingSelf", "currentUser.can_send_private_messages"),
+export function resetCustomUserNavMessagesDropdownRows() {
+  customUserNavMessagesDropdownRows.length = 0;
+}
 
-  @discourseComputed("selected.[]", "bulkSelectEnabled")
-  hasSelection(selected, bulkSelectEnabled) {
-    return bulkSelectEnabled && selected && selected.length > 0;
-  },
+export default class extends Controller {
+  @service router;
+  @controller user;
 
-  bulkOperation(operation) {
-    const selected = this.selected;
-    let params = { type: operation };
-    if (this.isGroup) {
-      params.group = this.groupFilter;
+  @tracked group;
+  @tracked tagId;
+
+  @alias("group.name") groupFilter;
+  @and("user.viewingSelf", "currentUser.can_send_private_messages") showNewPM;
+  @equal("currentParentRouteName", "userPrivateMessages.group") isGroup;
+  @equal("currentParentRouteName", "userPrivateMessages.user") isPersonal;
+  @readOnly("user.viewingSelf") viewingSelf;
+  @readOnly("router.currentRouteName") currentRouteName;
+  @readOnly("router.currentRoute.parent.name") currentParentRouteName;
+  @readOnly("site.can_tag_pms") pmTaggingEnabled;
+
+  get messagesDropdownValue() {
+    let value;
+
+    for (let i = this.messagesDropdownContent.length - 1; i >= 0; i--) {
+      const row = this.messagesDropdownContent[i];
+
+      if (this.router.currentURL.includes(row.id)) {
+        value = row.id;
+        break;
+      }
     }
 
-    Topic.bulkOperation(selected, params).then(
-      () => {
-        const model = this.get("userTopicsList.model");
-        const topics = model.get("topics");
-        topics.removeObjects(selected);
-        selected.clear();
-        model.loadMore();
+    return value;
+  }
+
+  @cached
+  get messagesDropdownContent() {
+    const content = [
+      {
+        id: this.router.urlFor("userPrivateMessages.user", this.model.username),
+        name: I18n.t("user.messages.inbox"),
       },
-      () => {
-        bootbox.alert(I18n.t("user.messages.failed_to_move"));
-      }
-    );
-  },
+    ];
+
+    this.model.groupsWithMessages.forEach((group) => {
+      content.push({
+        id: this.router.urlFor(
+          "userPrivateMessages.group",
+          this.model.username,
+          group.name
+        ),
+        name: group.name,
+        icon: "inbox",
+      });
+    });
+
+    if (this.pmTaggingEnabled) {
+      content.push({
+        id: this.router.urlFor("userPrivateMessages.tags", this.model.username),
+        name: I18n.t("user.messages.tags"),
+        icon: "tags",
+      });
+    }
+
+    customUserNavMessagesDropdownRows.forEach((row) => {
+      content.push({
+        id: this.router.urlFor(row.routeName, this.model.username),
+        name: row.name,
+        icon: row.icon,
+      });
+    });
+
+    return content;
+  }
+
+  @computed(
+    "pmTopicTrackingState.newIncoming.[]",
+    "pmTopicTrackingState.statesModificationCounter",
+    "group"
+  )
+  get newLinkText() {
+    return this.#linkText("new");
+  }
+
+  @computed(
+    "pmTopicTrackingState.newIncoming.[]",
+    "pmTopicTrackingState.statesModificationCounter",
+    "group"
+  )
+  get unreadLinkText() {
+    return this.#linkText("unread");
+  }
+
+  #linkText(type) {
+    const count = this.pmTopicTrackingState?.lookupCount(type) || 0;
+
+    if (count === 0) {
+      return I18n.t(`user.messages.${type}`);
+    } else {
+      return I18n.t(`user.messages.${type}_with_count`, { count });
+    }
+  }
 
   @action
   changeGroupNotificationLevel(notificationLevel) {
     this.group.setNotification(notificationLevel, this.get("user.model.id"));
-  },
+  }
 
   @action
-  toggleBulkSelect() {
-    this.selected.clear();
-    this.toggleProperty("bulkSelectEnabled");
-  },
-});
+  onMessagesDropdownChange(item) {
+    return DiscourseURL.routeTo(item);
+  }
+}

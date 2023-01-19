@@ -10,89 +10,122 @@ export default {
   name: "dynamic-route-builders",
 
   initialize(registry, app) {
-    app.DiscoveryCategoryController = DiscoverySortableController.extend();
-    app.DiscoveryCategoryNoneController = DiscoverySortableController.extend();
-    app.DiscoveryCategoryAllController = DiscoverySortableController.extend();
+    app.register(
+      "controller:discovery.category",
+      DiscoverySortableController.extend()
+    );
+    app.register(
+      "controller:discovery.category-none",
+      DiscoverySortableController.extend()
+    );
+    app.register(
+      "controller:discovery.category-all",
+      DiscoverySortableController.extend()
+    );
 
-    app.DiscoveryCategoryRoute = buildCategoryRoute("default");
-    app.DiscoveryCategoryNoneRoute = buildCategoryRoute("default", {
-      no_subcategories: true,
-    });
-    app.DiscoveryCategoryAllRoute = buildCategoryRoute("default", {
-      no_subcategories: false,
-    });
+    app.register("route:discovery.category", buildCategoryRoute("default"));
+    app.register(
+      "route:discovery.category-none",
+      buildCategoryRoute("default", {
+        no_subcategories: true,
+      })
+    );
+    app.register(
+      "route:discovery.category-all",
+      buildCategoryRoute("default", {
+        no_subcategories: false,
+      })
+    );
 
     const site = Site.current();
     site.get("filters").forEach((filter) => {
-      const filterCapitalized = filter.capitalize();
-      app[
-        `Discovery${filterCapitalized}Controller`
-      ] = DiscoverySortableController.extend();
-      app[
-        `Discovery${filterCapitalized}CategoryController`
-      ] = DiscoverySortableController.extend();
-      app[
-        `Discovery${filterCapitalized}CategoryNoneController`
-      ] = DiscoverySortableController.extend();
-      if (filter !== "top") {
-        app[`Discovery${filterCapitalized}Route`] = buildTopicRoute(filter);
+      const filterDasherized = filter.dasherize();
+      app.register(
+        `controller:discovery.${filterDasherized}`,
+        DiscoverySortableController.extend()
+      );
+      app.register(
+        `controller:discovery.${filterDasherized}-category`,
+        DiscoverySortableController.extend()
+      );
+      app.register(
+        `controller:discovery.${filterDasherized}-category-none`,
+        DiscoverySortableController.extend()
+      );
+
+      if (filter === "top") {
+        app.register(
+          "route:discovery.top",
+          buildTopicRoute("top", {
+            actions: {
+              willTransition() {
+                User.currentProp(
+                  "user_option.should_be_redirected_to_top",
+                  false
+                );
+                if (User.currentProp("user_option.redirected_to_top")) {
+                  User.currentProp(
+                    "user_option.redirected_to_top.reason",
+                    null
+                  );
+                }
+                return this._super(...arguments);
+              },
+            },
+          })
+        );
+      } else {
+        app.register(
+          `route:discovery.${filterDasherized}`,
+          buildTopicRoute(filter)
+        );
       }
 
-      app[`Discovery${filterCapitalized}CategoryRoute`] = buildCategoryRoute(
-        filter
+      app.register(
+        `route:discovery.${filterDasherized}-category`,
+        buildCategoryRoute(filter)
       );
-      app[
-        `Discovery${filterCapitalized}CategoryNoneRoute`
-      ] = buildCategoryRoute(filter, { no_subcategories: true });
+      app.register(
+        `route:discovery.${filterDasherized}-category-none`,
+        buildCategoryRoute(filter, { no_subcategories: true })
+      );
     });
 
-    app.DiscoveryTopRoute = buildTopicRoute("top", {
-      actions: {
-        willTransition() {
-          User.currentProp("should_be_redirected_to_top", false);
-          User.currentProp("redirected_to_top.reason", null);
-          return this._super(...arguments);
-        },
-      },
-    });
-
-    site.get("periods").forEach((period) => {
-      const periodCapitalized = period.capitalize();
-      app[
-        `DiscoveryTop${periodCapitalized}Controller`
-      ] = DiscoverySortableController.extend();
-      app[
-        `DiscoveryTop${periodCapitalized}CategoryController`
-      ] = DiscoverySortableController.extend();
-      app[
-        `DiscoveryTop${periodCapitalized}CategoryNoneController`
-      ] = DiscoverySortableController.extend();
-      app[`DiscoveryTop${periodCapitalized}Route`] = buildTopicRoute(
-        "top/" + period
-      );
-      app[`DiscoveryTop${periodCapitalized}CategoryRoute`] = buildCategoryRoute(
-        "top/" + period
-      );
-      app[
-        `DiscoveryTop${periodCapitalized}CategoryNoneRoute`
-      ] = buildCategoryRoute("top/" + period, { no_subcategories: true });
-    });
-
-    app["TagsShowCategoryRoute"] = TagShowRoute.extend();
-    app["TagsShowCategoryNoneRoute"] = TagShowRoute.extend({
-      noSubcategories: true,
-    });
+    app.register("route:tags.show-category", TagShowRoute.extend());
+    app.register(
+      "route:tags.show-category-none",
+      TagShowRoute.extend({
+        noSubcategories: true,
+      })
+    );
+    app.register(
+      "route:tags.show-category-all",
+      TagShowRoute.extend({
+        noSubcategories: false,
+      })
+    );
 
     site.get("filters").forEach(function (filter) {
-      app["TagShow" + filter.capitalize() + "Route"] = TagShowRoute.extend({
-        navMode: filter,
-      });
-      app[
-        "TagsShowCategory" + filter.capitalize() + "Route"
-      ] = TagShowRoute.extend({ navMode: filter });
-      app[
-        "TagsShowNoneCategory" + filter.capitalize() + "Route"
-      ] = TagShowRoute.extend({ navMode: filter, noSubcategories: true });
+      const filterDasherized = filter.dasherize();
+
+      app.register(
+        `route:tag.show-${filterDasherized}`,
+        TagShowRoute.extend({
+          navMode: filter,
+        })
+      );
+      app.register(
+        `route:tags.show-category-${filterDasherized}`,
+        TagShowRoute.extend({ navMode: filter })
+      );
+      app.register(
+        `route:tags.show-category-none-${filterDasherized}`,
+        TagShowRoute.extend({ navMode: filter, noSubcategories: true })
+      );
+      app.register(
+        `route:tags.show-category-all-${filterDasherized}`,
+        TagShowRoute.extend({ navMode: filter, noSubcategories: false })
+      );
     });
   },
 };

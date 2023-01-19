@@ -37,7 +37,7 @@
 
   <% @topic_view.posts.each_with_index do |post, idx| %>
     <% if (u = post.user) %>
-      <div itemscope itemtype='http://schema.org/DiscussionForumPosting' class='topic-body crawler-post'>
+      <div id='post_<%= post.post_number %>' itemscope itemtype='http://schema.org/DiscussionForumPosting' class='topic-body crawler-post'>
         <div class='crawler-post-meta'>
           <div itemprop='publisher' itemscope itemtype="http://schema.org/Organization">
             <meta itemprop='name' content='<%= SiteSetting.company_name.presence || SiteSetting.title %>'>
@@ -53,29 +53,27 @@
             <%
               post_custom_fields = @topic_view.post_custom_fields[post.id] || {}
               who_username = post_custom_fields["action_code_who"] || ""
+              small_action_href = post_custom_fields["action_code_path"] || ""
               if post.action_code
             %>
-              <%= t("js.action_codes.#{post.action_code}", when: "", who: who_username).html_safe %>
+              <%= t("js.action_codes.#{post.action_code}", when: "", who: who_username, href: small_action_href).html_safe %>
             <% end %>
           </span>
 
           <link itemprop="mainEntityOfPage" href="<%= post.topic.url %>">
 
           <% if post.image_url %>
-            <link itemprop="image" href="<%= Discourse.base_url %><%= post.image_url %>">
+            <link itemprop="image" href="<%= post.image_url %>">
           <% end %>
 
           <span class="crawler-post-infos">
-            <% if post.updated_at > post.created_at %>
-              <meta itemprop='datePublished' content='<%= post.created_at.to_formatted_s(:iso8601) %>'>
-              <time itemprop='dateModified' datetime='<%= post.updated_at.to_formatted_s(:iso8601) %>' class='post-time'>
-                <%= l post.updated_at, format: :long %>
-              </time>
-            <% else %>
               <time itemprop='datePublished' datetime='<%= post.created_at.to_formatted_s(:iso8601) %>' class='post-time'>
                 <%= l post.created_at, format: :long %>
               </time>
-              <meta itemprop='dateModified' content='<%= post.updated_at.to_formatted_s(:iso8601) %>'>
+            <% if post.version > 1 %>
+              <meta itemprop='dateModified' content='<%= post.last_version_at.to_formatted_s(:iso8601) %>'>
+            <% else %>
+              <meta itemprop='dateModified' content='<%= post.created_at.to_formatted_s(:iso8601) %>'>
             <% end %>
           <span itemprop='position'>#<%= post.post_number %></span>
           </span>
@@ -133,7 +131,7 @@
   <% end %>
 
   <% content_for :head do %>
-    <%= auto_discovery_link_tag(@topic_view, {action: :feed, slug: @topic_view.topic.slug, topic_id: @topic_view.topic.id}, title: t('rss_posts_in_topic', topic: @topic_view.title), type: 'application/rss+xml') %>
+    <%= auto_discovery_link_tag(@topic_view, {action: :feed, slug: @topic_view.topic.slug, topic_id: @topic_view.topic.id}, rel: 'alternate nofollow', title: t('rss_posts_in_topic', topic: @topic_view.title), type: 'application/rss+xml') %>
     <%= raw crawlable_meta_data(title: @topic_view.title, description: @topic_view.summary(strip_images: true), image: @topic_view.image_url, read_time: @topic_view.read_time, like_count: @topic_view.like_count, ignore_canonical: true, published_time: @topic_view.published_time) %>
 
     <% if @topic_view.prev_page || @topic_view.next_page %>

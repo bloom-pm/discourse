@@ -3,6 +3,16 @@
     box-sizing: border-box;
     min-width: 310px;
   }
+  .modal-footer {
+    margin: 0;
+    border-top: 0;
+    padding: 10px 0;
+
+    .delete-bookmark {
+      margin-left: auto;
+      margin-right: 0;
+    }
+  }
   .modal-body {
     width: 375px;
     box-sizing: border-box;
@@ -20,6 +30,10 @@
       width: 100%;
       margin-bottom: 0.5em;
     }
+  }
+
+  .title {
+    max-width: 300px;
   }
 
   .existing-reminder-at-alert {
@@ -42,7 +56,7 @@
     margin-left: 0.5em;
     margin-bottom: 0.5em;
     background: transparent;
-    padding-right: 6px;
+    padding: 6px;
   }
 
   .bookmark-options-panel {
@@ -51,7 +65,6 @@
     }
 
     margin-bottom: 18px;
-    display: none;
 
     label {
       display: flex;
