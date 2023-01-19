@@ -4,14 +4,13 @@ import {
   count,
   exists,
   fakeTime,
+  loggedInUser,
   queryAll,
 } from "discourse/tests/helpers/qunit-helpers";
-import { test } from "qunit";
 import I18n from "I18n";
+import { test } from "qunit";
 
 acceptance("Invites - Create & Edit Invite Modal", function (needs) {
-  let deleted;
-
   needs.user();
   needs.pretender((server, helper) => {
     const inviteData = {
@@ -41,66 +40,40 @@ acceptance("Invites - Create & Edit Invite Modal", function (needs) {
     });
 
     server.delete("/invites", () => {
-      deleted = true;
       return helper.response({});
     });
-  });
-  needs.hooks.beforeEach(() => {
-    deleted = false;
   });
 
   test("basic functionality", async function (assert) {
     await visit("/u/eviltrout/invited/pending");
-    await click(".invite-controls .btn:first-child");
-    assert.equal(
-      find("input.invite-link")[0].value,
-      "http://example.com/invites/52641ae8878790bc7b79916247cfe6ba",
-      "shows an invite link when modal is opened"
-    );
+    await click(".user-invite-buttons .btn:first-child");
 
-    await click(".modal-footer .show-advanced");
-    await assert.ok(exists(".invite-to-groups"), "shows advanced options");
-    await assert.ok(exists(".invite-to-topic"), "shows advanced options");
-    await assert.ok(exists(".invite-expires-at"), "shows advanced options");
-
-    await click(".modal-close");
-    assert.ok(deleted, "deletes the invite if not saved");
+    await assert.ok(exists(".invite-to-groups"));
+    await assert.ok(exists(".invite-to-topic"));
+    await assert.ok(exists(".invite-expires-at"));
   });
 
   test("saving", async function (assert) {
     await visit("/u/eviltrout/invited/pending");
-    await click(".invite-controls .btn:first-child");
+    await click(".user-invite-buttons .btn:first-child");
 
     assert.ok(!exists("tbody tr"), "does not show invite before saving");
 
     await click(".btn-primary");
 
-    assert.equal(count("tbody tr"), 1, "adds invite to list after saving");
-
-    await click(".modal-close");
-    assert.notOk(deleted, "does not delete invite on close");
+    assert.strictEqual(
+      count("tbody tr"),
+      1,
+      "adds invite to list after saving"
+    );
   });
 
   test("copying saves invite", async function (assert) {
     await visit("/u/eviltrout/invited/pending");
-    await click(".invite-controls .btn:first-child");
+    await click(".user-invite-buttons .btn:first-child");
 
-    await click(".invite-link .btn");
-
-    await click(".modal-close");
-    assert.notOk(deleted, "does not delete invite on close");
-  });
-
-  test("copying an email invite without an email shows error message", async function (assert) {
-    await visit("/u/eviltrout/invited/pending");
-    await click(".invite-controls .btn:first-child");
-
-    await fillIn("#invite-email", "error");
-    await click(".invite-link .btn");
-    assert.equal(
-      find("#modal-alert").text(),
-      "error isn't a valid email address."
-    );
+    await click(".save-invite");
+    assert.ok(exists(".invite-link .btn"));
   });
 });
 
@@ -128,7 +101,7 @@ acceptance("Invites - Link Invites", function (needs) {
 
   test("invite links", async function (assert) {
     await visit("/u/eviltrout/invited/pending");
-    await click(".invite-controls .btn:first-child");
+    await click(".user-invite-buttons .btn:first-child");
 
     assert.ok(exists("#invite-max-redemptions"), "shows max redemptions field");
   });
@@ -154,7 +127,10 @@ acceptance("Invites - Email Invites", function (needs) {
       groups: [],
     };
 
-    server.post("/invites", () => helper.response(inviteData));
+    server.post("/invites", (request) => {
+      lastRequest = request;
+      return helper.response(inviteData);
+    });
 
     server.put("/invites/1", (request) => {
       lastRequest = request;
@@ -167,7 +143,7 @@ acceptance("Invites - Email Invites", function (needs) {
 
   test("invite email", async function (assert) {
     await visit("/u/eviltrout/invited/pending");
-    await click(".invite-controls .btn:first-child");
+    await click(".user-invite-buttons .btn:first-child");
 
     assert.ok(exists("#invite-email"), "shows email field");
     await fillIn("#invite-email", "test@example.com");
@@ -175,7 +151,7 @@ acceptance("Invites - Email Invites", function (needs) {
     assert.ok(exists(".save-invite"), "shows save without email button");
     await click(".save-invite");
     assert.ok(
-      lastRequest.requestBody.indexOf("skip_email=true") !== -1,
+      lastRequest.requestBody.includes("skip_email=true"),
       "sends skip_email to server"
     );
 
@@ -183,7 +159,7 @@ acceptance("Invites - Email Invites", function (needs) {
     assert.ok(exists(".send-invite"), "shows save and send email button");
     await click(".send-invite");
     assert.ok(
-      lastRequest.requestBody.indexOf("send_email=true") !== -1,
+      lastRequest.requestBody.includes("send_email=true"),
       "sends send_email to server"
     );
   });
@@ -215,7 +191,7 @@ acceptance(
     });
 
     needs.hooks.beforeEach(() => {
-      const timezone = moment.tz.guess();
+      const timezone = loggedInUser().user_option.timezone;
       clock = fakeTime("2100-05-03T08:00:00", timezone, true); // Monday morning
     });
 
@@ -226,8 +202,7 @@ acceptance(
     test("shows correct timeframe options", async function (assert) {
       await visit("/u/eviltrout/invited/pending");
 
-      await click(".invite-controls .btn:first-child");
-      await click(".modal-footer .show-advanced");
+      await click(".user-invite-buttons .btn:first-child");
       await click(".future-date-input-selector-header");
 
       const options = Array.from(
@@ -237,19 +212,34 @@ acceptance(
       );
 
       const expected = [
-        I18n.t("topic.auto_update_input.later_today"),
-        I18n.t("topic.auto_update_input.tomorrow"),
-        I18n.t("topic.auto_update_input.next_week"),
-        I18n.t("topic.auto_update_input.two_weeks"),
-        I18n.t("topic.auto_update_input.next_month"),
-        I18n.t("topic.auto_update_input.two_months"),
-        I18n.t("topic.auto_update_input.three_months"),
-        I18n.t("topic.auto_update_input.four_months"),
-        I18n.t("topic.auto_update_input.six_months"),
-        I18n.t("topic.auto_update_input.pick_date_and_time"),
+        I18n.t("time_shortcut.later_today"),
+        I18n.t("time_shortcut.tomorrow"),
+        I18n.t("time_shortcut.later_this_week"),
+        I18n.t("time_shortcut.start_of_next_business_week_alt"),
+        I18n.t("time_shortcut.two_weeks"),
+        I18n.t("time_shortcut.next_month"),
+        I18n.t("time_shortcut.two_months"),
+        I18n.t("time_shortcut.three_months"),
+        I18n.t("time_shortcut.four_months"),
+        I18n.t("time_shortcut.six_months"),
+        I18n.t("time_shortcut.custom"),
       ];
 
       assert.deepEqual(options, expected, "options are correct");
+    });
+  }
+);
+
+acceptance(
+  "Invites - Create Invite on Site with must_approve_users Setting",
+  function (needs) {
+    needs.user();
+    needs.settings({ must_approve_users: true });
+
+    test("hides `Arrive at Topic` field on sites with `must_approve_users`", async function (assert) {
+      await visit("/u/eviltrout/invited/pending");
+      await click(".user-invite-buttons .btn:first-child");
+      assert.ok(!exists(".invite-to-topic"));
     });
   }
 );

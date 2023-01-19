@@ -1,4 +1,4 @@
-import { currentURL, triggerKeyEvent, visit } from "@ember/test-helpers";
+import { click, currentURL, triggerKeyEvent, visit } from "@ember/test-helpers";
 import { cloneJSON } from "discourse-common/lib/object";
 import I18n from "I18n";
 import {
@@ -13,6 +13,7 @@ acceptance("Keyboard Shortcuts - Anonymous Users", function (needs) {
   needs.pretender((server, helper) => {
     server.get("/t/27331/4.json", () => helper.response({}));
     server.get("/t/27331.json", () => helper.response({}));
+    server.get("/t/27331/last.json", () => helper.response({}));
 
     // No suggested topics exist.
     server.get("/t/9/last.json", () => helper.response({}));
@@ -32,20 +33,41 @@ acceptance("Keyboard Shortcuts - Anonymous Users", function (needs) {
 
   test("go to first suggested topic", async function (assert) {
     await visit("/t/this-is-a-test-topic/9");
-    await triggerKeyEvent(document, "keypress", "g".charCodeAt(0));
-    await triggerKeyEvent(document, "keypress", "s".charCodeAt(0));
-    assert.equal(currentURL(), "/t/this-is-a-test-topic/9");
+    await triggerKeyEvent(document, "keypress", "G");
+    await triggerKeyEvent(document, "keypress", "S");
+    assert.strictEqual(currentURL(), "/t/this-is-a-test-topic/9");
 
     // Suggested topics elements exist.
     await visit("/t/internationalization-localization/280");
-    await triggerKeyEvent(document, "keypress", "g".charCodeAt(0));
-    await triggerKeyEvent(document, "keypress", "s".charCodeAt(0));
-    assert.equal(currentURL(), "/t/polls-are-still-very-buggy/27331/4");
+    await triggerKeyEvent(document, "keypress", "G");
+    await triggerKeyEvent(document, "keypress", "S");
+    assert.strictEqual(currentURL(), "/t/polls-are-still-very-buggy/27331/4");
 
     await visit("/t/1-3-0beta9-no-rate-limit-popups/28830");
-    await triggerKeyEvent(document, "keypress", "g".charCodeAt(0));
-    await triggerKeyEvent(document, "keypress", "s".charCodeAt(0));
-    assert.equal(currentURL(), "/t/keyboard-shortcuts-are-awesome/27331");
+    await triggerKeyEvent(document, "keypress", "G");
+    await triggerKeyEvent(document, "keypress", "S");
+    assert.strictEqual(currentURL(), "/t/keyboard-shortcuts-are-awesome/27331");
+  });
+
+  test("j/k navigation moves selection up/down", async function (assert) {
+    await visit("/t/this-is-a-test-topic/9");
+    await triggerKeyEvent(document, "keypress", "J");
+    assert.ok(
+      exists(".post-stream .topic-post.selected #post_1"),
+      "first post is selected"
+    );
+
+    await triggerKeyEvent(document, "keypress", "J");
+    assert.ok(
+      exists(".post-stream .topic-post.selected #post_2"),
+      "pressing j moves selection to next post"
+    );
+
+    await triggerKeyEvent(document, "keypress", "K");
+    assert.ok(
+      exists(".post-stream .topic-post.selected #post_1"),
+      "pressing k moves selection to previous post"
+    );
   });
 });
 
@@ -93,18 +115,18 @@ acceptance("Keyboard Shortcuts - Authenticated Users", function (needs) {
       exists("#dismiss-topics-top"),
       "dismiss unread top button is present"
     );
-    await triggerKeyEvent(document, "keypress", "x".charCodeAt(0));
-    await triggerKeyEvent(document, "keypress", "t".charCodeAt(0));
+    await triggerKeyEvent(document, "keypress", "X");
+    await triggerKeyEvent(document, "keypress", "T");
     assert.ok(
       exists("#dismiss-read-confirm"),
       "confirmation modal to dismiss unread is present"
     );
-    assert.equal(
+    assert.strictEqual(
       query(".modal-body").innerText,
       I18n.t("topics.bulk.also_dismiss_topics")
     );
     await click("#dismiss-read-confirm");
-    assert.equal(
+    assert.strictEqual(
       markReadCalled,
       1,
       "mark read has been called on the backend once"
@@ -123,19 +145,19 @@ acceptance("Keyboard Shortcuts - Authenticated Users", function (needs) {
       exists("#dismiss-topics-top"),
       "dismiss unread top button is hidden"
     );
-    await triggerKeyEvent(document, "keypress", "x".charCodeAt(0));
-    await triggerKeyEvent(document, "keypress", "t".charCodeAt(0));
+    await triggerKeyEvent(document, "keypress", "X");
+    await triggerKeyEvent(document, "keypress", "T");
     assert.ok(
       exists("#dismiss-read-confirm"),
       "confirmation modal to dismiss unread is present"
     );
-    assert.equal(
+    assert.strictEqual(
       query(".modal-body").innerText,
       "Stop tracking these topics so they never show up as unread for me again"
     );
 
     await click("#dismiss-read-confirm");
-    assert.equal(
+    assert.strictEqual(
       markReadCalled,
       2,
       "mark read has been called on the backend twice"
@@ -152,9 +174,9 @@ acceptance("Keyboard Shortcuts - Authenticated Users", function (needs) {
     document.getElementById("ember-testing-container").scrollTop = 0;
     await visit("/new");
     assert.ok(exists("#dismiss-new-top"), "dismiss new top button is present");
-    await triggerKeyEvent(document, "keypress", "x".charCodeAt(0));
-    await triggerKeyEvent(document, "keypress", "r".charCodeAt(0));
-    assert.equal(resetNewCalled, 1);
+    await triggerKeyEvent(document, "keypress", "X");
+    await triggerKeyEvent(document, "keypress", "R");
+    assert.strictEqual(resetNewCalled, 1);
 
     // we get rid of all but one topic so the top dismiss button doesn't
     // show up, as it only appears if there are too many topics pushing
@@ -169,9 +191,9 @@ acceptance("Keyboard Shortcuts - Authenticated Users", function (needs) {
       exists("#dismiss-new-top"),
       "dismiss new top button has been hidden"
     );
-    await triggerKeyEvent(document, "keypress", "x".charCodeAt(0));
-    await triggerKeyEvent(document, "keypress", "r".charCodeAt(0));
-    assert.equal(resetNewCalled, 2);
+    await triggerKeyEvent(document, "keypress", "X");
+    await triggerKeyEvent(document, "keypress", "R");
+    assert.strictEqual(resetNewCalled, 2);
 
     // restore the original topic list
     topicList.topic_list.topics = originalTopics;
@@ -192,9 +214,9 @@ acceptance("Keyboard Shortcuts - Authenticated Users", function (needs) {
       "dismiss new bottom button is present"
     );
 
-    await triggerKeyEvent(document, "keypress", "x".charCodeAt(0));
-    await triggerKeyEvent(document, "keypress", "r".charCodeAt(0));
+    await triggerKeyEvent(document, "keypress", "X");
+    await triggerKeyEvent(document, "keypress", "R");
 
-    assert.equal(resetNewCalled, 1);
+    assert.strictEqual(resetNewCalled, 1);
   });
 });

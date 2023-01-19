@@ -8,10 +8,6 @@
   }
 }
 
-.form-horizontal .control-group.category {
-  margin-top: 18px;
-}
-
 .user-profile-hidden {
   font-size: 1.5em;
   text-align: center;
@@ -33,7 +29,10 @@
 
     li {
       border-bottom: none;
-
+      &:hover,
+      &.active {
+        background: var(--primary-very-low);
+      }
       &.archive {
         padding-left: 1.4em;
       }
@@ -64,17 +63,6 @@
 
   &.user-messages {
     --left-padding: 0.8em;
-    .user-messages-inboxes-drop {
-      padding: 0 1em 0 0;
-
-      .select-kit-header {
-        padding-left: var(--left-padding);
-      }
-
-      .select-kit-selected-name {
-        overflow: hidden;
-      }
-    }
 
     .nav-stacked {
       a {
@@ -88,10 +76,14 @@
 .user-additional-controls {
   display: flex;
   flex-wrap: wrap;
+  padding-top: 15px;
   .single-select-header,
   button {
     margin-bottom: 1em;
     margin-right: 0.75em;
+  }
+  .user-invite-buttons {
+    margin-left: auto;
   }
 }
 
@@ -169,9 +161,6 @@ table.user-invite-list {
       .primary {
         .primary-textual {
           padding: 0 4px 4px;
-          a[href] {
-            text-decoration: underline;
-          }
           h1 {
             max-width: 100%;
             @include ellipsis;
@@ -188,10 +177,6 @@ table.user-invite-list {
 
         .bio {
           max-width: 750px;
-
-          a.mention {
-            text-decoration: none;
-          }
         }
       }
 
@@ -215,8 +200,11 @@ table.user-invite-list {
     .controls {
       padding: 0 0 12px 0;
       float: right;
-      text-align: right;
       max-width: 13.5em;
+
+      li {
+        margin-bottom: 0.5em;
+      }
 
       li > .select-kit-header, // select-kit
       .btn {

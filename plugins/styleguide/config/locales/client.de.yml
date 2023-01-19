@@ -85,3 +85,10 @@ de:
           title: "Header-Symbole"
         spinners:
           title: "Spinner"
+        empty_state:
+          title: "Empty State"
+        rich_tooltip:
+          title: "Rich Tooltip"
+          description: "Beschreibung"
+          header: "Kopfzeile"
+          hover_to_see: "Bewege den Mauszeiger darüber, um einen Tooltipp zu sehen"

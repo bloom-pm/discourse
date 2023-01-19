@@ -5,18 +5,20 @@ export default Component.extend({
   fixed: false,
   submitOnEnter: true,
   dismissable: true,
+  attributeBindings: ["tabindex"],
+  tabindex: -1,
 
   didInsertElement() {
     this._super(...arguments);
     this._modalAlertElement = document.getElementById("modal-alert");
     if (this._modalAlertElement) {
-      this._modalAlertElement.innerHTML = "";
+      this._clearFlash();
     }
 
-    let fixedParent = $(this.element).closest(".d-modal.fixed-modal");
-    if (fixedParent.length) {
+    let fixedParent = this.element.closest(".d-modal.fixed-modal");
+    if (fixedParent) {
       this.set("fixed", true);
-      fixedParent.modal("show");
+      $(fixedParent).modal("show");
     }
 
     scheduleOnce("afterRender", this, this._afterFirstRender);

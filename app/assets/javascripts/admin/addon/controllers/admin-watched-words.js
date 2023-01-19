@@ -24,7 +24,7 @@ export default Controller.extend({
 
     this.allWatchedWords.forEach((wordsForAction) => {
       const wordRecords = wordsForAction.words.filter((wordRecord) => {
-        return wordRecord.word.indexOf(filter) > -1;
+        return wordRecord.word.includes(filter);
       });
 
       model.pushObject(
@@ -50,6 +50,9 @@ export default Controller.extend({
 
   @action
   toggleMenu() {
-    $(".admin-detail").toggleClass("mobile-closed mobile-open");
+    const adminDetail = document.querySelector(".admin-detail");
+    ["mobile-closed", "mobile-open"].forEach((state) => {
+      adminDetail.classList.toggle(state);
+    });
   },
 });

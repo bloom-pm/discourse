@@ -3,10 +3,14 @@
 # The server-side implementation of PresenceChannels. See also {PresenceController}
 # and +app/assets/javascripts/discourse/app/services/presence.js+
 class PresenceChannel
-  class NotFound < StandardError; end
-  class InvalidAccess < StandardError; end
-  class ConfigNotLoaded < StandardError; end
-  class InvalidConfig < StandardError; end
+  class NotFound < StandardError
+  end
+  class InvalidAccess < StandardError
+  end
+  class ConfigNotLoaded < StandardError
+  end
+  class InvalidConfig < StandardError
+  end
 
   class State
     include ActiveModel::Serialization
@@ -15,7 +19,7 @@ class PresenceChannel
     attr_reader :user_ids
     attr_reader :count
 
-    def initialize(message_bus_last_id: , user_ids: nil, count: nil)
+    def initialize(message_bus_last_id:, user_ids: nil, count: nil)
       raise "user_ids or count required" if user_ids.nil? && count.nil?
       @message_bus_last_id = message_bus_last_id
       @user_ids = user_ids
@@ -36,19 +40,27 @@ class PresenceChannel
   #   count_only: boolean. If true, user identities are never revealed to clients. (default [])
   class Config
     NOT_FOUND ||= "notfound"
-    attr_accessor :public, :allowed_user_ids, :allowed_group_ids, :count_only
 
-    def initialize(public: false, allowed_user_ids: nil, allowed_group_ids: nil, count_only: false)
+    attr_accessor :public, :allowed_user_ids, :allowed_group_ids, :count_only, :timeout
+
+    def initialize(
+      public: false,
+      allowed_user_ids: nil,
+      allowed_group_ids: nil,
+      count_only: false,
+      timeout: nil
+    )
       @public = public
       @allowed_user_ids = allowed_user_ids
       @allowed_group_ids = allowed_group_ids
       @count_only = count_only
+      @timeout = timeout
     end
 
     def self.from_json(json)
       data = JSON.parse(json, symbolize_names: true)
       data = {} if !data.is_a? Hash
-      new(**data.slice(:public, :allowed_user_ids, :allowed_group_ids, :count_only))
+      new(**data.slice(:public, :allowed_user_ids, :allowed_group_ids, :count_only, :timeout))
     end
 
     def to_json
@@ -56,12 +68,13 @@ class PresenceChannel
       data[:allowed_user_ids] = allowed_user_ids if allowed_user_ids
       data[:allowed_group_ids] = allowed_group_ids if allowed_group_ids
       data[:count_only] = count_only if count_only
+      data[:timeout] = timeout if timeout
       data.to_json
     end
   end
 
   DEFAULT_TIMEOUT ||= 60
-  CONFIG_CACHE_SECONDS ||= 120
+  CONFIG_CACHE_SECONDS ||= 10
   GC_SECONDS ||= 24.hours.to_i
   MUTEX_TIMEOUT_SECONDS ||= 10
   MUTEX_LOCKED_ERROR ||= "PresenceChannel mutex is locked"
@@ -70,36 +83,38 @@ class PresenceChannel
 
   attr_reader :name, :timeout, :message_bus_channel_name, :config
 
-  def initialize(name, raise_not_found: true)
+  def initialize(name, raise_not_found: true, use_cache: true)
     @name = name
-    @timeout = DEFAULT_TIMEOUT
     @message_bus_channel_name = "/presence#{name}"
 
     begin
-      @config = fetch_config
+      @config = fetch_config(use_cache: use_cache)
     rescue PresenceChannel::NotFound
       raise if raise_not_found
       @config = Config.new
     end
+
+    @timeout = config.timeout || DEFAULT_TIMEOUT
   end
 
   # Is this user allowed to view this channel?
   # Pass `nil` for anonymous viewers
-  def can_view?(user_id: nil)
+  def can_view?(user_id: nil, group_ids: nil)
     return true if config.public
     return true if user_id && config.allowed_user_ids&.include?(user_id)
+
     if user_id && config.allowed_group_ids.present?
-      user_group_ids = GroupUser.where(user_id: user_id).pluck("group_id")
-      return true if (user_group_ids & config.allowed_group_ids).present?
+      group_ids ||= GroupUser.where(user_id: user_id).pluck("group_id")
+      return true if (group_ids & config.allowed_group_ids).present?
     end
     false
   end
 
   # Is a user allowed to enter this channel?
   # Currently equal to the the can_view? permission
-  def can_enter?(user_id: nil)
+  def can_enter?(user_id: nil, group_ids: nil)
     return false if user_id.nil?
-    can_view?(user_id: user_id)
+    can_view?(user_id: user_id, group_ids: group_ids)
   end
 
   # Mark a user's client as present in this channel. The client_id should be unique per
@@ -109,13 +124,14 @@ class PresenceChannel
     raise PresenceChannel::InvalidAccess if !can_enter?(user_id: user_id)
 
     mutex_value = SecureRandom.hex
-    result = retry_on_mutex_error do
-      PresenceChannel.redis_eval(
-        :present,
-        redis_keys,
-        [name, user_id, client_id, (Time.zone.now + timeout).to_i, mutex_value]
-      )
-    end
+    result =
+      retry_on_mutex_error do
+        PresenceChannel.redis_eval(
+          :present,
+          redis_keys,
+          [name, user_id, client_id, (Time.zone.now + timeout).to_i, mutex_value],
+        )
+      end
 
     if result == 1
       begin
@@ -124,20 +140,15 @@ class PresenceChannel
         release_mutex(mutex_value)
       end
     end
-
-    auto_leave
   end
 
   # Immediately mark a user's client as leaving the channel
   def leave(user_id:, client_id:)
     mutex_value = SecureRandom.hex
-    result = retry_on_mutex_error do
-      PresenceChannel.redis_eval(
-        :leave,
-        redis_keys,
-        [name, user_id, client_id, nil, mutex_value]
-      )
-    end
+    result =
+      retry_on_mutex_error do
+        PresenceChannel.redis_eval(:leave, redis_keys, [name, user_id, client_id, nil, mutex_value])
+      end
 
     if result == 1
       begin
@@ -146,30 +157,16 @@ class PresenceChannel
         release_mutex(mutex_value)
       end
     end
-
-    auto_leave
   end
 
   # Fetch a {PresenceChannel::State} instance representing the current state of this
   #
   # @param [Boolean] count_only set true to skip fetching the list of user ids from redis
   def state(count_only: config.count_only)
-    auto_leave
-
     if count_only
-      last_id, count = retry_on_mutex_error do
-        PresenceChannel.redis_eval(
-          :count,
-          redis_keys,
-        )
-      end
+      last_id, count = retry_on_mutex_error { PresenceChannel.redis_eval(:count, redis_keys) }
     else
-      last_id, ids = retry_on_mutex_error do
-        PresenceChannel.redis_eval(
-          :user_ids,
-          redis_keys,
-        )
-      end
+      last_id, ids = retry_on_mutex_error { PresenceChannel.redis_eval(:user_ids, redis_keys) }
     end
     count ||= ids&.count
     last_id = nil if last_id == -1
@@ -194,13 +191,10 @@ class PresenceChannel
   # Automatically expire all users which have not been 'present' for more than +DEFAULT_TIMEOUT+
   def auto_leave
     mutex_value = SecureRandom.hex
-    left_user_ids = retry_on_mutex_error do
-      PresenceChannel.redis_eval(
-        :auto_leave,
-        redis_keys,
-        [name, Time.zone.now.to_i, mutex_value]
-      )
-    end
+    left_user_ids =
+      retry_on_mutex_error do
+        PresenceChannel.redis_eval(:auto_leave, redis_keys, [name, Time.zone.now.to_i, mutex_value])
+      end
 
     if !left_user_ids.empty?
       begin
@@ -221,22 +215,23 @@ class PresenceChannel
   end
 
   # Designed to be run periodically. Checks the channel list for channels with expired members,
-  # and runs auto_leave for each eligable channel
+  # and runs auto_leave for each eligible channel
   def self.auto_leave_all
-    channels_with_expiring_members = PresenceChannel.redis.zrangebyscore(redis_key_channel_list, '-inf', Time.zone.now.to_i)
-    channels_with_expiring_members.each do |name|
-      new(name, raise_not_found: false).auto_leave
-    end
+    channels_with_expiring_members =
+      PresenceChannel.redis.zrangebyscore(redis_key_channel_list, "-inf", Time.zone.now.to_i)
+    channels_with_expiring_members.each { |name| new(name, raise_not_found: false).auto_leave }
   end
 
   # Clear all known channels. This is intended for debugging/development only
   def self.clear_all!
-    channels = PresenceChannel.redis.zrangebyscore(redis_key_channel_list, '-inf', '+inf')
-    channels.each do |name|
-      new(name, raise_not_found: false).clear
-    end
+    channels = PresenceChannel.redis.zrangebyscore(redis_key_channel_list, "-inf", "+inf")
+    channels.each { |name| new(name, raise_not_found: false).clear }
 
-    config_cache_keys = PresenceChannel.redis.scan_each(match: Discourse.redis.namespace_key("_presence_*_config")).to_a
+    config_cache_keys =
+      PresenceChannel
+        .redis
+        .scan_each(match: Discourse.redis.namespace_key("_presence_*_config"))
+        .to_a
     PresenceChannel.redis.del(*config_cache_keys) if config_cache_keys.present?
   end
 
@@ -246,7 +241,7 @@ class PresenceChannel
   # installations, this is the same Redis server as `Discourse.redis`.
   def self.redis
     if MessageBus.backend == :redis
-      MessageBus.reliable_pub_sub.send(:pub_redis) # TODO: avoid a private API?
+      MessageBus.backend_instance.send(:pub_redis) # TODO: avoid a private API?
     elsif Rails.env.test?
       Discourse.redis.without_namespace
     else
@@ -255,15 +250,7 @@ class PresenceChannel
   end
 
   def self.redis_eval(key, *args)
-    script_sha1 = LUA_SCRIPTS_SHA1[key]
-    raise ArgumentError.new("No script for #{key}") if script_sha1.nil?
-    redis.evalsha script_sha1, *args
-  rescue ::Redis::CommandError => e
-    if e.to_s =~ /^NOSCRIPT/
-      redis.eval LUA_SCRIPTS[key], *args
-    else
-      raise
-    end
+    LUA_SCRIPTS[key].eval(redis, *args)
   end
 
   # Register a callback to configure channels with a given prefix
@@ -280,12 +267,16 @@ class PresenceChannel
   # should not exist, the block should return `nil`. If the channel should exist,
   # the block should return a PresenceChannel::Config object.
   #
-  # Return values may be cached for up to 2 minutes.
+  # Return values may be cached for up to 10 seconds.
   #
   # Plugins should use the {Plugin::Instance.register_presence_channel_prefix} API instead
   def self.register_prefix(prefix, &block)
-    raise "PresenceChannel prefix #{prefix} must match [a-zA-Z0-9_-]+" unless prefix.match? /[a-zA-Z0-9_-]+/
-    raise "PresenceChannel prefix #{prefix} already registered" if @@configuration_blocks&.[](prefix)
+    unless prefix.match? /[a-zA-Z0-9_-]+/
+      raise "PresenceChannel prefix #{prefix} must match [a-zA-Z0-9_-]+"
+    end
+    if @@configuration_blocks&.[](prefix)
+      raise "PresenceChannel prefix #{prefix} already registered"
+    end
     @@configuration_blocks[prefix] = block
   end
 
@@ -297,29 +288,31 @@ class PresenceChannel
 
   private
 
-  def fetch_config
-    cached_config = PresenceChannel.redis.get(redis_key_config)
+  def fetch_config(use_cache: true)
+    cached_config = (PresenceChannel.redis.get(redis_key_config) if use_cache)
 
     if cached_config == Config::NOT_FOUND
       raise PresenceChannel::NotFound
     elsif cached_config
       Config.from_json(cached_config)
     else
-      prefix = name[/\/([a-zA-Z0-9_-]+)\/.*/, 1]
+      prefix = name[%r{/([a-zA-Z0-9_-]+)/.*}, 1]
       raise PresenceChannel::NotFound if prefix.nil?
 
       config_block = @@configuration_blocks[prefix]
-      config_block ||= DiscoursePluginRegistry.presence_channel_prefixes.find { |t| t[0] == prefix }&.[](1)
+      config_block ||=
+        DiscoursePluginRegistry.presence_channel_prefixes.find { |t| t[0] == prefix }&.[](1)
       raise PresenceChannel::NotFound if config_block.nil?
 
       result = config_block.call(name)
-      to_cache = if result.is_a? Config
-        result.to_json
-      elsif result.nil?
-        Config::NOT_FOUND
-      else
-        raise InvalidConfig.new "Expected PresenceChannel::Config or nil. Got a #{result.class.name}"
-      end
+      to_cache =
+        if result.is_a? Config
+          result.to_json
+        elsif result.nil?
+          Config::NOT_FOUND
+        else
+          raise InvalidConfig.new "Expected PresenceChannel::Config or nil. Got a #{result.class.name}"
+        end
       PresenceChannel.redis.set(redis_key_config, to_cache, ex: CONFIG_CACHE_SECONDS)
 
       raise PresenceChannel::NotFound if result.nil?
@@ -337,7 +330,10 @@ class PresenceChannel
       message["leaving_user_ids"] = leaving_user_ids if leaving_user_ids.present?
       if entering_user_ids.present?
         users = User.where(id: entering_user_ids)
-        message["entering_users"] = ActiveModel::ArraySerializer.new(users, each_serializer: BasicUserSerializer)
+        message["entering_users"] = ActiveModel::ArraySerializer.new(
+          users,
+          each_serializer: BasicUserSerializer,
+        )
       end
     end
 
@@ -364,7 +360,7 @@ class PresenceChannel
   # are published in the same sequence that the PresenceChannel lua script are run.
   #
   # The present/leave/auto_leave lua scripts will automatically acquire this mutex
-  # if needed. If their return value indicates a change has occured, the mutex
+  # if needed. If their return value indicates a change has occurred, the mutex
   # should be released via #release_mutex after the messagebus message has been sent
   #
   # If they need a change, and the mutex is not available, they will raise an error
@@ -374,11 +370,7 @@ class PresenceChannel
   end
 
   def release_mutex(mutex_value)
-    PresenceChannel.redis_eval(
-      :release_mutex,
-      [redis_key_mutex],
-      [mutex_value]
-    )
+    PresenceChannel.redis_eval(:release_mutex, [redis_key_mutex], [mutex_value])
   end
 
   def retry_on_mutex_error
@@ -401,11 +393,17 @@ class PresenceChannel
 
     # TODO: Avoid using private MessageBus methods here
     encoded_channel_name = MessageBus.send(:encode_channel_name, message_bus_channel_name)
-    MessageBus.reliable_pub_sub.send(:backlog_id_key, encoded_channel_name)
+    MessageBus.backend_instance.send(:backlog_id_key, encoded_channel_name)
   end
 
   def redis_keys
-    [redis_key_zlist, redis_key_hash, self.class.redis_key_channel_list, message_bus_last_id_key, redis_key_mutex]
+    [
+      redis_key_zlist,
+      redis_key_hash,
+      self.class.redis_key_channel_list,
+      message_bus_last_id_key,
+      redis_key_mutex,
+    ]
   end
 
   # The zlist is a list of client_ids, ranked by their expiration timestamp
@@ -466,7 +464,7 @@ class PresenceChannel
 
   LUA_SCRIPTS ||= {}
 
-  LUA_SCRIPTS[:present] = <<~LUA
+  LUA_SCRIPTS[:present] = DiscourseRedis::EvalHelper.new <<~LUA
     #{COMMON_PRESENT_LEAVE_LUA}
 
     if mutex_locked then
@@ -495,7 +493,7 @@ class PresenceChannel
     return added_users
   LUA
 
-  LUA_SCRIPTS[:leave] = <<~LUA
+  LUA_SCRIPTS[:leave] = DiscourseRedis::EvalHelper.new <<~LUA
     #{COMMON_PRESENT_LEAVE_LUA}
 
     if mutex_locked then
@@ -525,7 +523,7 @@ class PresenceChannel
     return removed_users
   LUA
 
-  LUA_SCRIPTS[:release_mutex] = <<~LUA
+  LUA_SCRIPTS[:release_mutex] = DiscourseRedis::EvalHelper.new <<~LUA
     local mutex_key = KEYS[1]
     local expected_value = ARGV[1]
 
@@ -534,7 +532,7 @@ class PresenceChannel
     end
   LUA
 
-  LUA_SCRIPTS[:user_ids] = <<~LUA
+  LUA_SCRIPTS[:user_ids] = DiscourseRedis::EvalHelper.new <<~LUA
     local zlist_key = KEYS[1]
     local hash_key = KEYS[2]
     local message_bus_id_key = KEYS[4]
@@ -555,7 +553,7 @@ class PresenceChannel
     return { message_bus_id, user_ids }
   LUA
 
-  LUA_SCRIPTS[:count] = <<~LUA
+  LUA_SCRIPTS[:count] = DiscourseRedis::EvalHelper.new <<~LUA
     local zlist_key = KEYS[1]
     local hash_key = KEYS[2]
     local message_bus_id_key = KEYS[4]
@@ -575,7 +573,7 @@ class PresenceChannel
     return { message_bus_id, count }
   LUA
 
-  LUA_SCRIPTS[:auto_leave] = <<~LUA
+  LUA_SCRIPTS[:auto_leave] = DiscourseRedis::EvalHelper.new <<~LUA
     local zlist_key = KEYS[1]
     local hash_key = KEYS[2]
     local channels_key = KEYS[3]
@@ -619,9 +617,4 @@ class PresenceChannel
 
     return expired_user_ids
   LUA
-  LUA_SCRIPTS.freeze
-
-  LUA_SCRIPTS_SHA1 = LUA_SCRIPTS.transform_values do |script|
-    Digest::SHA1.hexdigest(script)
-  end.freeze
 end

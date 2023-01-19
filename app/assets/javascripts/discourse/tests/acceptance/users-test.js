@@ -5,12 +5,15 @@ import {
   queryAll,
 } from "discourse/tests/helpers/qunit-helpers";
 import { test } from "qunit";
-import { click, visit } from "@ember/test-helpers";
+import { click, triggerKeyEvent, visit } from "@ember/test-helpers";
 
 acceptance("User Directory", function () {
   test("Visit Page", async function (assert) {
     await visit("/u");
-    assert.ok($("body.users-page").length, "has the body class");
+    assert.ok(
+      document.body.classList.contains("users-page"),
+      "has the body class"
+    );
     assert.ok(exists(".directory table tr"), "has a list of users");
   });
 
@@ -21,13 +24,19 @@ acceptance("User Directory", function () {
 
   test("Visit Without Usernames", async function (assert) {
     await visit("/u?exclude_usernames=system");
-    assert.ok($("body.users-page").length, "has the body class");
+    assert.ok(
+      document.body.classList.contains("users-page"),
+      "has the body class"
+    );
     assert.ok(exists(".directory table tr"), "has a list of users");
   });
 
   test("Visit With Group Filter", async function (assert) {
     await visit("/u?group=trust_level_0");
-    assert.ok($("body.users-page").length, "has the body class");
+    assert.ok(
+      document.body.classList.contains("users-page"),
+      "has the body class"
+    );
     assert.ok(exists(".directory table tr"), "has a list of users");
   });
 
@@ -38,7 +47,24 @@ acceptance("User Directory", function () {
     const columnData = firstRow.querySelectorAll("td");
     const favoriteColorTd = columnData[columnData.length - 1];
 
-    assert.equal(favoriteColorTd.querySelector("span").textContent, "Blue");
+    assert.strictEqual(
+      favoriteColorTd.querySelector("span").textContent,
+      "Blue"
+    );
+  });
+
+  test("Can sort table via keyboard", async function (assert) {
+    await visit("/u");
+
+    const secondHeading =
+      ".users-directory table th:nth-child(2) .header-contents";
+
+    await triggerKeyEvent(secondHeading, "keypress", "Enter");
+
+    assert.ok(
+      query(`${secondHeading} .d-icon-chevron-up`),
+      "list has been sorted"
+    );
   });
 });
 
@@ -52,17 +78,17 @@ acceptance("User directory - Editing columns", function (needs) {
     const columns = queryAll(
       ".edit-directory-columns-container .edit-directory-column"
     );
-    assert.equal(columns.length, 8);
+    assert.strictEqual(columns.length, 8);
 
     const checked = queryAll(
       ".edit-directory-columns-container .edit-directory-column input[type='checkbox']:checked"
     );
-    assert.equal(checked.length, 7);
+    assert.strictEqual(checked.length, 7);
 
     const unchecked = queryAll(
       ".edit-directory-columns-container .edit-directory-column input[type='checkbox']:not(:checked)"
     );
-    assert.equal(unchecked.length, 1);
+    assert.strictEqual(unchecked.length, 1);
   });
 
   const fetchColumns = function () {
@@ -75,11 +101,11 @@ acceptance("User directory - Editing columns", function (needs) {
 
     let columns;
     columns = fetchColumns();
-    assert.equal(
+    assert.strictEqual(
       columns[3].querySelector(".column-name").textContent.trim(),
       "Replies Posted"
     );
-    assert.equal(
+    assert.strictEqual(
       columns[4].querySelector(".column-name").textContent.trim(),
       "Topics Viewed"
     );
@@ -88,28 +114,27 @@ acceptance("User directory - Editing columns", function (needs) {
     await click(columns[4].querySelector(".move-column-up"));
 
     columns = fetchColumns();
-    assert.equal(
+    assert.strictEqual(
       columns[3].querySelector(".column-name").textContent.trim(),
       "Topics Viewed"
     );
-    assert.equal(
+    assert.strictEqual(
       columns[4].querySelector(".column-name").textContent.trim(),
       "Replies Posted"
     );
 
-    const moveUserFieldColumnUpBtn = columns[columns.length - 1].querySelector(
-      ".move-column-up"
-    );
+    const moveUserFieldColumnUpBtn =
+      columns[columns.length - 1].querySelector(".move-column-up");
     await click(moveUserFieldColumnUpBtn);
     await click(moveUserFieldColumnUpBtn);
     await click(moveUserFieldColumnUpBtn);
 
     columns = fetchColumns();
-    assert.equal(
+    assert.strictEqual(
       columns[4].querySelector(".column-name").textContent.trim(),
       "Favorite Color"
     );
-    assert.equal(
+    assert.strictEqual(
       columns[5].querySelector(".column-name").textContent.trim(),
       "Replies Posted"
     );

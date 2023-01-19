@@ -1,25 +1,43 @@
+import { action } from "@ember/object";
 import Controller from "@ember/controller";
-import discourseComputed from "discourse-common/utils/decorators";
+import { inject as service } from "@ember/service";
 
 export default Controller.extend({
-  @discourseComputed
-  adminRoutes: function () {
-    return this.model
-      .map((p) => {
-        if (p.get("enabled")) {
-          return p.admin_route;
-        }
-      })
-      .compact();
+  router: service(),
+
+  get adminRoutes() {
+    return this.allAdminRoutes.filter((r) => this.routeExists(r.full_location));
   },
 
-  actions: {
-    clearFilter() {
-      this.setProperties({ filter: "", onlyOverridden: false });
-    },
+  get brokenAdminRoutes() {
+    return this.allAdminRoutes.filter(
+      (r) => !this.routeExists(r.full_location)
+    );
+  },
 
-    toggleMenu() {
-      $(".admin-detail").toggleClass("mobile-closed mobile-open");
-    },
+  get allAdminRoutes() {
+    return this.model
+      .filter((p) => p?.enabled)
+      .map((p) => {
+        return p.admin_route;
+      })
+      .filter(Boolean);
+  },
+
+  @action
+  toggleMenu() {
+    const adminDetail = document.querySelector(".admin-detail");
+    ["mobile-closed", "mobile-open"].forEach((state) => {
+      adminDetail.classList.toggle(state);
+    });
+  },
+
+  routeExists(routeName) {
+    try {
+      this.router.urlFor(routeName);
+      return true;
+    } catch (e) {
+      return false;
+    }
   },
 });

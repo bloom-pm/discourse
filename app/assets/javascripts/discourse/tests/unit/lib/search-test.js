@@ -31,32 +31,32 @@ module("Unit | Utility | search", function () {
     const results = await translateResults(source);
     const blurb = results.posts[0].get("blurb");
 
-    assert.ok(blurb.indexOf("thinking.png"));
-    assert.ok(blurb.indexOf('<img width="20" height="20" src') === 0);
-    assert.ok(blurb.indexOf(":thinking:") === -1);
+    assert.ok(blurb.includes("thinking.png"));
+    assert.ok(blurb.startsWith('<img width="20" height="20" src'));
+    assert.ok(!blurb.includes(":thinking:"));
   });
 
   test("searchContextDescription", function (assert) {
-    assert.equal(
+    assert.strictEqual(
       searchContextDescription("topic"),
       I18n.t("search.context.topic")
     );
-    assert.equal(
+    assert.strictEqual(
       searchContextDescription("user", "silvio.dante"),
       I18n.t("search.context.user", { username: "silvio.dante" })
     );
-    assert.equal(
+    assert.strictEqual(
       searchContextDescription("category", "staff"),
       I18n.t("search.context.category", { category: "staff" })
     );
-    assert.equal(
+    assert.strictEqual(
       searchContextDescription("tag", "important"),
       I18n.t("search.context.tag", { tag: "important" })
     );
-    assert.equal(
+    assert.strictEqual(
       searchContextDescription("private_messages"),
       I18n.t("search.context.private_messages")
     );
-    assert.equal(searchContextDescription("bad_type"), null);
+    assert.strictEqual(searchContextDescription("bad_type"), undefined);
   });
 });

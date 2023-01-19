@@ -1,50 +1,42 @@
 import Controller, { inject as controller } from "@ember/controller";
+import EmberObject, { action, computed } from "@ember/object";
+import { equal, notEmpty } from "@ember/object/computed";
 import { iconHTML } from "discourse-common/lib/icon-library";
+import discourseComputed from "discourse-common/utils/decorators";
+import { ajax } from "discourse/lib/ajax";
 import Bookmark from "discourse/models/bookmark";
 import I18n from "I18n";
 import { Promise } from "rsvp";
-import EmberObject, { action } from "@ember/object";
-import discourseComputed from "discourse-common/utils/decorators";
-import { notEmpty } from "@ember/object/computed";
+import { htmlSafe } from "@ember/template";
 
 export default Controller.extend({
   queryParams: ["q"],
+  q: null,
 
   application: controller(),
   user: controller(),
-
-  content: null,
   loading: false,
+  loadingMore: false,
   permissionDenied: false,
-  searchTerm: null,
-  q: null,
   inSearchMode: notEmpty("q"),
+  noContent: equal("model.bookmarks.length", 0),
 
-  loadItems() {
-    this.setProperties({
-      content: [],
-      loading: true,
-      permissionDenied: false,
-      searchTerm: this.q,
-    });
-
-    return this.model
-      .loadItems({ q: this.q })
-      .then((response) => this._processLoadResponse(response))
-      .catch(() => this._bookmarksListDenied())
-      .finally(() => {
-        this.setProperties({
-          loaded: true,
-          loading: false,
-        });
-      });
-  },
+  searchTerm: computed("q", {
+    get() {
+      return this.q;
+    },
+    set(key, value) {
+      return value;
+    },
+  }),
 
   @discourseComputed()
   emptyStateBody() {
-    return I18n.t("user.no_bookmarks_body", {
-      icon: iconHTML("bookmark"),
-    }).htmlSafe();
+    return htmlSafe(
+      I18n.t("user.no_bookmarks_body", {
+        icon: iconHTML("bookmark"),
+      })
+    );
   },
 
   @discourseComputed("inSearchMode", "noContent")
@@ -57,20 +49,16 @@ export default Controller.extend({
     return inSearchMode && noContent;
   },
 
-  @discourseComputed("loaded", "content.length")
-  noContent(loaded, contentLength) {
-    return loaded && contentLength === 0;
-  },
-
   @action
   search() {
-    this.set("q", this.searchTerm);
-    this.loadItems();
+    this.transitionToRoute({
+      queryParams: { q: this.searchTerm },
+    });
   },
 
   @action
   reload() {
-    this.loadItems();
+    this.send("triggerRefresh");
   },
 
   @action
@@ -81,39 +69,58 @@ export default Controller.extend({
 
     this.set("loadingMore", true);
 
-    return this.model
-      .loadMore({ q: this.q })
-      .then((response) => this._processLoadResponse(response))
+    return this._loadMoreBookmarks(this.q)
+      .then((response) => this._processLoadResponse(this.q, response))
       .catch(() => this._bookmarksListDenied())
       .finally(() => this.set("loadingMore", false));
+  },
+
+  _loadMoreBookmarks(searchQuery) {
+    if (!this.model.loadMoreUrl) {
+      return Promise.resolve();
+    }
+
+    let moreUrl = this.model.loadMoreUrl;
+    if (searchQuery) {
+      const delimiter = moreUrl.includes("?") ? "&" : "?";
+      const q = encodeURIComponent(searchQuery);
+      moreUrl += `${delimiter}q=${q}`;
+    }
+
+    return ajax({ url: moreUrl });
   },
 
   _bookmarksListDenied() {
     this.set("permissionDenied", true);
   },
 
-  _processLoadResponse(response) {
+  _processLoadResponse(searchTerm, response) {
     if (!response || !response.user_bookmark_list) {
+      this.model.loadMoreUrl = null;
       return;
     }
 
     response = response.user_bookmark_list;
-    this.model.more_bookmarks_url = response.more_bookmarks_url;
+    this.model.searchTerm = searchTerm;
+    this.model.loadMoreUrl = response.more_bookmarks_url;
 
     if (response.bookmarks) {
-      const bookmarkModels = response.bookmarks.map((bookmark) => {
-        const bookmarkModel = Bookmark.create(bookmark);
-        bookmarkModel.topicStatus = EmberObject.create({
-          closed: bookmark.closed,
-          archived: bookmark.archived,
-          is_warning: bookmark.is_warning,
-          pinned: false,
-          unpinned: false,
-          invisible: bookmark.invisible,
-        });
-        return bookmarkModel;
-      });
-      this.content.pushObjects(bookmarkModels);
+      const bookmarkModels = response.bookmarks.map(this.transform);
+      this.model.bookmarks.pushObjects(bookmarkModels);
+      this.session.set("bookmarksModel", this.model);
     }
+  },
+
+  transform(bookmark) {
+    const bookmarkModel = Bookmark.create(bookmark);
+    bookmarkModel.topicStatus = EmberObject.create({
+      closed: bookmark.closed,
+      archived: bookmark.archived,
+      is_warning: bookmark.is_warning,
+      pinned: false,
+      unpinned: false,
+      invisible: bookmark.invisible,
+    });
+    return bookmarkModel;
   },
 });

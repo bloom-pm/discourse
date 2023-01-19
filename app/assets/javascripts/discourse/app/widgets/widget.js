@@ -140,13 +140,13 @@ export default class Widget {
     register.deprecateContainer(this);
 
     this.key = this.buildKey ? this.buildKey(attrs) : null;
-    this.site = register.lookup("site:main");
-    this.siteSettings = register.lookup("site-settings:main");
-    this.currentUser = register.lookup("current-user:main");
+    this.site = register.lookup("service:site");
+    this.siteSettings = register.lookup("service:site-settings");
+    this.currentUser = register.lookup("service:current-user");
     this.capabilities = register.lookup("capabilities:main");
     this.store = register.lookup("service:store");
     this.appEvents = register.lookup("service:app-events");
-    this.keyValueStore = register.lookup("key-value-store:main");
+    this.keyValueStore = register.lookup("service:key-value-store");
 
     // We can inject services into widgets by passing a `services` parameter on creation
     (this.services || []).forEach((s) => {
@@ -154,16 +154,6 @@ export default class Widget {
     });
 
     this.init(this.attrs);
-
-    // Helps debug widgets
-    if (!isProduction()) {
-      const ds = this.defaultState(attrs);
-      if (typeof ds !== "object") {
-        throw new Error(`defaultState must return an object`);
-      } else if (Object.keys(ds).length > 0 && !this.key) {
-        throw new Error(`you need a key when using state in ${this.name}`);
-      }
-    }
 
     if (this.name) {
       const custom = _customSettings[this.name];
@@ -195,7 +185,15 @@ export default class Widget {
     if (prev && prev.key && prev.key === this.key) {
       this.state = prev.state;
     } else {
+      // Helps debug widgets
       this.state = this.defaultState(this.attrs, this.state);
+      if (!isProduction()) {
+        if (typeof this.state !== "object") {
+          throw new Error(`defaultState must return an object`);
+        } else if (Object.keys(this.state).length > 0 && !this.key) {
+          throw new Error(`you need a key when using state in ${this.name}`);
+        }
+      }
     }
 
     // Sometimes we pass state down from the parent
@@ -418,9 +416,11 @@ export default class Widget {
     if (this.clickOutside) {
       properties["widget-click-outside"] = new WidgetClickOutsideHook(this);
     }
+
     if (this.click) {
       properties["widget-click"] = new WidgetClickHook(this);
     }
+
     if (this.doubleClick) {
       properties["widget-double-click"] = new WidgetDoubleClickHook(this);
     }

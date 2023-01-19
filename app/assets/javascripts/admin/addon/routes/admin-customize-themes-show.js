@@ -2,22 +2,11 @@ import { COMPONENTS, THEMES } from "admin/models/theme";
 import I18n from "I18n";
 import Route from "@ember/routing/route";
 import { scrollTop } from "discourse/mixins/scroll-top";
-
-export function showUnassignedComponentWarning(theme, callback) {
-  bootbox.confirm(
-    I18n.t("admin.customize.theme.unsaved_parent_themes"),
-    I18n.t("admin.customize.theme.discard"),
-    I18n.t("admin.customize.theme.stay"),
-    (result) => {
-      if (!result) {
-        theme.set("recentlyInstalled", false);
-      }
-      callback(result);
-    }
-  );
-}
+import { inject as service } from "@ember/service";
 
 export default Route.extend({
+  dialog: service(),
+
   serialize(model) {
     return { theme_id: model.get("id") };
   },
@@ -39,8 +28,8 @@ export default Route.extend({
     });
 
     controller.setProperties({
-      model: model,
-      parentController: parentController,
+      model,
+      parentController,
       allThemes: parentController.get("model"),
       colorSchemeId: model.get("color_scheme_id"),
       colorSchemes: parentController.get("model.extras.color_schemes"),
@@ -71,10 +60,14 @@ export default Route.extend({
       const model = this.controller.model;
       if (model.warnUnassignedComponent) {
         transition.abort();
-        showUnassignedComponentWarning(model, (result) => {
-          if (!result) {
+
+        this.dialog.yesNoConfirm({
+          message: I18n.t("admin.customize.theme.unsaved_parent_themes"),
+          didConfirm: () => {
+            model.set("recentlyInstalled", false);
             transition.retry();
-          }
+          },
+          didCancel: () => model.set("recentlyInstalled", false),
         });
       }
     },

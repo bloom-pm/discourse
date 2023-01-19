@@ -11,11 +11,10 @@ export default {
   initialize(container) {
     const screenTrack = container.lookup("service:screen-track");
     const session = Session.current();
-    const siteSettings = container.lookup("site-settings:main");
-    const keyValueStore = container.lookup("key-value-store:main");
-    const user = container.lookup("current-user:main");
-
-    screenTrack.keyValueStore = keyValueStore;
+    const siteSettings = container.lookup("service:site-settings");
+    const keyValueStore = container.lookup("service:key-value-store");
+    const user = container.lookup("service:current-user");
+    const appEvents = container.lookup("service:app-events");
 
     // Preconditions
     if (user) {
@@ -72,6 +71,7 @@ export default {
 
       // Requirements met.
       session.set("showSignupCta", true);
+      appEvents.trigger("cta:shown");
     }
 
     screenTrack.registerAnonCallback(checkSignupCtaRequirements);

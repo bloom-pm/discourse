@@ -1,9 +1,10 @@
-import Category from "discourse/models/category";
+import categoryFromId from "discourse-common/utils/category-macro";
 import I18n from "I18n";
 import { Promise } from "rsvp";
 import RestModel from "discourse/models/rest";
 import { ajax } from "discourse/lib/ajax";
 import discourseComputed from "discourse-common/utils/decorators";
+import { underscore } from "@ember/string";
 
 export const PENDING = 0;
 export const APPROVED = 1;
@@ -19,15 +20,12 @@ const Reviewable = RestModel.extend({
       type = "ReviewableQueuedTopic";
     }
 
-    return I18n.t(`review.types.${type.underscore()}.title`, {
+    return I18n.t(`review.types.${underscore(type)}.title`, {
       defaultValue: "",
     });
   },
 
-  @discourseComputed("category_id")
-  category(categoryId) {
-    return Category.findById(categoryId);
-  },
+  category: categoryFromId("category_id"),
 
   update(updates) {
     // If no changes, do nothing
@@ -45,11 +43,6 @@ const Reviewable = RestModel.extend({
         this.payload || {},
         updated.payload || {}
       );
-
-      if (updated.category_id) {
-        updated.category = Category.findById(updated.category_id);
-        delete updated.category_id;
-      }
 
       this.setProperties(updated);
     });

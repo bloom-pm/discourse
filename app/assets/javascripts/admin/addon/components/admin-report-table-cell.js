@@ -6,6 +6,7 @@ export default Component.extend({
   tagName: "td",
   classNames: ["admin-report-table-cell"],
   classNameBindings: ["type", "property"],
+  attributeBindings: ["value:title"],
   options: null,
 
   @discourseComputed("label", "data", "options")
@@ -15,6 +16,6 @@ export default Component.extend({
 
   type: alias("label.type"),
   property: alias("label.mainProperty"),
-  formatedValue: alias("computedLabel.formatedValue"),
+  formattedValue: alias("computedLabel.formattedValue"),
   value: alias("computedLabel.value"),
 });

@@ -4,12 +4,16 @@
 #  A class that handles interaction between a plugin and the Discourse App.
 #
 class DiscoursePluginRegistry
-
+  # Plugins often need to be able to register additional handlers, data, or
+  # classes that will be used by core classes. This should be used if you
+  # need to control which type the registry is, and if it doesn't need to
+  # be removed if the plugin is disabled.
+  #
   # Shortcut to create new register in the plugin registry
   #   - Register is created in a class variable using the specified name/type
   #   - Defines singleton method to access the register
   #   - Defines instance method as a shortcut to the singleton method
-  #   - Automatically deletes the register on ::clear!
+  #   - Automatically deletes the register on registry.reset!
   def self.define_register(register_name, type)
     @@register_names ||= Set.new
     @@register_names << register_name
@@ -19,16 +23,18 @@ class DiscoursePluginRegistry
         instance_variable_set(:"@#{register_name}", type.new)
     end
 
-    define_method(register_name) do
-      self.class.public_send(register_name)
-    end
+    define_method(register_name) { self.class.public_send(register_name) }
   end
 
+  # Plugins often need to add values to a list, and we need to filter those
+  # lists at runtime to ignore values from disabled plugins. Unlike define_register,
+  # the type of the register cannot be defined, and is always Array.
+  #
   # Create a new register (see `define_register`) with some additions:
   #   - Register is created in a class variable using the specified name/type
   #   - Defines singleton method to access the register
   #   - Defines instance method as a shortcut to the singleton method
-  #   - Automatically deletes the register on ::clear!
+  #   - Automatically deletes the register on registry.reset!
   def self.define_filtered_register(register_name)
     define_register(register_name, Array)
 
@@ -36,10 +42,7 @@ class DiscoursePluginRegistry
 
     define_singleton_method(register_name) do
       unfiltered = public_send(:"_raw_#{register_name}")
-      unfiltered
-        .filter { |v| v[:plugin].enabled? }
-        .map { |v| v[:value] }
-        .uniq
+      unfiltered.filter { |v| v[:plugin].enabled? }.map { |v| v[:value] }.uniq
     end
 
     define_singleton_method("register_#{register_name.to_s.singularize}") do |value, plugin|
@@ -68,6 +71,7 @@ class DiscoursePluginRegistry
   define_register :vendored_core_pretty_text, Set
   define_register :seedfu_filter, Set
   define_register :demon_processes, Set
+  define_register :groups_callback_for_users_search_controller_action, Hash
 
   define_filtered_register :staff_user_custom_fields
   define_filtered_register :public_user_custom_fields
@@ -76,8 +80,10 @@ class DiscoursePluginRegistry
   define_filtered_register :staff_editable_user_custom_fields
 
   define_filtered_register :editable_group_custom_fields
+  define_filtered_register :group_params
 
   define_filtered_register :topic_thumbnail_sizes
+  define_filtered_register :topic_preloader_associations
 
   define_filtered_register :api_parameter_routes
   define_filtered_register :api_key_scope_mappings
@@ -85,8 +91,22 @@ class DiscoursePluginRegistry
 
   define_filtered_register :permitted_bulk_action_parameters
   define_filtered_register :reviewable_params
+  define_filtered_register :reviewable_score_links
 
   define_filtered_register :presence_channel_prefixes
+
+  define_filtered_register :push_notification_filters
+
+  define_filtered_register :notification_consolidation_plans
+
+  define_filtered_register :email_unsubscribers
+
+  define_filtered_register :user_destroyer_on_content_deletion_callbacks
+
+  define_filtered_register :hashtag_autocomplete_data_sources
+  define_filtered_register :hashtag_autocomplete_contextual_type_priorities
+
+  define_filtered_register :search_groups_set_query_callbacks
 
   def self.register_auth_provider(auth_provider)
     self.auth_providers << auth_provider
@@ -134,9 +154,7 @@ class DiscoursePluginRegistry
         next if each_options[:admin]
       end
 
-      Dir.glob("#{root}/**/*.#{ext}") do |f|
-        yield f
-      end
+      Dir.glob("#{root}/**/*.#{ext}") { |f| yield f }
     end
   end
 
@@ -203,7 +221,7 @@ class DiscoursePluginRegistry
 
   def self.seed_paths
     result = SeedFu.fixture_paths.dup
-    unless Rails.env.test? && ENV['LOAD_PLUGINS'] != "1"
+    unless Rails.env.test? && ENV["LOAD_PLUGINS"] != "1"
       seed_path_builders.each { |b| result += b.call }
     end
     result.uniq
@@ -215,7 +233,7 @@ class DiscoursePluginRegistry
 
   VENDORED_CORE_PRETTY_TEXT_MAP = {
     "moment.js" => "vendor/assets/javascripts/moment.js",
-    "moment-timezone.js" => "vendor/assets/javascripts/moment-timezone-with-data.js"
+    "moment-timezone.js" => "vendor/assets/javascripts/moment-timezone-with-data.js",
   }
   def self.core_asset_for_name(name)
     asset = VENDORED_CORE_PRETTY_TEXT_MAP[name]
@@ -224,16 +242,12 @@ class DiscoursePluginRegistry
   end
 
   def self.reset!
-    @@register_names.each do |name|
-      instance_variable_set(:"@#{name}", nil)
-    end
+    @@register_names.each { |name| instance_variable_set(:"@#{name}", nil) }
   end
 
   def self.reset_register!(register_name)
     found_register = @@register_names.detect { |name| name == register_name }
 
-    if found_register
-      instance_variable_set(:"@#{found_register}", nil)
-    end
+    instance_variable_set(:"@#{found_register}", nil) if found_register
   end
 end

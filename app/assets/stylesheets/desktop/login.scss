@@ -14,13 +14,16 @@
       color: rgba(var(--primary-rgb), 0.85);
     }
   }
+  h2.login-with {
+    color: var(--secondary);
+  }
   #login-buttons:not(.hidden) {
     display: flex;
     flex: 0 1 auto;
     flex-direction: column;
     align-items: stretch;
     min-height: 75px;
-    min-width: 160px;
+    min-width: 200px;
     order: 2;
 
     &:focus-within,
@@ -137,8 +140,8 @@
     padding: 3em 3em 2.5em;
     .login-welcome-header {
       .login-title {
-        line-height: $line-height-small;
-        font-size: $font-up-6;
+        line-height: var(--line-height-small);
+        font-size: var(--font-up-6);
       }
       p.login-subheader {
         font-size: var(--font-up-1);
@@ -211,7 +214,7 @@
   }
   .has-alt-auth .create-account-form {
     display: grid;
-    grid-template-columns: 65% 35%;
+    grid-template-columns: 60% 40%;
     grid-template-rows: auto 1fr;
     grid-template-areas:
       "header login-buttons"
@@ -273,8 +276,8 @@
     padding: 3em 2em 1em;
 
     .login-title {
-      font-size: $font-up-6;
-      line-height: $line-height-medium;
+      font-size: var(--font-up-6);
+      line-height: var(--line-height-medium);
     }
     p.login-subheader {
       font-size: var(--font-up-1);
@@ -391,16 +394,19 @@
 }
 
 .password-reset,
-.email-login,
 .invites-show {
   .col-form {
-    padding-left: 20px;
+    padding: 0.5em 2em 1em;
+    max-width: 30em;
   }
   .col-image {
     width: 175px;
     img {
       width: 100%;
     }
+  }
+  details {
+    width: 100%;
   }
   h2 {
     margin-bottom: 12px;
@@ -409,10 +415,13 @@
     // 80% width on checkboxes messes up the layout for custom fields
     width: 80%;
   }
+  .invite-form,
+  .invite-success {
+    box-shadow: shadow("card");
+  }
 }
 
-.password-reset,
-.email-login {
+.password-reset {
   .col-form {
     padding-top: 40px;
   }
@@ -463,5 +472,12 @@
     .login-right-side {
       padding: 1em;
     }
+  }
+}
+
+.email-login {
+  width: 550px;
+  .password-reset-img {
+    height: 150px;
   }
 }

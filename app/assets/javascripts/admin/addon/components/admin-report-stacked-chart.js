@@ -5,28 +5,21 @@ import loadScript from "discourse/lib/load-script";
 import { makeArray } from "discourse-common/lib/helpers";
 import { number } from "discourse/lib/formatter";
 import { schedule } from "@ember/runloop";
+import { bind } from "discourse-common/utils/decorators";
 
 export default Component.extend({
   classNames: ["admin-report-chart", "admin-report-stacked-chart"],
 
-  init() {
-    this._super(...arguments);
-
-    this.resizeHandler = () =>
-      discourseDebounce(this, this._scheduleChartRendering, 500);
-  },
-
   didInsertElement() {
     this._super(...arguments);
 
-    $(window).on("resize.chart", this.resizeHandler);
+    window.addEventListener("resize", this._resizeHandler);
   },
 
   willDestroyElement() {
     this._super(...arguments);
 
-    $(window).off("resize.chart", this.resizeHandler);
-
+    window.removeEventListener("resize", this._resizeHandler);
     this._resetChart();
   },
 
@@ -34,6 +27,11 @@ export default Component.extend({
     this._super(...arguments);
 
     discourseDebounce(this, this._scheduleChartRendering, 100);
+  },
+
+  @bind
+  _resizeHandler() {
+    discourseDebounce(this, this._scheduleChartRendering, 500);
   },
 
   _scheduleChartRendering() {
@@ -56,7 +54,13 @@ export default Component.extend({
 
     const context = chartCanvas.getContext("2d");
 
-    const chartData = makeArray(model.get("chartData") || model.get("data"));
+    const chartData = makeArray(model.chartData || model.data).map((cd) => {
+      return {
+        label: cd.label,
+        color: cd.color,
+        data: Report.collapse(model, cd.data),
+      };
+    });
 
     const data = {
       labels: chartData[0].data.mapBy("x"),
@@ -64,7 +68,7 @@ export default Component.extend({
         return {
           label: cd.label,
           stack: "pageviews-stack",
-          data: Report.collapse(model, cd.data),
+          data: cd.data,
           backgroundColor: cd.color,
         };
       }),
@@ -149,9 +153,7 @@ export default Component.extend({
   },
 
   _resetChart() {
-    if (this._chart) {
-      this._chart.destroy();
-      this._chart = null;
-    }
+    this._chart?.destroy();
+    this._chart = null;
   },
 });

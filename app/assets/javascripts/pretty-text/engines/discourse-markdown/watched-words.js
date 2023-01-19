@@ -1,3 +1,8 @@
+import {
+  createWatchedWordRegExp,
+  toWatchedWord,
+} from "discourse-common/utils/watched-words";
+
 const MAX_MATCHES = 100;
 
 function isLinkOpen(str) {
@@ -31,16 +36,28 @@ function findAllMatches(text, matchers) {
   return matches.sort((a, b) => a.index - b.index);
 }
 
+// We need this to load after mentions and hashtags which are priority 0
+export const priority = 1;
+
+const NONE = 0;
+const MENTION = 1;
+const HASHTAG_LINK = 2;
+const HASHTAG_SPAN = 3;
+
 export function setup(helper) {
+  const opts = helper.getOptions();
+
   helper.registerPlugin((md) => {
     const matchers = [];
 
     if (md.options.discourse.watchedWordsReplace) {
       Object.entries(md.options.discourse.watchedWordsReplace).map(
-        ([word, replacement]) => {
+        ([regexpString, options]) => {
+          const word = toWatchedWord({ [regexpString]: options });
+
           matchers.push({
-            pattern: new RegExp(word, "gi"),
-            replacement,
+            pattern: createWatchedWordRegExp(word),
+            replacement: options.replacement,
             link: false,
           });
         }
@@ -49,10 +66,12 @@ export function setup(helper) {
 
     if (md.options.discourse.watchedWordsLink) {
       Object.entries(md.options.discourse.watchedWordsLink).map(
-        ([word, replacement]) => {
+        ([regexpString, options]) => {
+          const word = toWatchedWord({ [regexpString]: options });
+
           matchers.push({
-            pattern: new RegExp(word, "gi"),
-            replacement,
+            pattern: createWatchedWordRegExp(word),
+            replacement: options.replacement,
             link: true,
           });
         }
@@ -63,7 +82,7 @@ export function setup(helper) {
       return;
     }
 
-    const cache = {};
+    const cache = new Map();
 
     md.core.ruler.push("watched-words", (state) => {
       for (let j = 0, l = state.tokens.length; j < l; j++) {
@@ -74,6 +93,42 @@ export function setup(helper) {
         let tokens = state.tokens[j].children;
 
         let htmlLinkLevel = 0;
+
+        // We scan once to mark tokens that must be skipped because they are
+        // mentions or hashtags
+        let lastType = NONE;
+        for (let i = 0; i < tokens.length; ++i) {
+          const currentToken = tokens[i];
+
+          if (currentToken.type === "mention_open") {
+            lastType = MENTION;
+          } else if (
+            (currentToken.type === "link_open" ||
+              currentToken.type === "span_open") &&
+            currentToken.attrs &&
+            currentToken.attrs.some(
+              (attr) =>
+                attr[0] === "class" &&
+                (attr[1].includes("hashtag") ||
+                  attr[1].includes("hashtag-cooked"))
+            )
+          ) {
+            lastType =
+              currentToken.type === "link_open" ? HASHTAG_LINK : HASHTAG_SPAN;
+          }
+
+          if (lastType !== NONE) {
+            currentToken.skipReplace = true;
+          }
+
+          if (
+            (lastType === MENTION && currentToken.type === "mention_close") ||
+            (lastType === HASHTAG_LINK && currentToken.type === "link_close") ||
+            (lastType === HASHTAG_SPAN && currentToken.type === "span_close")
+          ) {
+            lastType = NONE;
+          }
+        }
 
         // We scan from the end, to keep position when new tags added.
         // Use reversed logic in links start/end match
@@ -103,10 +158,21 @@ export function setup(helper) {
             }
           }
 
+          // Skip content of mentions or hashtags
+          if (currentToken.skipReplace) {
+            continue;
+          }
+
           if (currentToken.type === "text") {
             const text = currentToken.content;
-            const matches = (cache[text] =
-              cache[text] || findAllMatches(text, matchers));
+
+            let matches;
+            if (cache.has(text)) {
+              matches = cache.get(text);
+            } else {
+              matches = findAllMatches(text, matchers);
+              cache.set(text, matches);
+            }
 
             // Now split string to nodes
             const nodes = [];
@@ -131,6 +197,9 @@ export function setup(helper) {
                 if (htmlLinkLevel === 0 && state.md.validateLink(url)) {
                   token = new state.Token("link_open", "a", 1);
                   token.attrs = [["href", url]];
+                  if (opts.discourse.previewing) {
+                    token.attrs.push(["data-word", ""]);
+                  }
                   token.level = level++;
                   token.markup = "linkify";
                   token.info = "auto";

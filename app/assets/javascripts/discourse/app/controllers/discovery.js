@@ -1,8 +1,9 @@
 import Controller, { inject as controller } from "@ember/controller";
 import { alias, equal, not } from "@ember/object/computed";
+import { action } from "@ember/object";
 import Category from "discourse/models/category";
+import discourseComputed from "discourse-common/utils/decorators";
 import DiscourseURL from "discourse/lib/url";
-import { observes } from "discourse-common/utils/decorators";
 import { inject as service } from "@ember/service";
 
 export default Controller.extend({
@@ -14,7 +15,6 @@ export default Controller.extend({
     "router.currentRouteName",
     "discovery.categories"
   ),
-
   loading: false,
 
   category: alias("navigationCategory.category"),
@@ -22,8 +22,33 @@ export default Controller.extend({
 
   loadedAllItems: not("discoveryTopics.model.canLoadMore"),
 
-  @observes("loadedAllItems")
-  _showFooter: function () {
+  @discourseComputed(
+    "router.currentRouteName",
+    "router.currentRoute.queryParams.f",
+    "site.show_welcome_topic_banner"
+  )
+  showEditWelcomeTopicBanner(
+    currentRouteName,
+    hasParams,
+    showWelcomeTopicBanner
+  ) {
+    return (
+      this.currentUser?.staff &&
+      currentRouteName === "discovery.latest" &&
+      showWelcomeTopicBanner &&
+      !hasParams
+    );
+  },
+
+  @action
+  loadingBegan() {
+    this.set("loading", true);
+    this.set("application.showFooter", false);
+  },
+
+  @action
+  loadingComplete() {
+    this.set("loading", false);
     this.set("application.showFooter", this.loadedAllItems);
   },
 
@@ -39,17 +64,19 @@ export default Controller.extend({
 
     url += "/top";
 
-    let queryParams = this.router.currentRoute.queryParams;
-    queryParams.period = period;
-    if (Object.keys(queryParams).length) {
-      url =
-        `${url}?` +
-        Object.keys(queryParams)
-          .map((key) => `${key}=${queryParams[key]}`)
-          .join("&");
+    const urlSearchParams = new URLSearchParams();
+
+    for (const [key, value] of Object.entries(
+      this.router.currentRoute.queryParams
+    )) {
+      if (typeof value !== "undefined") {
+        urlSearchParams.set(key, value);
+      }
     }
 
-    return url;
+    urlSearchParams.set("period", period);
+
+    return `${url}?${urlSearchParams.toString()}`;
   },
 
   actions: {

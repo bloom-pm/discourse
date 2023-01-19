@@ -1,6 +1,7 @@
 import DiscourseRoute from "discourse/routes/discourse";
 import UserBadge from "discourse/models/user-badge";
 import ViewingActionType from "discourse/mixins/viewing-action-type";
+import { action } from "@ember/object";
 
 export default DiscourseRoute.extend(ViewingActionType, {
   model() {
@@ -16,13 +17,12 @@ export default DiscourseRoute.extend(ViewingActionType, {
   },
 
   renderTemplate() {
-    this.render("user/badges", { into: "user" });
+    this.render("user/badges");
   },
 
-  actions: {
-    didTransition() {
-      this.controllerFor("application").set("showFooter", true);
-      return true;
-    },
+  @action
+  didTransition() {
+    this.controllerFor("application").set("showFooter", true);
+    return true;
   },
 });

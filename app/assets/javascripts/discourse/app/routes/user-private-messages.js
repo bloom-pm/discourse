@@ -1,9 +1,7 @@
 import Composer from "discourse/models/composer";
 import DiscourseRoute from "discourse/routes/discourse";
 import Draft from "discourse/models/draft";
-import { ajax } from "discourse/lib/ajax";
-import { popupAjaxError } from "discourse/lib/ajax-error";
-import PrivateMessageTopicTrackingState from "discourse/models/private-message-topic-tracking-state";
+import { action } from "@ember/object";
 
 export default DiscourseRoute.extend({
   renderTemplate() {
@@ -11,36 +9,15 @@ export default DiscourseRoute.extend({
   },
 
   model() {
-    const user = this.modelFor("user");
-    return ajax(`/u/${user.username}/private-message-topic-tracking-state`)
-      .then((pmTopicTrackingStateData) => {
-        return {
-          user,
-          pmTopicTrackingStateData,
-        };
-      })
-      .catch((e) => {
-        popupAjaxError(e);
-        return { user };
-      });
+    return this.modelFor("user");
+  },
+
+  afterModel() {
+    return this.pmTopicTrackingState.startTracking();
   },
 
   setupController(controller, model) {
-    const user = model.user;
-
-    const pmTopicTrackingState = PrivateMessageTopicTrackingState.create({
-      messageBus: controller.messageBus,
-      user,
-    });
-
-    pmTopicTrackingState.startTracking(model.pmTopicTrackingStateData);
-
-    controller.setProperties({
-      model: user,
-      pmTopicTrackingState,
-    });
-
-    this.set("pmTopicTrackingState", pmTopicTrackingState);
+    controller.set("model", model);
 
     if (this.currentUser) {
       const composerController = this.controllerFor("composer");
@@ -58,19 +35,14 @@ export default DiscourseRoute.extend({
     }
   },
 
-  deactivate() {
-    this.pmTopicTrackingState.stopTracking();
+  @action
+  triggerRefresh() {
+    this.refresh();
   },
 
-  actions: {
-    refresh() {
-      this.refresh();
-    },
-
-    willTransition: function () {
-      this._super(...arguments);
-      this.controllerFor("user").set("pmView", null);
-      return true;
-    },
+  @action
+  willTransition() {
+    this._super(...arguments);
+    return true;
   },
 });

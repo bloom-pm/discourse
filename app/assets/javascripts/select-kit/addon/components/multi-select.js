@@ -19,6 +19,7 @@ export default SelectKitComponent.extend({
     closeOnChange: false,
     autoInsertNoneItem: false,
     headerComponent: "multi-select/multi-select-header",
+    filterComponent: "multi-select/multi-select-filter",
     autoFilterable: true,
     caretDownIcon: "caretIcon",
     caretUpIcon: "caretIcon",
@@ -124,35 +125,40 @@ export default SelectKitComponent.extend({
     }
   },
 
-  selectedContent: computed("value.[]", "content.[]", function () {
-    const value = makeArray(this.value).map((v) =>
-      this.selectKit.options.castInteger && this._isNumeric(v) ? Number(v) : v
-    );
+  selectedContent: computed(
+    "value.[]",
+    "content.[]",
+    "selectKit.noneItem",
+    function () {
+      const value = makeArray(this.value).map((v) =>
+        this.selectKit.options.castInteger && this._isNumeric(v) ? Number(v) : v
+      );
 
-    if (value.length) {
-      let content = [];
+      if (value.length) {
+        let content = [];
 
-      value.forEach((v) => {
-        if (this.selectKit.valueProperty) {
-          const c = makeArray(this.content).findBy(
-            this.selectKit.valueProperty,
-            v
-          );
-          if (c) {
-            content.push(c);
+        value.forEach((v) => {
+          if (this.selectKit.valueProperty) {
+            const c = makeArray(this.content).findBy(
+              this.selectKit.valueProperty,
+              v
+            );
+            if (c) {
+              content.push(c);
+            }
+          } else {
+            if (makeArray(this.content).includes(v)) {
+              content.push(v);
+            }
           }
-        } else {
-          if (makeArray(this.content).includes(v)) {
-            content.push(v);
-          }
-        }
-      });
+        });
 
-      return this.selectKit.modifySelection(content);
+        return this.selectKit.modifySelection(content);
+      }
+
+      return null;
     }
-
-    return null;
-  }),
+  ),
 
   _onKeydown(event) {
     if (

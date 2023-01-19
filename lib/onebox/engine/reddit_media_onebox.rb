@@ -6,7 +6,7 @@ module Onebox
       include Engine
       include StandardEmbed
 
-      matches_regexp(/^https?:\/\/(www\.)?reddit\.com/)
+      matches_regexp(%r{^https?://(www\.)?reddit\.com})
 
       def to_html
         if raw[:type] == "image"
@@ -25,7 +25,7 @@ module Onebox
               </article>
             </aside>
           HTML
-        elsif  raw[:type] =~ /^video[\/\.]/
+        elsif raw[:type] =~ %r{^video[/\.]}
           <<-HTML
             <aside class="onebox reddit">
               <header class="source">
@@ -35,9 +35,9 @@ module Onebox
               <article class="onebox-body">
                 <h3><a href="#{raw[:url]}" target="_blank" rel="nofollow ugc noopener">#{raw[:title]}</a></h3>
                 <div class="aspect-image-full-size">
-                  <a href="#{raw[:url]}" target="_blank" rel="nofollow ugc noopener">
+                  <a href="#{raw[:url]}" target="_blank" rel="nofollow ugc noopener" class="image-wrapper">
                     <img src="#{raw[:image]}" class="scale-image"/>
-                    <span class="instagram-video-icon"></span>
+                    <span class="video-icon"></span>
                   </a>
                 </div>
                 <div class="description"><p>#{raw[:description]}</p></div>

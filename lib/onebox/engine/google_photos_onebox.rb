@@ -6,7 +6,7 @@ module Onebox
       include Engine
       include StandardEmbed
 
-      matches_regexp(/^https?:\/\/(photos)\.(app\.goo\.gl|google\.com)/)
+      matches_regexp(%r{^https?://(photos)\.(app\.goo\.gl|google\.com)})
       always_https
 
       def to_html
@@ -31,9 +31,9 @@ module Onebox
             <article class="onebox-body">
               <h3><a href="#{escaped_url}" target="_blank" rel="nofollow ugc noopener">#{og.title}</a></h3>
               <div class="aspect-image-full-size">
-                <a href="#{escaped_url}" target="_blank" rel="nofollow ugc noopener">
+                <a href="#{escaped_url}" target="_blank" rel="nofollow ugc noopener" class="image-wrapper">
                   <img src="#{og.secure_image_url}" class="scale-image"/>
-                  <span class="instagram-video-icon"></span>
+                  <span class="video-icon"></span>
                 </a>
               </div>
             </article>

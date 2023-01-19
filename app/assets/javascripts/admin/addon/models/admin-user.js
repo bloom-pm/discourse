@@ -99,9 +99,20 @@ const AdminUser = User.extend({
     });
   },
 
-  grantAdmin() {
+  grantAdmin(data) {
     return ajax(`/admin/users/${this.id}/grant_admin`, {
       type: "PUT",
+      data,
+    }).then((resp) => {
+      if (resp.success && !resp.email_confirmation_required) {
+        this.setProperties({
+          admin: true,
+          can_grant_admin: false,
+          can_revoke_admin: true,
+        });
+      }
+
+      return resp;
     });
   },
 
@@ -186,6 +197,7 @@ const AdminUser = User.extend({
   canLockTrustLevel: lt("trust_level", 4),
 
   canSuspend: not("staff"),
+  canSilence: not("staff"),
 
   @discourseComputed("suspended_till", "suspended_at")
   suspendDuration(suspendedTill, suspendedAt) {

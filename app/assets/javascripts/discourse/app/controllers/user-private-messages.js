@@ -1,82 +1,119 @@
 import Controller, { inject as controller } from "@ember/controller";
-import { action } from "@ember/object";
-import { alias, and, equal } from "@ember/object/computed";
-import discourseComputed from "discourse-common/utils/decorators";
-import { VIEW_NAME_WARNINGS } from "discourse/routes/user-private-messages-warnings";
+import { action, computed } from "@ember/object";
+import { inject as service } from "@ember/service";
+import { alias, and, equal, readOnly } from "@ember/object/computed";
+import { cached, tracked } from "@glimmer/tracking";
 import I18n from "I18n";
+import DiscourseURL from "discourse/lib/url";
 
-export const PERSONAL_INBOX = "__personal_inbox__";
-const ALL_INBOX = "__all_inbox__";
+const customUserNavMessagesDropdownRows = [];
 
-export default Controller.extend({
-  user: controller(),
+export function registerCustomUserNavMessagesDropdownRow(
+  routeName,
+  name,
+  icon
+) {
+  customUserNavMessagesDropdownRows.push({
+    routeName,
+    name,
+    icon,
+  });
+}
 
-  pmView: false,
-  viewingSelf: alias("user.viewingSelf"),
-  isGroup: equal("pmView", "groups"),
-  group: null,
-  groupFilter: alias("group.name"),
-  currentPath: alias("router._router.currentPath"),
-  pmTaggingEnabled: alias("site.can_tag_pms"),
-  tagId: null,
+export function resetCustomUserNavMessagesDropdownRows() {
+  customUserNavMessagesDropdownRows.length = 0;
+}
 
-  showNewPM: and("user.viewingSelf", "currentUser.can_send_private_messages"),
+export default class extends Controller {
+  @service router;
+  @controller user;
 
-  @discourseComputed("inboxes", "isAllInbox")
-  displayGlobalFilters(inboxes, isAllInbox) {
-    if (inboxes.length === 0) {
-      return true;
-    }
-    if (inboxes.length && isAllInbox) {
-      return true;
-    }
-    return false;
-  },
+  @tracked group;
+  @tracked tagId;
 
-  @discourseComputed("inboxes")
-  sectionClass(inboxes) {
-    const defaultClass = "user-secondary-navigation user-messages";
+  @alias("group.name") groupFilter;
+  @and("user.viewingSelf", "currentUser.can_send_private_messages") showNewPM;
+  @equal("currentParentRouteName", "userPrivateMessages.group") isGroup;
+  @equal("currentParentRouteName", "userPrivateMessages.user") isPersonal;
+  @readOnly("user.viewingSelf") viewingSelf;
+  @readOnly("router.currentRouteName") currentRouteName;
+  @readOnly("router.currentRoute.parent.name") currentParentRouteName;
+  @readOnly("site.can_tag_pms") pmTaggingEnabled;
 
-    return inboxes.length
-      ? `${defaultClass} user-messages-inboxes`
-      : defaultClass;
-  },
+  get messagesDropdownValue() {
+    let value;
 
-  @discourseComputed("pmView")
-  isPersonalInbox(pmView) {
-    return pmView && pmView.startsWith("user");
-  },
+    for (let i = this.messagesDropdownContent.length - 1; i >= 0; i--) {
+      const row = this.messagesDropdownContent[i];
 
-  @discourseComputed("isPersonalInbox", "group.name")
-  isAllInbox(isPersonalInbox, groupName) {
-    return !this.isPersonalInbox && !groupName;
-  },
-
-  @discourseComputed("isPersonalInbox", "group.name")
-  selectedInbox(isPersonalInbox, groupName) {
-    if (groupName) {
-      return groupName;
+      if (this.router.currentURL.includes(row.id)) {
+        value = row.id;
+        break;
+      }
     }
 
-    return isPersonalInbox ? PERSONAL_INBOX : ALL_INBOX;
-  },
+    return value;
+  }
 
-  @discourseComputed("viewingSelf", "pmView", "currentUser.admin")
-  showWarningsWarning(viewingSelf, pmView, isAdmin) {
-    return pmView === VIEW_NAME_WARNINGS && !viewingSelf && !isAdmin;
-  },
+  @cached
+  get messagesDropdownContent() {
+    const content = [
+      {
+        id: this.router.urlFor("userPrivateMessages.user", this.model.username),
+        name: I18n.t("user.messages.inbox"),
+      },
+    ];
 
-  @discourseComputed("pmTopicTrackingState.newIncoming.[]", "selectedInbox")
-  newLinkText() {
-    return this._linkText("new");
-  },
+    this.model.groupsWithMessages.forEach((group) => {
+      content.push({
+        id: this.router.urlFor(
+          "userPrivateMessages.group",
+          this.model.username,
+          group.name
+        ),
+        name: group.name,
+        icon: "inbox",
+      });
+    });
 
-  @discourseComputed("selectedInbox", "pmTopicTrackingState.newIncoming.[]")
-  unreadLinkText() {
-    return this._linkText("unread");
-  },
+    if (this.pmTaggingEnabled) {
+      content.push({
+        id: this.router.urlFor("userPrivateMessages.tags", this.model.username),
+        name: I18n.t("user.messages.tags"),
+        icon: "tags",
+      });
+    }
 
-  _linkText(type) {
+    customUserNavMessagesDropdownRows.forEach((row) => {
+      content.push({
+        id: this.router.urlFor(row.routeName, this.model.username),
+        name: row.name,
+        icon: row.icon,
+      });
+    });
+
+    return content;
+  }
+
+  @computed(
+    "pmTopicTrackingState.newIncoming.[]",
+    "pmTopicTrackingState.statesModificationCounter",
+    "group"
+  )
+  get newLinkText() {
+    return this.#linkText("new");
+  }
+
+  @computed(
+    "pmTopicTrackingState.newIncoming.[]",
+    "pmTopicTrackingState.statesModificationCounter",
+    "group"
+  )
+  get unreadLinkText() {
+    return this.#linkText("unread");
+  }
+
+  #linkText(type) {
     const count = this.pmTopicTrackingState?.lookupCount(type) || 0;
 
     if (count === 0) {
@@ -84,47 +121,15 @@ export default Controller.extend({
     } else {
       return I18n.t(`user.messages.${type}_with_count`, { count });
     }
-  },
-
-  @discourseComputed("model.groupsWithMessages")
-  inboxes(groupsWithMessages) {
-    if (!groupsWithMessages || groupsWithMessages.length === 0) {
-      return [];
-    }
-
-    const inboxes = [];
-
-    inboxes.push({
-      id: ALL_INBOX,
-      name: I18n.t("user.messages.all"),
-    });
-
-    inboxes.push({
-      id: PERSONAL_INBOX,
-      name: I18n.t("user.messages.personal"),
-      icon: "envelope",
-    });
-
-    groupsWithMessages.forEach((group) => {
-      inboxes.push({ id: group.name, name: group.name, icon: "users" });
-    });
-
-    return inboxes;
-  },
+  }
 
   @action
   changeGroupNotificationLevel(notificationLevel) {
     this.group.setNotification(notificationLevel, this.get("user.model.id"));
-  },
+  }
 
   @action
-  updateInbox(inbox) {
-    if (inbox === ALL_INBOX) {
-      this.transitionToRoute("userPrivateMessages.index");
-    } else if (inbox === PERSONAL_INBOX) {
-      this.transitionToRoute("userPrivateMessages.personal");
-    } else {
-      this.transitionToRoute("userPrivateMessages.group", inbox);
-    }
-  },
-});
+  onMessagesDropdownChange(item) {
+    return DiscourseURL.routeTo(item);
+  }
+}

@@ -5,19 +5,27 @@ require 'pathname'
 
 RAILS_ROOT = File.expand_path("../../", Pathname.new(__FILE__).realpath)
 PORT = ENV["UNICORN_PORT"] ||= "3000"
-
-yarn_dir = File.join(RAILS_ROOT, "app/assets/javascripts/discourse")
-
+HOSTNAME = ENV["DISCOURSE_HOSTNAME"] ||= "127.0.0.1"
+YARN_DIR = File.join(RAILS_ROOT, "app/assets/javascripts/discourse")
+CUSTOM_ARGS = ["--try", "--test", "--build", "--unicorn", "-u", "--forward-host"]
 PROXY =
   if ARGV.include?("--try")
     "https://try.discourse.org"
   else
-    "http://localhost:#{PORT}"
+    "http://#{HOSTNAME}:#{PORT}"
   end
+
+def process_running?(pid)
+  !!Process.kill(0, pid)
+rescue Errno::ESRCH
+  false
+end
 
 command =
   if ARGV.include?("--test")
     "test"
+  elsif ARGV.include?("--build")
+    "build"
   else
     "server"
   end
@@ -25,6 +33,10 @@ command =
 class String
   def cyan
     "\e[36m#{self}\e[0m"
+  end
+
+  def red
+    "\033[31m#{self}\e[0m"
   end
 end
 
@@ -34,28 +46,33 @@ if ARGV.include?("-h") || ARGV.include?("--help")
   puts "#{"--test".cyan} To run the test suite"
   puts "#{"--unicorn, -u".cyan} To run a unicorn server as well"
   puts "The rest of the arguments are passed to ember server per:", ""
-  exec "yarn -s --cwd #{yarn_dir} run ember #{command} --help"
+  exec "yarn -s --cwd #{YARN_DIR} run ember #{command} --help"
 end
 
-args = ["-s", "--cwd", yarn_dir, "run", "ember", command] + ARGV.reject do |a|
-  ["--try", "--test", "--unicorn", "-u"].include?(a)
-end
+args = ["-s", "--cwd", YARN_DIR, "run", "ember", command] + (ARGV - CUSTOM_ARGS)
 
-if !args.include?("test") && !args.include?("--proxy")
+if !args.include?("test") && !args.include?("build") && !args.include?("--proxy")
   args << "--proxy"
   args << PROXY
 end
 
-system "yarn -s install --cwd #{yarn_dir}"
+exit 1 if !system "yarn -s install --cwd #{YARN_DIR}"
+
+yarn_env = {}
+if ARGV.include?("--forward-host")
+  yarn_env["FORWARD_HOST"] = "true"
+end
 
 if ARGV.include?("-u") || ARGV.include?("--unicorn")
   unicorn_env = { "DISCOURSE_PORT" => ENV["DISCOURSE_PORT"] || "4200" }
   unicorn_pid = spawn(unicorn_env, __dir__ + "/unicorn")
+  ember_cli_pid = nil
 
   Thread.new do
     require 'open3'
-    Open3.popen2e("yarn", *args.to_a.flatten) do |i, oe, t|
-      puts "Ember CLI running on PID: #{t.pid}"
+    Open3.popen2e(yarn_env, "yarn", *args.to_a.flatten) do |i, oe, t|
+      ember_cli_pid = t.pid
+      puts "Ember CLI running on PID: #{ember_cli_pid}"
       oe.each do |line|
         if line.include?("\e[32m200\e") || line.include?("\e[36m304\e[0m") || line.include?("POST /message-bus")
           # skip 200s and 304s and message bus
@@ -63,6 +80,10 @@ if ARGV.include?("-u") || ARGV.include?("--unicorn")
           puts line
         end
       end
+    end
+    if process_running?(unicorn_pid)
+      puts "[bin/ember-cli] ember-cli process stopped. Terminating unicorn."
+      Process.kill("TERM", unicorn_pid)
     end
   end
 
@@ -73,6 +94,10 @@ if ARGV.include?("-u") || ARGV.include?("--unicorn")
 
   Process.wait(unicorn_pid)
 
+  if ember_cli_pid && process_running?(ember_cli_pid)
+    puts "[bin/ember-cli] unicorn process stopped. Terminating ember-cli."
+    Process.kill("TERM", ember_cli_pid)
+  end
 else
-  exec "yarn", *args.to_a.flatten
+  exec(yarn_env, "yarn", *args.to_a.flatten)
 end

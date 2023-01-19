@@ -2,9 +2,10 @@
 
 class Badge < ActiveRecord::Base
   # TODO: Drop in July 2021
-  self.ignored_columns = %w{image}
+  self.ignored_columns = %w[image]
 
   include GlobalPath
+  include HasSanitizableFields
 
   # NOTE: These badge ids are not in order! They are grouped logically.
   #       When picking an id, *search* for it.
@@ -75,10 +76,15 @@ class Badge < ActiveRecord::Base
   attr_accessor :has_badge
 
   def self.trigger_hash
-    @trigger_hash ||= Badge::Trigger.constants.map do |k|
-      name = k.to_s.underscore
-      [name, Badge::Trigger.const_get(k)] unless name =~ /deprecated/
-    end.compact.to_h
+    @trigger_hash ||=
+      Badge::Trigger
+        .constants
+        .map do |k|
+          name = k.to_s.underscore
+          [name, Badge::Trigger.const_get(k)] unless name =~ /deprecated/
+        end
+        .compact
+        .to_h
   end
 
   module Trigger
@@ -104,9 +110,10 @@ class Badge < ActiveRecord::Base
 
   belongs_to :badge_type
   belongs_to :badge_grouping
-  belongs_to :image_upload, class_name: 'Upload'
+  belongs_to :image_upload, class_name: "Upload"
 
   has_many :user_badges, dependent: :destroy
+  has_many :upload_references, as: :target, dependent: :destroy
 
   validates :name, presence: true, uniqueness: true
   validates :badge_type, presence: true
@@ -116,6 +123,13 @@ class Badge < ActiveRecord::Base
   scope :enabled, -> { where(enabled: true) }
 
   before_create :ensure_not_system
+  before_save :sanitize_description
+
+  after_save do
+    if saved_change_to_image_upload_id?
+      UploadReference.ensure_exist!(upload_ids: [self.image_upload_id], target: self)
+    end
+  end
 
   after_commit do
     SvgSprite.expire_cache
@@ -125,11 +139,7 @@ class Badge < ActiveRecord::Base
 
   # fields that can not be edited on system badges
   def self.protected_system_fields
-    [
-      :name, :badge_type_id, :multiple_grant,
-      :target_posts, :show_posts, :query,
-      :trigger, :auto_revoke, :listable
-    ]
+    %i[name badge_type_id multiple_grant target_posts show_posts query trigger auto_revoke listable]
   end
 
   def self.trust_level_badge_ids
@@ -143,7 +153,7 @@ class Badge < ActiveRecord::Base
       GreatPost => 50,
       NiceTopic => 10,
       GoodTopic => 25,
-      GreatTopic => 50
+      GreatTopic => 50,
     }
   end
 
@@ -210,7 +220,7 @@ class Badge < ActiveRecord::Base
   end
 
   def self.i18n_name(name)
-    name.downcase.tr(' ', '_')
+    name.downcase.tr(" ", "_")
   end
 
   def self.display_name(name)
@@ -222,8 +232,8 @@ class Badge < ActiveRecord::Base
   end
 
   def self.find_system_badge_id_from_translation_key(translation_key)
-    return unless translation_key.starts_with?('badges.')
-    badge_name_klass = translation_key.split('.').second.camelize
+    return unless translation_key.starts_with?("badges.")
+    badge_name_klass = translation_key.split(".").second.camelize
     Badge.const_defined?(badge_name_klass) ? "Badge::#{badge_name_klass}".constantize : nil
   end
 
@@ -248,8 +258,13 @@ class Badge < ActiveRecord::Base
   end
 
   def default_allow_title=(val)
-    return unless self.new_record?
-    self.allow_title ||= val
+    return if !self.new_record?
+    self.allow_title = val
+  end
+
+  def default_enabled=(val)
+    return if !self.new_record?
+    self.enabled = val
   end
 
   def default_badge_grouping_id=(val)
@@ -269,7 +284,12 @@ class Badge < ActiveRecord::Base
 
   def long_description
     key = "badges.#{i18n_name}.long_description"
-    I18n.t(key, default: self[:long_description] || '', base_uri: Discourse.base_path, max_likes_per_day: SiteSetting.max_likes_per_day)
+    I18n.t(
+      key,
+      default: self[:long_description] || "",
+      base_uri: Discourse.base_path,
+      max_likes_per_day: SiteSetting.max_likes_per_day,
+    )
   end
 
   def long_description=(val)
@@ -279,7 +299,12 @@ class Badge < ActiveRecord::Base
 
   def description
     key = "badges.#{i18n_name}.description"
-    I18n.t(key, default: self[:description] || '', base_uri: Discourse.base_path, max_likes_per_day: SiteSetting.max_likes_per_day)
+    I18n.t(
+      key,
+      default: self[:description] || "",
+      base_uri: Discourse.base_path,
+      max_likes_per_day: SiteSetting.max_likes_per_day,
+    )
   end
 
   def description=(val)
@@ -288,7 +313,7 @@ class Badge < ActiveRecord::Base
   end
 
   def slug
-    Slug.for(self.display_name, '-')
+    Slug.for(self.display_name, "-")
   end
 
   def manually_grantable?
@@ -300,9 +325,7 @@ class Badge < ActiveRecord::Base
   end
 
   def image_url
-    if image_upload_id.present?
-      upload_cdn_path(image_upload.url)
-    end
+    upload_cdn_path(image_upload.url) if image_upload_id.present?
   end
 
   def for_beginners?
@@ -313,6 +336,10 @@ class Badge < ActiveRecord::Base
 
   def ensure_not_system
     self.id = [Badge.maximum(:id) + 1, 100].max unless id
+  end
+
+  def sanitize_description
+    self.description = sanitize_field(self.description) if description_changed?
   end
 end
 

@@ -1,27 +1,23 @@
-import {
-  LATER_TODAY_CUTOFF_HOUR,
-  MOMENT_THURSDAY,
-  laterToday,
-  now,
-  parseCustomDatetime,
-  startOfDay,
-  tomorrow,
-} from "discourse/lib/time-utils";
+import { now, parseCustomDatetime, startOfDay } from "discourse/lib/time-utils";
 import { AUTO_DELETE_PREFERENCES } from "discourse/models/bookmark";
 import Component from "@ember/component";
 import I18n from "I18n";
 import KeyboardShortcuts from "discourse/lib/keyboard-shortcuts";
-import Mousetrap from "mousetrap";
+import ItsATrap from "@discourse/itsatrap";
 import { Promise } from "rsvp";
-import { TIME_SHORTCUT_TYPES } from "discourse/lib/time-shortcut";
+import {
+  TIME_SHORTCUT_TYPES,
+  defaultTimeShortcuts,
+} from "discourse/lib/time-shortcut";
 import { action } from "@ember/object";
 import { ajax } from "discourse/lib/ajax";
-import bootbox from "bootbox";
-import discourseComputed, { on } from "discourse-common/utils/decorators";
+import discourseComputed, { bind } from "discourse-common/utils/decorators";
 import { formattedReminderTime } from "discourse/lib/bookmark";
 import { and, notEmpty } from "@ember/object/computed";
 import { popupAjaxError } from "discourse/lib/ajax-error";
-import { later } from "@ember/runloop";
+import discourseLater from "discourse-common/lib/later";
+
+import { inject as service } from "@ember/service";
 
 const BOOKMARK_BINDINGS = {
   enter: { handler: "saveAndClose" },
@@ -29,14 +25,15 @@ const BOOKMARK_BINDINGS = {
 };
 
 export default Component.extend({
+  dialog: service(),
   tagName: "",
-
   errorMessage: null,
   selectedReminderType: null,
   _closeWithoutSaving: null,
   _savingBookmarkManually: null,
   _saving: null,
   _deleting: null,
+  _itsatrap: null,
   postDetectedLocalDate: null,
   postDetectedLocalTime: null,
   postDetectedLocalTimezone: null,
@@ -44,11 +41,11 @@ export default Component.extend({
   userTimezone: null,
   showOptions: null,
   model: null,
-
   afterSave: null,
 
-  @on("init")
-  _setup() {
+  init() {
+    this._super(...arguments);
+
     this.setProperties({
       errorMessage: null,
       selectedReminderType: TIME_SHORTCUT_TYPES.NONE,
@@ -60,13 +57,15 @@ export default Component.extend({
       postDetectedLocalTime: null,
       postDetectedLocalTimezone: null,
       prefilledDatetime: null,
-      userTimezone: this.currentUser.resolvedTimezone(this.currentUser),
+      userTimezone: this.currentUser.user_option.timezone,
       showOptions: false,
+      _itsatrap: new ItsATrap(),
+      autoDeletePreference:
+        this.model.autoDeletePreference ||
+        AUTO_DELETE_PREFERENCES.CLEAR_REMINDER,
     });
 
-    this.registerOnCloseHandler(this._onModalClose.bind(this));
-
-    this._loadBookmarkOptions();
+    this.registerOnCloseHandler(this._onModalClose);
     this._bindKeyboardShortcuts();
 
     if (this.editingExistingBookmark) {
@@ -76,9 +75,10 @@ export default Component.extend({
     this._loadPostLocalDates();
   },
 
-  @on("didInsertElement")
-  _prepareUI() {
-    later(() => {
+  didInsertElement() {
+    this._super(...arguments);
+
+    discourseLater(() => {
       if (this.site.isMobileDevice) {
         document.getElementById("bookmark-name").blur();
       }
@@ -86,8 +86,10 @@ export default Component.extend({
 
     // we want to make sure the options panel opens so the user
     // knows they have set these options previously.
-    if (this.autoDeletePreference) {
-      this.toggleOptionsPanel();
+    if (this.model.id) {
+      this.set("showOptions", true);
+    } else {
+      document.getElementById("tap_tile_none").classList.add("active");
     }
   },
 
@@ -105,27 +107,11 @@ export default Component.extend({
     }
   },
 
-  _loadBookmarkOptions() {
-    this.set(
-      "autoDeletePreference",
-      this.model.autoDeletePreference || this._preferredDeleteOption() || 0
-    );
-  },
-
-  _preferredDeleteOption() {
-    let preferred = localStorage.bookmarkDeleteOption;
-    if (preferred && preferred !== "") {
-      preferred = parseInt(preferred, 10);
-    }
-    return preferred;
-  },
-
   _bindKeyboardShortcuts() {
     KeyboardShortcuts.pause();
 
-    this._mousetrap = new Mousetrap();
     Object.keys(BOOKMARK_BINDINGS).forEach((shortcut) => {
-      this._mousetrap.bind(shortcut, () => {
+      this._itsatrap.bind(shortcut, () => {
         let binding = BOOKMARK_BINDINGS[shortcut];
         this.send(binding.handler);
         return false;
@@ -134,8 +120,12 @@ export default Component.extend({
   },
 
   _loadPostLocalDates() {
+    if (this.model.bookmarkableType !== "Post") {
+      return;
+    }
+
     let postEl = document.querySelector(
-      `[data-post-id="${this.model.postId}"]`
+      `[data-post-id="${this.model.bookmarkableId}"]`
     );
     let localDateEl;
     if (postEl) {
@@ -165,28 +155,15 @@ export default Component.extend({
       }
     }
 
-    localStorage.bookmarkDeleteOption = this.autoDeletePreference;
-
-    let reminderType;
-    if (this.selectedReminderType === TIME_SHORTCUT_TYPES.NONE) {
-      reminderType = null;
-    } else if (
-      this.selectedReminderType === TIME_SHORTCUT_TYPES.LAST_CUSTOM ||
-      this.selectedReminderType === TIME_SHORTCUT_TYPES.POST_LOCAL_DATE
-    ) {
-      reminderType = TIME_SHORTCUT_TYPES.CUSTOM;
-    } else {
-      reminderType = this.selectedReminderType;
-    }
-
     const data = {
-      reminder_type: reminderType,
       reminder_at: reminderAtISO,
       name: this.model.name,
-      post_id: this.model.postId,
       id: this.model.id,
       auto_delete_preference: this.autoDeletePreference,
     };
+
+    data.bookmarkable_id = this.model.bookmarkableId;
+    data.bookmarkable_type = this.model.bookmarkableType;
 
     if (this.editingExistingBookmark) {
       return ajax(`/bookmarks/${this.model.id}`, {
@@ -206,13 +183,18 @@ export default Component.extend({
     if (!this.afterSave) {
       return;
     }
-    this.afterSave({
-      reminderAt: reminderAtISO,
-      reminderType: this.selectedReminderType,
-      autoDeletePreference: this.autoDeletePreference,
+
+    const data = {
+      reminder_at: reminderAtISO,
+      auto_delete_preference: this.autoDeletePreference,
       id: this.model.id || response.id,
       name: this.model.name,
-    });
+    };
+
+    data.bookmarkable_id = this.model.bookmarkableId;
+    data.bookmarkable_type = this.model.bookmarkableType;
+
+    this.afterSave(data);
   },
 
   _deleteBookmark() {
@@ -220,7 +202,7 @@ export default Component.extend({
       type: "DELETE",
     }).then((response) => {
       if (this.afterDelete) {
-        this.afterDelete(response.topic_bookmarked);
+        this.afterDelete(response.topic_bookmarked, this.model.id);
       }
     });
   },
@@ -243,18 +225,21 @@ export default Component.extend({
   _handleSaveError(e) {
     this._savingBookmarkManually = false;
     if (typeof e === "string") {
-      bootbox.alert(e);
+      this.dialog.alert(e);
     } else {
       popupAjaxError(e);
     }
   },
 
-  _onModalClose(initiatedByCloseButton) {
+  @bind
+  _onModalClose(closeOpts) {
     // we want to close without saving if the user already saved
     // manually or deleted the bookmark, as well as when the modal
     // is just closed with the X button
     this._closeWithoutSaving =
-      this._closeWithoutSaving || initiatedByCloseButton;
+      this._closeWithoutSaving ||
+      closeOpts.initiatedByCloseButton ||
+      closeOpts.initiatedByESC;
 
     if (!this._closeWithoutSaving && !this._savingBookmarkManually) {
       this._saveBookmark().catch((e) => this._handleSaveError(e));
@@ -266,15 +251,21 @@ export default Component.extend({
 
   willDestroyElement() {
     this._super(...arguments);
-    this._mousetrap.reset();
+
+    this._itsatrap?.destroy();
+    this.set("_itsatrap", null);
     KeyboardShortcuts.unpause();
   },
 
-  showExistingReminderAt: notEmpty("model.reminderAt"),
+  @discourseComputed("model.reminderAt")
+  showExistingReminderAt(reminderAt) {
+    return reminderAt && Date.parse(reminderAt) > new Date().getTime();
+  },
+
   showDelete: notEmpty("model.id"),
   userHasTimezoneSet: notEmpty("userTimezone"),
   editingExistingBookmark: and("model", "model.id"),
-  existingBookmarkHasReminder: and("model", "model.reminderAt"),
+  existingBookmarkHasReminder: and("model", "model.id", "model.reminderAt"),
 
   @discourseComputed("postDetectedLocalDate", "postDetectedLocalTime")
   showPostLocalDate(postDetectedLocalDate, postDetectedLocalTime) {
@@ -300,45 +291,44 @@ export default Component.extend({
     });
   },
 
-  @discourseComputed()
-  customTimeShortcutOptions() {
-    let customOptions = [];
+  @discourseComputed("userTimezone")
+  timeOptions(userTimezone) {
+    const options = defaultTimeShortcuts(userTimezone);
 
     if (this.showPostLocalDate) {
-      customOptions.push({
+      options.push({
         icon: "globe-americas",
         id: TIME_SHORTCUT_TYPES.POST_LOCAL_DATE,
         label: "time_shortcut.post_local_date",
         time: this._postLocalDate(),
-        timeFormatted: this._postLocalDate().format(
-          I18n.t("dates.long_no_year")
-        ),
+        timeFormatKey: "dates.long_no_year",
         hidden: false,
       });
     }
 
-    return customOptions;
+    return options;
   },
 
-  @discourseComputed()
-  additionalTimeShortcutOptions() {
-    let additional = [];
+  @discourseComputed("existingBookmarkHasReminder")
+  customTimeShortcutLabels(existingBookmarkHasReminder) {
+    const labels = {};
+    if (existingBookmarkHasReminder) {
+      labels[TIME_SHORTCUT_TYPES.NONE] =
+        "bookmarks.remove_reminder_keep_bookmark";
+    }
+    return labels;
+  },
 
-    if (
-      !laterToday(this.userTimezone).isSame(
-        tomorrow(this.userTimezone),
-        "date"
-      ) &&
-      now(this.userTimezone).hour() < LATER_TODAY_CUTOFF_HOUR
-    ) {
-      additional.push(TIME_SHORTCUT_TYPES.LATER_TODAY);
+  @discourseComputed("editingExistingBookmark", "existingBookmarkHasReminder")
+  hiddenTimeShortcutOptions(
+    editingExistingBookmark,
+    existingBookmarkHasReminder
+  ) {
+    if (editingExistingBookmark && !existingBookmarkHasReminder) {
+      return [TIME_SHORTCUT_TYPES.NONE];
     }
 
-    if (now(this.userTimezone).day() < MOMENT_THURSDAY) {
-      additional.push(TIME_SHORTCUT_TYPES.LATER_THIS_WEEK);
-    }
-
-    return additional;
+    return [];
   },
 
   @discourseComputed("model.reminderAt")
@@ -361,12 +351,7 @@ export default Component.extend({
   },
 
   @action
-  toggleOptionsPanel() {
-    if (this.showOptions) {
-      $(".bookmark-options-panel").slideUp("fast");
-    } else {
-      $(".bookmark-options-panel").slideDown("fast");
-    }
+  toggleShowOptions() {
     this.toggleProperty("showOptions");
   },
 
@@ -388,10 +373,9 @@ export default Component.extend({
     };
 
     if (this.existingBookmarkHasReminder) {
-      bootbox.confirm(I18n.t("bookmarks.confirm_delete"), (result) => {
-        if (result) {
-          deleteAction();
-        }
+      this.dialog.deleteConfirm({
+        message: I18n.t("bookmarks.confirm_delete"),
+        didConfirm: () => deleteAction(),
       });
     } else {
       deleteAction();

@@ -1,40 +1,42 @@
-import { discourseModule } from "discourse/tests/helpers/qunit-helpers";
-import { test } from "qunit";
+import { module, test } from "qunit";
+import { setupTest } from "ember-qunit";
 
-discourseModule("Unit | Controller | history", function () {
+module("Unit | Controller | history", function (hooks) {
+  setupTest(hooks);
+
   test("displayEdit", async function (assert) {
-    const HistoryController = this.getController("history");
+    const controller = this.owner.lookup("controller:history");
 
-    HistoryController.setProperties({
+    controller.setProperties({
       model: { last_revision: 3, current_revision: 3, can_edit: false },
       topicController: {},
     });
 
-    assert.equal(
-      HistoryController.get("displayEdit"),
+    assert.strictEqual(
+      controller.displayEdit,
       false,
       "it should not display edit button when user cannot edit the post"
     );
 
-    HistoryController.set("model.can_edit", true);
+    controller.set("model.can_edit", true);
 
-    assert.equal(
-      HistoryController.get("displayEdit"),
+    assert.strictEqual(
+      controller.displayEdit,
       true,
       "it should display edit button when user can edit the post"
     );
 
-    HistoryController.set("topicController", null);
-    assert.equal(
-      HistoryController.get("displayEdit"),
+    controller.set("topicController", null);
+    assert.strictEqual(
+      controller.displayEdit,
       false,
       "it should not display edit button when there is not topic controller"
     );
-    HistoryController.set("topicController", {});
+    controller.set("topicController", {});
 
-    HistoryController.set("model.current_revision", 2);
-    assert.equal(
-      HistoryController.get("displayEdit"),
+    controller.set("model.current_revision", 2);
+    assert.strictEqual(
+      controller.displayEdit,
       false,
       "it should only display the edit button on the latest revision"
     );
@@ -97,7 +99,7 @@ discourseModule("Unit | Controller | history", function () {
     </tbody>
   </table>`;
 
-    HistoryController.setProperties({
+    controller.setProperties({
       viewMode: "side_by_side",
       model: {
         body_changes: {
@@ -106,10 +108,10 @@ discourseModule("Unit | Controller | history", function () {
       },
     });
 
-    await HistoryController.bodyDiffChanged();
+    await controller.bodyDiffChanged();
 
-    const output = HistoryController.get("bodyDiff");
-    assert.equal(
+    const output = controller.bodyDiff;
+    assert.strictEqual(
       output,
       expectedOutput,
       "it keeps HTML safe and doesn't strip onebox tags"

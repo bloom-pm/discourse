@@ -5,6 +5,7 @@ import { findOrResetCachedTopicList } from "discourse/lib/cached-topic-list";
 import { action } from "@ember/object";
 import { iconHTML } from "discourse-common/lib/icon-library";
 import getURL from "discourse-common/lib/get-url";
+import { htmlSafe } from "@ember/template";
 
 export const NEW_FILTER = "new";
 export const UNREAD_FILTER = "unread";
@@ -40,7 +41,16 @@ export default (inboxType, path, filter) => {
 
       return lastTopicList
         ? lastTopicList
-        : this.store.findFiltered("topicList", { filter: topicListFilter });
+        : this.store
+            .findFiltered("topicList", { filter: topicListFilter })
+            .then((model) => {
+              // andrei: we agreed that this is an anti pattern,
+              // it's better to avoid mutating a rest model like this
+              // this place we'll be refactored later
+              // see https://github.com/discourse/discourse/pull/14313#discussion_r708784704
+              model.set("emptyState", this.emptyState());
+              return model;
+            });
     },
 
     setupController() {
@@ -58,19 +68,15 @@ export default (inboxType, path, filter) => {
         tagsForUser: this.modelFor("user").get("username_lower"),
         selected: [],
         showToggleBulkSelect: true,
-        filter: filter,
+        filter,
         group: null,
         inbox: inboxType,
-        pmTopicTrackingState:
-          userPrivateMessagesController.pmTopicTrackingState,
-        emptyState: this.emptyState(),
       });
 
       userTopicsListController.subscribe();
 
       userPrivateMessagesController.setProperties({
         archive: false,
-        pmView: inboxType,
         group: null,
       });
 
@@ -79,10 +85,12 @@ export default (inboxType, path, filter) => {
 
     emptyState() {
       const title = I18n.t("user.no_messages_title");
-      const body = I18n.t("user.no_messages_body", {
-        aboutUrl: getURL("/about"),
-        icon: iconHTML("envelope"),
-      }).htmlSafe();
+      const body = htmlSafe(
+        I18n.t("user.no_messages_body", {
+          aboutUrl: getURL("/about"),
+          icon: iconHTML("envelope"),
+        })
+      );
       return { title, body };
     },
 

@@ -1,10 +1,12 @@
-import { cancel, later } from "@ember/runloop";
+import { cancel } from "@ember/runloop";
+import discourseLater from "discourse-common/lib/later";
 import { CANCELLED_STATUS } from "discourse/lib/autocomplete";
 import { Promise } from "rsvp";
 import discourseDebounce from "discourse-common/lib/debounce";
 import { emailValid } from "discourse/lib/utilities";
 import { isTesting } from "discourse-common/config/environment";
 import { userPath } from "discourse/lib/url";
+import { ajax } from "discourse/lib/ajax";
 
 let cache = {},
   cacheKey,
@@ -20,6 +22,10 @@ export function resetUserSearchCache() {
   oldSearch = null;
 }
 
+export function camelCaseToSnakeCase(text) {
+  return text.replace(/([a-zA-Z])(?=[A-Z])/g, "$1_").toLowerCase();
+}
+
 function performSearch(
   term,
   topicId,
@@ -27,6 +33,7 @@ function performSearch(
   includeGroups,
   includeMentionableGroups,
   includeMessageableGroups,
+  customUserSearchOptions,
   allowedUsers,
   groupMembersOf,
   includeStagedUsers,
@@ -49,21 +56,29 @@ function performSearch(
     return;
   }
 
+  let data = {
+    term,
+    topic_id: topicId,
+    category_id: categoryId,
+    include_groups: includeGroups,
+    include_mentionable_groups: includeMentionableGroups,
+    include_messageable_groups: includeMessageableGroups,
+    groups: groupMembersOf,
+    topic_allowed_users: allowedUsers,
+    include_staged_users: includeStagedUsers,
+    last_seen_users: lastSeenUsers,
+    limit,
+  };
+
+  if (customUserSearchOptions) {
+    Object.keys(customUserSearchOptions).forEach((key) => {
+      data[camelCaseToSnakeCase(key)] = customUserSearchOptions[key];
+    });
+  }
+
   // need to be able to cancel this
-  oldSearch = $.ajax(userPath("search/users"), {
-    data: {
-      term: term,
-      topic_id: topicId,
-      category_id: categoryId,
-      include_groups: includeGroups,
-      include_mentionable_groups: includeMentionableGroups,
-      include_messageable_groups: includeMessageableGroups,
-      groups: groupMembersOf,
-      topic_allowed_users: allowedUsers,
-      include_staged_users: includeStagedUsers,
-      last_seen_users: lastSeenUsers,
-      limit: limit,
-    },
+  oldSearch = ajax(userPath("search/users"), {
+    data,
   });
 
   let returnVal = CANCELLED_STATUS;
@@ -89,7 +104,7 @@ function performSearch(
         returnVal = r;
       }
     })
-    .always(function () {
+    .finally(function () {
       oldSearch = null;
       resultsFn(returnVal);
     });
@@ -102,6 +117,7 @@ let debouncedSearch = function (
   includeGroups,
   includeMentionableGroups,
   includeMessageableGroups,
+  customUserSearchOptions,
   allowedUsers,
   groupMembersOf,
   includeStagedUsers,
@@ -118,6 +134,7 @@ let debouncedSearch = function (
     includeGroups,
     includeMentionableGroups,
     includeMessageableGroups,
+    customUserSearchOptions,
     allowedUsers,
     groupMembersOf,
     includeStagedUsers,
@@ -142,7 +159,7 @@ function organizeResults(r, options) {
 
   if (r.users) {
     r.users.every(function (u) {
-      if (exclude.indexOf(u.username) === -1) {
+      if (!exclude.includes(u.username)) {
         users.push(u);
         results.push(u);
       }
@@ -162,7 +179,7 @@ function organizeResults(r, options) {
         options.term.toLowerCase() === g.name.toLowerCase() ||
         results.length < limit
       ) {
-        if (exclude.indexOf(g.name) === -1) {
+        if (!exclude.includes(g.name)) {
           groups.push(g);
           results.push(g);
         }
@@ -183,13 +200,14 @@ function organizeResults(r, options) {
 // will not find me, which is a reasonable compromise
 //
 // we also ignore if we notice a double space or a string that is only a space
-const ignoreRegex = /([\u2000-\u206F\u2E00-\u2E7F\\'!"#$%&()*,\/:;<=>?\[\]^`{|}~])|\s\s|^\s$|^[^+]*\+[^@]*$/;
+const ignoreRegex =
+  /([\u2000-\u206F\u2E00-\u2E7F\\'!"#$%&()*,\/:;<=>?\[\]^`{|}~])|\s\s|^\s$|^[^+]*\+[^@]*$/;
 
 export function skipSearch(term, allowEmails, lastSeenUsers = false) {
   if (lastSeenUsers) {
     return false;
   }
-  if (term.indexOf("@") > -1 && !allowEmails) {
+  if (term.includes("@") && !allowEmails) {
     return true;
   }
 
@@ -209,6 +227,7 @@ export default function userSearch(options) {
     includeGroups = options.includeGroups,
     includeMentionableGroups = options.includeMentionableGroups,
     includeMessageableGroups = options.includeMessageableGroups,
+    customUserSearchOptions = options.customUserSearchOptions,
     allowedUsers = options.allowedUsers,
     topicId = options.topicId,
     categoryId = options.categoryId,
@@ -235,7 +254,7 @@ export default function userSearch(options) {
 
     let clearPromise;
     if (!isTesting()) {
-      clearPromise = later(() => resolve(CANCELLED_STATUS), 5000);
+      clearPromise = discourseLater(() => resolve(CANCELLED_STATUS), 5000);
     }
 
     if (skipSearch(term, options.allowEmails, options.lastSeenUsers)) {
@@ -250,6 +269,7 @@ export default function userSearch(options) {
       includeGroups,
       includeMentionableGroups,
       includeMessageableGroups,
+      customUserSearchOptions,
       allowedUsers,
       groupMembersOf,
       includeStagedUsers,

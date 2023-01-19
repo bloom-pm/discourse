@@ -9,7 +9,6 @@ export default Component.extend(UtilsMixin, {
   attributeBindings: [
     "role",
     "tabindex",
-    "ariaLevel:aria-level",
     "selectedValue:data-value",
     "selectedNames:data-name",
     "buttonTitle:title",
@@ -18,9 +17,7 @@ export default Component.extend(UtilsMixin, {
 
   selectKit: null,
 
-  role: "application",
-
-  ariaLevel: 1,
+  role: "listbox",
 
   tabindex: 0,
 
@@ -59,6 +56,10 @@ export default Component.extend(UtilsMixin, {
     }
   },
 
+  mouseDown() {
+    return false;
+  },
+
   click(event) {
     event.preventDefault();
     event.stopPropagation();
@@ -73,7 +74,7 @@ export default Component.extend(UtilsMixin, {
   },
 
   keyDown(event) {
-    if (this.selectKit.isDisabled) {
+    if (this.selectKit.isDisabled || this.selectKit.options.disabled) {
       return;
     }
 
