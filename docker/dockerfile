@@ -151,9 +151,9 @@ ADD "vendor/" "vendor/"
 ADD "docker/discourse_install.sh" "./"
 RUN mkdir pids
 RUN chmod 0777 pids
+RUN mkdir -p tmp/sockets
 RUN chmod +x discourse_install.sh 
 RUN ./discourse_install.sh
-RUN mkdir -p tmp/sockets
 RUN chmod -R 0755 tmp/
 ADD "docker/discourse_run.sh" "./"
 RUN chmod +x discourse_run.sh

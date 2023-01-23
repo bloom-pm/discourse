@@ -10,6 +10,7 @@ if [[ $OPTION == "compile" || -f discourse_first_run ]]; then
   rm -Rf discourse_first_run
   bundle exec rake plugin:pull_compatible_all RAILS_ENV=production
   find /var/www/discourse/vendor/bundle -name tmp -type d -exec rm -rf {} +
+  mkdir /var/www/discourse/public/javascripts
   bundle exec rake db:prepare
   bundle exec rake assets:precompile 
 fi
@@ -27,7 +28,6 @@ rm -Rf /var/www/discourse/log/production.log
 touch  /var/www/discourse/log/production.log
 chmod 0664  /var/www/discourse/log/production.log
 
-chmod -R 0777 tmp/ember-rails
 runsvdir /etc/service &
 
 LD_PRELOAD=$RUBY_ALLOCATOR HOME=/home/discourse USER=discourse UNICORN_BIND_ALL=1 UNICORN_PORT=3000 exec thpoff chpst -u discourse:www-data -U discourse:www-data bundle exec config/unicorn_launcher -E production -c config/unicorn.conf.rb
