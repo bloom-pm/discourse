@@ -27,6 +27,7 @@ chmod 0777 /var/www/discourse/log/unicorn.stderr.log
 rm -Rf /var/www/discourse/log/production.log
 touch  /var/www/discourse/log/production.log
 chmod 0664  /var/www/discourse/log/production.log
+sudo chown -R discourse:discourse /var/www/discourse
 
 runsvdir /etc/service &
 
