@@ -1,0 +1,27 @@
+version: 0.0
+os: linux 
+files:
+  - source: / 
+    destination: /var/www/discourse/
+permissions:
+  - object: /var/www
+    pattern: "**"
+    owner: ec2-user
+    mode: 777
+
+hooks:
+  AfterInstall:
+    - location: ./codeDeploy/scripts/build_containers.sh     
+      timeout: 2400 
+      runas: ec2-user
+
+  ApplicationStart:
+    - location: ./codeDeploy/scripts/run_app.sh
+      timeout: 1200
+      runas: ec2-user
+
+  AfterAllowTraffic:
+    - location: ./codeDeploy/scripts/change_files_owner_to_ec2_user.sh
+      timeout: 300
+      runas: root
+
