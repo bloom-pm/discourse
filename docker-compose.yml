@@ -45,10 +45,18 @@ services:
       DISCOURSE_APP_ROOT: "${DISCOURSE_APP_ROOT}"
       UNICORN_SIDEKIQS: "${UNICORN_SIDEKIQS}"
       DISCOURSE_SECRET_KEY_BASE: "${DISCOURSE_SECRET_KEY_BASE}"
+      DISCOURSE_USE_S3: "${DISCOURSE_USE_S3}"
+      DISCOURSE_S3_ACCESS_KEY_ID: "${DISCOURSE_S3_ACCESS_KEY_ID}"
+      DISCOURSE_S3_SECRET_ACCESS_KEY: "${DISCOURSE_S3_SECRET_ACCESS_KEY}"
+      DISCOURSE_S3_REGION: "${DISCOURSE_S3_REGION}"
+      DISCOURSE_S3_BUCKET: "${DISCOURSE_S3_BUCKET}"
+      DISCOURSE_S3_CDN_URL: "${DISCOURSE_S3_CDN_URL}"
+      DISCOURSE_S3_BACKUP_BUCKET: "${DISCOURSE_S3_BACKUP_BUCKET}"
+      DISCOURSE_BACKUP_LOCATION: "${DISCOURSE_BACKUP_LOCATION}"
     #entrypoint: ["/bin/sh", "sleep", "10000"]
     command: ["no-compile"]
-  
-  web: 
+
+  web:
     build:
       context: ./docker
       dockerfile: ./nginx.dockerfile
@@ -58,32 +66,36 @@ services:
       - ./uploads:/var/www/discourse/public/uploads
     ports:
       - 80:80
-    environment: 
+    environment:
       DISCOURSE_HOST: "${DISCOURSE_HOST}"
     depends_on:
       - app
     command: ["/bin/sh" , "/etc/nginx/nginx.sh"]
-  
+
   cache:
     image: redis
     ports:
       - 6379:6379
-  
+
   mail:
     image: namshi/smtp
     restart: always
     volumes:
       - ./log:/var/log/exim4
-    environment: 
+    environment:
       SES_USER: "${DISCOURSE_SMTP_USER_NAME}"
       SES_PASSWORD: "${DISCOURSE_SMTP_PASSWORD}"
       SES_REGION: "${AWS_REGION}"
+      SMARTHOST_ADDRESS: "${SMARTHOST_ADDRESS}"
+      SMARTHOST_PORT: "${SMARTHOST_PORT}"
+      SMARTHOST_USER: "${SMARTHOST_USER}"
+      SMARTHOST_PASSWORD: "${SMARTHOST_PASSWORD}"
 
-  logrotate: 
+  logrotate:
     image: blacklabelops/logrotate
     volumes:
       - ./log:/var/lib/discourse
-    environment: 
+    environment:
       LOGS_DIRECTORIES: "/var/lib/discourse"
       LOGROTATE_SIZE: "10M"
       LOGROTATE_INTERVAL: "hourly"
