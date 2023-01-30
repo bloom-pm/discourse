@@ -134,7 +134,7 @@ RUN chmod +x /etc/service/cron/run && chmod +x /etc/service/rsyslog/run && chmod
 # Discourse specific bits
 RUN useradd discourse -s /bin/bash -m -U &&\
     mkdir -p /var/www/discourse &&\
-    cd /var/www/discourse 
+    cd /var/www/discourse
 WORKDIR /var/www/discourse
 
 ADD ["./config.ru", "./.ruby-version.sample","./Brewfile","./package.json","./README.md","./.rubocop.yml","./.eslintignore","./Gemfile.lock","./.prettierrc","./Gemfile","./.prettierignore","./.ruby-gemset.sample","./translator.yml","./Rakefile","./.licensed.yml","./lefthook.yml","./yarn.lock","./.eslintrc","./.template-lintrc.js","./.rspec_parallel","./CONTRIBUTING.md","./LICENSE.txt","./.rspec", "./"] .
@@ -152,7 +152,7 @@ ADD "docker/discourse_install.sh" "./"
 RUN mkdir pids
 RUN chmod 0777 pids
 RUN mkdir -p tmp/sockets
-RUN chmod +x discourse_install.sh 
+RUN chmod +x discourse_install.sh
 RUN ./discourse_install.sh
 RUN chmod -R 0755 tmp/
 ADD "docker/discourse_run.sh" "./"
@@ -163,9 +163,9 @@ RUN cd plugins && git clone https://github.com/discourse/docker_manager.git  &&\
            git clone https://github.com/davidtaylorhq/discourse-whos-online.git &&\
            git clone https://github.com/discourse/discourse-checklist.git &&\
            git clone https://github.com/discourse/discourse-data-explorer.git &&\
-           git clone https://github.com/BeXcellent/discourse-allowiframe.git 
+           git clone https://github.com/BeXcellent/discourse-allowiframe.git
 
-RUN  mkdir -p pids/ 
+RUN  mkdir -p pids/
 RUN chmod -R 0777  pids/
 RUN touch  pids/puma.pid
 RUN chmod 0777  pids/puma.pid
@@ -174,6 +174,6 @@ RUN chmod -R 0777  /var/www/discourse/tmp
 
 RUN bundle exec rails plugin:install_all_gems
 
-COPY docker/discourse_first_run . 
+COPY docker/discourse_first_run .
 ENTRYPOINT ["/bin/bash", "./discourse_run.sh"]
 CMD ["compile"]
