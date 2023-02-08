@@ -1,8 +1,7 @@
 name: Licenses
 
-on:
+on: 
   pull_request:
-  push:
     branches:
       - main
 
