@@ -2,7 +2,8 @@ name: Deploy to AWS codeDeploy
 on: 
   push:
     branches:
-      - bloom_3.0.0_test_codedeploy
+      - prod
+      - testing
 jobs:
   notify-codedeploy:
     runs-on: ubuntu-latest
@@ -23,15 +24,14 @@ jobs:
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v1
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: eu-west-1
 
-      - name: notify aws code deploy
-        env:
-          DEPLOYMENT_APPLICATION_NAME: ${{ vars.DEPLOYMENT_APPLICATION_NAME }}
-          DEPLOYMENT_GROUP_NAME: ${{ vars.DEPLOYMENT_GROUP_NAME }}
+      - name: Read secrets from AWS Secrets Manager into .env
+        uses: say8425/aws-secrets-manager-actions@v2
+        with:
+          SECRET_NAME: discourse/workflow/${{ github.ref_name }}
 
+      - name: notify aws code deploy
         run: |
           commit_hash=`git rev-parse HEAD`
           aws deploy create-deployment --application-name $DEPLOYMENT_APPLICATION_NAME --deployment-group-name $DEPLOYMENT_GROUP_NAME --github-location repository=$GITHUB_REPOSITORY,commitId=$commit_hash --ignore-application-stop-failures
