@@ -163,7 +163,7 @@ RUN cd plugins && git clone https://github.com/discourse/docker_manager.git  &&\
            git clone https://github.com/davidtaylorhq/discourse-whos-online.git &&\
            git clone https://github.com/discourse/discourse-checklist.git &&\
            git clone https://github.com/discourse/discourse-data-explorer.git &&\
-           git clone https://github.com/BeXcellent/discourse-allowiframe.git
+           git clone https://github.com/bloom-pm/discourse-allow-iframe.git
 
 RUN  mkdir -p pids/
 RUN chmod -R 0777  pids/
