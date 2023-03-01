@@ -70,6 +70,16 @@ export default Controller.extend(
       }
     },
 
+    // custom share link for Bloom
+    @discourseComputed("post.shareUrl", "topic.shareUrl")
+    bloomUrl(postUrl, topicUrl) {
+      if (postUrl) {
+        return "https://app.bloom.pm/community#" + postUrl;
+      } else if (topicUrl) {
+        return "https://app.bloom.pm/community#" + topicUrl;
+      }
+    },
+
     @discourseComputed("post.created_at", "post.wiki", "post.last_wiki_edit")
     displayDate(createdAt, wiki, lastWikiEdit) {
       const date = wiki && lastWikiEdit ? lastWikiEdit : createdAt;
