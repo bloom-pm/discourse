@@ -14,4 +14,4 @@ RUN chmod 0777 /var/nginx/cache
 
 RUN apt-get update
 
-RUN apt-get install dnsutils netcat vim -y
+RUN apt-get install dnsutils netcat-traditional vim -y
