@@ -6,7 +6,15 @@
 
 el:
   js:
+    admin:
+      site_settings:
+        chat_separate_sidebar_mode:
+          always: "Πάντα"
+          never: "Ποτέ"
     chat:
+      deleted_chat_username: διεγράφη
+      dates:
+        yesterday: "Χτες"
       create: "Δημιουργία"
       cancel: "Ακύρωση"
       channel_settings:
@@ -15,24 +23,23 @@ el:
         join: "Γίνετε μέλος"
         leave: "Αποχώρηση"
       close: "Κλείσιμο"
+      remove: "Αφαίρεση"
       delete: "Σβήσιμο"
       edited: "επεξεργάστηκε"
       muted: "σε σίγαση"
       joined: "έγινε μέλος"
       email_frequency:
         never: "Ποτέ"
+      header_indicator_preference:
+        never: "Ποτέ"
       flag: "Επισήμανση"
       join: "Γίνετε μέλος"
-      mention_warning:
-        dismiss: "απόρριψη"
-        groups:
-          users_limit:
-            one: "%{count} χρήστης"
-            other: "%{count} χρήστες"
+      last_visit: "τελευταία επίσκεψη"
       reply: "Απάντηση"
       edit: "Επεξεργασία"
       rebake_message: "Ανανέωση HTML"
       bookmark_message: "Σελιδοδείκτης"
+      bookmark_message_edit: "Επεξεργασία Σελιδοδείκτη"
       save: "Αποθήκευση"
       sounds:
         none: "Κανένα"
@@ -43,19 +50,23 @@ el:
       browse:
         back: "Πίσω"
         filter_all: Όλα
+        filter_open: Ξεκίνημα
         filter_closed: Κλειστό
       chat_message_separator:
         today: Σήμερα
         yesterday: Χτες
       about_view:
         title: Τίτλος
+        name: Όνομα
         description: Περιγραφή
       channel_info:
         back_to_channel: "Πίσω"
         tabs:
-          about: Σχετικά
           members: Μέλη
           settings: Ρυθμίσεις
+      new_message_modal:
+        no_items: "Δεν υπάρχουν στοιχεία"
+        filter: "Φίλτρο"
       direct_message_creator:
         title: Νέο Μήνυμα
         prefix: "Προς:"
@@ -63,21 +74,27 @@ el:
         type: "Τύπος"
         types:
           category: "Κατηγορία"
-          topic: "Νήμα"
+          topic: "Θέμα"
       composer:
         italic_text: "κείμενο σε έμφαση"
         bold_text: "έντονη γραφή"
+        send: "Αποστολή"
       notification_levels:
         never: "Ποτέ"
       settings:
         follow: "Γίνετε μέλος"
         followed: "Έγινε μέλος"
+        threading_disabled: "Απενεργοποιημένο"
         notifications: "Ειδοποιήσεις"
         preview: "Προεπισκόπηση"
         save: "Αποθήκευση"
         saved: "Αποθηκεύτηκε! "
         unfollow: "Αποχώρηση"
         admin_title: "Διαχειριστής"
+        settings_title: "Ρυθμίσεις"
+        category_label: "Κατηγορία"
+        history_label: "Ιστορικό"
+        members_label: "Μέλη"
       incoming_webhooks:
         back: "Πίσω"
         description: "Περιγραφή"
@@ -93,16 +110,32 @@ el:
         cancel: "Ακύρωση"
         copy: "Αντιγραφή"
         new_topic:
-          title: "Μεταφορά σε Νέο Νήμα "
+          title: "Μετακίνηση σε Νέο Θέμα"
         existing_topic:
-          title: "Μεταφορά σε Υφιστάμενο Νήμα"
+          title: "Μετακίνηση σε Υπάρχον Θέμα"
         new_message:
           title: "Μετακίνηση σε νέο μήνυμα"
+      retention_reminders:
+        short:
+          one: "%{count} ημ"
+          other: "%{count} ημ"
       emoji_picker:
         objects: "Αντικείμενα"
         activities: "Δραστηριότητες"
         flags: "Σημάνσεις"
         symbols: "Σύμβολα"
+      thread:
+        title: "Τίτλος"
+        replies:
+          one: "%{count} απάντηση"
+          other: "%{count} απαντήσεις"
+        settings: "Ρυθμίσεις"
+        last_reply: "τελευταία απάντηση"
+        notifications:
+          regular:
+            title: "Φυσιολογικό"
+          tracking:
+            title: "Παρακολουθείται"
       draft_channel_screen:
         header: "Νέο Μήνυμα"
         cancel: "Ακύρωση"
@@ -114,7 +147,3 @@ el:
           fields:
             message:
               label: Μήνυμα
-    review:
-      types:
-        reviewable_chat_message:
-          flagged_by: "Επισήμανση από"

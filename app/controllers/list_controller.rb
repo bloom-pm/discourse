@@ -46,7 +46,12 @@ class ListController < ApplicationController
                   TopTopic.periods.map { |p| :"category_top_#{p}" },
                   TopTopic.periods.map { |p| :"category_none_top_#{p}" },
                   :group_topics,
+                  :filter,
                 ].flatten
+
+  rescue_from ActionController::Redirecting::UnsafeRedirectError do
+    raise Discourse::NotFound
+  end
 
   # Create our filters
   Discourse.filters.each do |filter|
@@ -83,6 +88,7 @@ class ListController < ApplicationController
 
       list.more_topics_url = construct_url_with(:next, list_opts)
       list.prev_topics_url = construct_url_with(:prev, list_opts)
+
       if Discourse.anonymous_filters.include?(filter)
         @description = SiteSetting.site_description
         @rss = filter
@@ -90,13 +96,15 @@ class ListController < ApplicationController
 
         # Note the first is the default and we don't add a title
         if (filter.to_s != current_homepage) && use_crawler_layout?
-          filter_title = I18n.t("js.filters.#{filter.to_s}.title", count: 0)
+          filter_title = I18n.t("js.filters.#{filter}.title", count: 0)
+
           if list_opts[:category] && @category
             @title =
               I18n.t("js.filters.with_category", filter: filter_title, category: @category.name)
           else
             @title = I18n.t("js.filters.with_topics", filter: filter_title)
           end
+
           @title << " - #{SiteSetting.title}"
         elsif @category.blank? && (filter.to_s == current_homepage) &&
               SiteSetting.short_site_description.present?
@@ -117,10 +125,31 @@ class ListController < ApplicationController
     end
   end
 
+  def filter
+    raise Discourse::NotFound if !SiteSetting.experimental_topics_filter
+
+    topic_query_opts = { no_definitions: !SiteSetting.show_category_definitions_in_topic_lists }
+
+    %i[page q].each do |key|
+      if params.key?(key.to_s)
+        value = params[key]
+        raise Discourse::InvalidParameters.new(key) if !TopicQuery.validate?(key, value)
+        topic_query_opts[key] = value
+      end
+    end
+
+    user = list_target_user
+    list = TopicQuery.new(user, topic_query_opts).list_filter
+    list.more_topics_url = construct_url_with(:next, topic_query_opts)
+    list.prev_topics_url = construct_url_with(:prev, topic_query_opts)
+
+    respond_with_list(list)
+  end
+
   def category_default
     canonical_url "#{Discourse.base_url_no_prefix}#{@category.url}"
     view_method = @category.default_view
-    view_method = "latest" unless %w[latest top].include?(view_method)
+    view_method = "latest" if %w[latest top].exclude?(view_method)
 
     self.public_send(view_method, category: @category.id)
   end
@@ -232,6 +261,14 @@ class ListController < ApplicationController
     TopTopic.validate_period(period)
 
     @topic_list = TopicQuery.new(nil).list_top_for(period)
+
+    render "list", formats: [:rss]
+  end
+
+  def hot_feed
+    discourse_expires_in 1.minute
+
+    @topic_list = TopicQuery.new(nil).list_hot
 
     render "list", formats: [:rss]
   end
@@ -456,7 +493,7 @@ class ListController < ApplicationController
   def self.best_period_for(previous_visit_at, category_id = nil)
     default_period =
       (
-        (category_id && Category.where(id: category_id).pluck_first(:default_top_period)) ||
+        (category_id && Category.where(id: category_id).pick(:default_top_period)) ||
           SiteSetting.top_page_default_timeframe
       ).to_sym
 

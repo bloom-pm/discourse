@@ -4,6 +4,7 @@ require "mobile_detection"
 require "crawler_detection"
 require "guardian"
 require "http_language_parser"
+require "http_user_agent_encoder"
 
 module Middleware
   class AnonymousCache
@@ -25,8 +26,8 @@ module Middleware
     def self.compile_key_builder
       method = +"def self.__compiled_key_builder(h)\n  \""
       cache_key_segments.each do |k, v|
-        raise "Invalid key name" unless k =~ /^[a-z]+$/
-        raise "Invalid method name" unless v =~ /^key_[a-z_\?]+$/
+        raise "Invalid key name" unless k =~ /\A[a-z]+\z/
+        raise "Invalid method name" unless v =~ /\Akey_[a-z_\?]+\z/
         method << "|#{k}=#\{h.#{v}}"
       end
       method << "\"\nend"
@@ -41,6 +42,21 @@ module Middleware
 
     def self.anon_cache(env, duration)
       env["ANON_CACHE_DURATION"] = duration
+    end
+
+    def self.clear_all_cache!
+      if Rails.env.production?
+        raise "for perf reasons, clear_all_cache! cannot be used in production."
+      end
+      Discourse.redis.keys("ANON_CACHE_*").each { |k| Discourse.redis.del(k) }
+    end
+
+    def self.disable_anon_cache
+      @@disabled = true
+    end
+
+    def self.enable_anon_cache
+      @@disabled = false
     end
 
     # This gives us an API to insert anonymous cache segments
@@ -58,6 +74,7 @@ module Middleware
 
       def initialize(env, request = nil)
         @env = env
+        @user_agent = HttpUserAgentEncoder.ensure_utf8(@env[USER_AGENT])
         @request = request || Rack::Request.new(@env)
       end
 
@@ -66,9 +83,11 @@ module Middleware
           !@request.path.ends_with?("srv/status") &&
           @request[Auth::DefaultCurrentUserProvider::API_KEY].nil? &&
           @env[Auth::DefaultCurrentUserProvider::USER_API_KEY].nil? &&
-          CrawlerDetection.is_blocked_crawler?(@env[USER_AGENT])
+          @env[Auth::DefaultCurrentUserProvider::HEADER_API_KEY].nil? &&
+          CrawlerDetection.is_blocked_crawler?(@user_agent)
       end
 
+      # rubocop:disable Lint/BooleanSymbol
       def is_mobile=(val)
         @is_mobile = val ? :true : :false
       end
@@ -81,7 +100,7 @@ module Middleware
             # otherwise you get a broken params on the request
             params = {}
 
-            MobileDetection.resolve_mobile_view!(@env[USER_AGENT], params, session) ? :true : :false
+            MobileDetection.resolve_mobile_view!(@user_agent, params, session) ? :true : :false
           end
 
         @is_mobile == :true
@@ -95,6 +114,7 @@ module Middleware
           end
         @has_brotli == :true
       end
+      # rubocop:enable Lint/BooleanSymbol
 
       def key_locale
         if locale = Discourse.anonymous_locale(@request)
@@ -104,17 +124,16 @@ module Middleware
         end
       end
 
+      # rubocop:disable Lint/BooleanSymbol
       def is_crawler?
         @is_crawler ||=
           begin
-            user_agent = @env[USER_AGENT]
-
             if @env[DISCOURSE_RENDER] == "crawler" ||
-                 CrawlerDetection.crawler?(user_agent, @env["HTTP_VIA"])
+                 CrawlerDetection.crawler?(@user_agent, @env["HTTP_VIA"])
               :true
             else
-              if user_agent.downcase.include?("discourse") &&
-                   !user_agent.downcase.include?("mobile")
+              if @user_agent.downcase.include?("discourse") &&
+                   !@user_agent.downcase.include?("mobile")
                 :true
               else
                 :false
@@ -124,13 +143,14 @@ module Middleware
         @is_crawler == :true
       end
       alias_method :key_is_crawler?, :is_crawler?
+      # rubocop:enable Lint/BooleanSymbol
 
       def key_is_modern_mobile_device?
-        MobileDetection.modern_mobile_device?(@env[USER_AGENT]) if @env[USER_AGENT]
+        MobileDetection.modern_mobile_device?(@user_agent) if @user_agent
       end
 
       def key_is_old_browser?
-        CrawlerDetection.show_browser_update?(@env[USER_AGENT]) if @env[USER_AGENT]
+        CrawlerDetection.show_browser_update?(@user_agent) if @user_agent
       end
 
       def cache_key
@@ -184,11 +204,13 @@ module Middleware
         request = Rack::Request.new(@env)
         request.cookies["_bypass_cache"].nil? && (request.path != "/srv/status") &&
           request[Auth::DefaultCurrentUserProvider::API_KEY].nil? &&
+          @env[Auth::DefaultCurrentUserProvider::HEADER_API_KEY].nil? &&
           @env[Auth::DefaultCurrentUserProvider::USER_API_KEY].nil?
       end
 
       def force_anonymous!
         @env[Auth::DefaultCurrentUserProvider::USER_API_KEY] = nil
+        @env[Auth::DefaultCurrentUserProvider::HEADER_API_KEY] = nil
         @env["HTTP_COOKIE"] = nil
         @env["HTTP_DISCOURSE_LOGGED_IN"] = nil
         @env["rack.request.cookie.hash"] = {}
@@ -229,7 +251,10 @@ module Middleware
       end
 
       def cacheable?
-        !!(!has_auth_cookie? && get? && no_cache_bypass)
+        !!(
+          GlobalSetting.anon_cache_store_threshold > 0 && !has_auth_cookie? && get? &&
+            no_cache_bypass
+        )
       end
 
       def compress(val)
@@ -323,6 +348,8 @@ module Middleware
     PAYLOAD_INVALID_REQUEST_METHODS = %w[GET HEAD]
 
     def call(env)
+      return @app.call(env) if defined?(@@disabled) && @@disabled
+
       if PAYLOAD_INVALID_REQUEST_METHODS.include?(env[Rack::REQUEST_METHOD]) &&
            env[Rack::RACK_INPUT].size > 0
         return 413, { "Cache-Control" => "private, max-age=0, must-revalidate" }, []

@@ -59,7 +59,8 @@ class GroupsController < ApplicationController
 
     if !guardian.is_staff?
       # hide automatic groups from all non stuff to de-clutter page
-      groups = groups.where("automatic IS FALSE OR groups.id = ?", Group::AUTO_GROUPS[:moderators])
+      groups =
+        groups.where("groups.automatic IS FALSE OR groups.id = ?", Group::AUTO_GROUPS[:moderators])
       type_filters.delete(:automatic)
     end
 
@@ -80,12 +81,14 @@ class GroupsController < ApplicationController
       type_filters = type_filters - %i[my owner]
     end
 
+    groups = DiscoursePluginRegistry.apply_modifier(:groups_index_query, groups, self)
+
     type_filters.delete(:non_automatic)
 
     # count the total before doing pagination
     total = groups.count
 
-    page = params[:page].to_i
+    page = fetch_int_from_params(:page, default: 0)
     page_size = MobileDetection.mobile_device?(request.user_agent) ? 15 : 36
     groups = groups.offset(page * page_size).limit(page_size)
 
@@ -122,7 +125,10 @@ class GroupsController < ApplicationController
         groups = Group.visible_groups(current_user)
         if !guardian.is_staff?
           groups =
-            groups.where("automatic IS FALSE OR groups.id = ?", Group::AUTO_GROUPS[:moderators])
+            groups.where(
+              "groups.automatic IS FALSE OR groups.id = ?",
+              Group::AUTO_GROUPS[:moderators],
+            )
         end
 
         render_json_dump(
@@ -188,62 +194,90 @@ class GroupsController < ApplicationController
     group = find_group(:group_id)
     guardian.ensure_can_see_group_members!(group)
 
-    posts = group.posts_for(guardian, params.permit(:before_post_id, :category_id)).limit(20)
-    render_serialized posts.to_a, GroupPostSerializer
+    posts =
+      group.posts_for(guardian, params.permit(:before_post_id, :before, :category_id)).limit(20)
+
+    response = { posts: serialize_data(posts, GroupPostSerializer) }
+
+    if guardian.can_lazy_load_categories?
+      category_ids = posts.map { |p| p.topic.category_id }.compact.uniq
+      categories = Category.secured(guardian).with_parents(category_ids)
+      response[:categories] = serialize_data(categories, CategoryBadgeSerializer)
+    end
+
+    render json: response
   end
 
   def posts_feed
     group = find_group(:group_id)
     guardian.ensure_can_see_group_members!(group)
 
-    @posts = group.posts_for(guardian, params.permit(:before_post_id, :category_id)).limit(50)
+    @posts =
+      group.posts_for(guardian, params.permit(:before_post_id, :before, :category_id)).limit(50)
     @title =
       "#{SiteSetting.title} - #{I18n.t("rss_description.group_posts", group_name: group.name)}"
     @link = Discourse.base_url
     @description = I18n.t("rss_description.group_posts", group_name: group.name)
+
     render "posts/latest", formats: [:rss]
   end
 
   def mentions
     raise Discourse::NotFound unless SiteSetting.enable_mentions?
+
     group = find_group(:group_id)
+    guardian.ensure_can_see_group_members!(group)
+
     posts =
-      group.mentioned_posts_for(guardian, params.permit(:before_post_id, :category_id)).limit(20)
-    render_serialized posts.to_a, GroupPostSerializer
+      group.mentioned_posts_for(
+        guardian,
+        params.permit(:before_post_id, :before, :category_id),
+      ).limit(20)
+
+    response = { posts: serialize_data(posts, GroupPostSerializer) }
+
+    if guardian.can_lazy_load_categories?
+      category_ids = posts.map { |p| p.topic.category_id }.compact.uniq
+      categories = Category.secured(guardian).with_parents(category_ids)
+      response[:categories] = serialize_data(categories, CategoryBadgeSerializer)
+    end
+
+    render json: response
   end
 
   def mentions_feed
     raise Discourse::NotFound unless SiteSetting.enable_mentions?
+
     group = find_group(:group_id)
+    guardian.ensure_can_see_group_members!(group)
+
     @posts =
-      group.mentioned_posts_for(guardian, params.permit(:before_post_id, :category_id)).limit(50)
+      group.mentioned_posts_for(
+        guardian,
+        params.permit(:before_post_id, :before, :category_id),
+      ).limit(50)
     @title =
       "#{SiteSetting.title} - #{I18n.t("rss_description.group_mentions", group_name: group.name)}"
     @link = Discourse.base_url
     @description = I18n.t("rss_description.group_mentions", group_name: group.name)
+
     render "posts/latest", formats: [:rss]
   end
+
+  MEMBERS_MAX_PAGE_SIZE = 1_000
+  MEMBERS_DEFAULT_PAGE_SIZE = 50
 
   def members
     group = find_group(:group_id)
 
     guardian.ensure_can_see_group_members!(group)
 
-    limit = (params[:limit] || 50).to_i
+    limit = fetch_limit_from_params(default: MEMBERS_DEFAULT_PAGE_SIZE, max: MEMBERS_MAX_PAGE_SIZE)
     offset = params[:offset].to_i
 
-    raise Discourse::InvalidParameters.new(:limit) if limit < 0 || limit > 1000
     raise Discourse::InvalidParameters.new(:offset) if offset < 0
 
     dir = (params[:asc] && params[:asc].present?) ? "ASC" : "DESC"
-    if params[:desc]
-      Discourse.deprecate(
-        ":desc is deprecated please use :asc instead",
-        output_in_test: true,
-        drop_from: "2.9.0",
-      )
-      dir = (params[:desc] && params[:desc].present?) ? "DESC" : "ASC"
-    end
     order = "NOT group_users.owner"
 
     if params[:requesters]
@@ -282,10 +316,20 @@ class GroupsController < ApplicationController
       )
     end
 
+    include_custom_fields = params[:include_custom_fields] == "true"
+
+    allowed_fields =
+      User.allowed_user_custom_fields(guardian) +
+        UserField.all.pluck(:id).map { |fid| "#{User::USER_FIELD_PREFIX}#{fid}" }
+
     if params[:order] && %w[last_posted_at last_seen_at].include?(params[:order])
       order = "#{params[:order]} #{dir} NULLS LAST"
     elsif params[:order] == "added_at"
       order = "group_users.created_at #{dir}"
+    elsif include_custom_fields && params[:order] == "custom_field" &&
+          allowed_fields.include?(params[:order_field])
+      order =
+        "(SELECT value FROM user_custom_fields ucf WHERE ucf.user_id = users.id AND ucf.name = '#{params[:order_field]}') #{dir} NULLS LAST"
     end
 
     users = group.users.human_users
@@ -312,8 +356,11 @@ class GroupsController < ApplicationController
     members = users.limit(limit).offset(offset)
     owners = users.where("group_users.owner")
 
+    group_members_serializer =
+      include_custom_fields ? GroupUserWithCustomFieldsSerializer : GroupUserSerializer
+
     render json: {
-             members: serialize_data(members, GroupUserSerializer),
+             members: serialize_data(members, group_members_serializer),
              owners: serialize_data(owners, GroupUserSerializer),
              meta: {
                total: total,
@@ -433,6 +480,19 @@ class GroupsController < ApplicationController
     user = User.find_by(id: params[:user_id])
     raise Discourse::InvalidParameters.new(:user_id) if user.blank?
 
+    # find original membership request PM
+    request_topic =
+      Topic.find_by(
+        title:
+          I18n.t(
+            "groups.request_membership_pm.title",
+            group_name: group.name,
+            locale: user.effective_locale,
+          ),
+        archetype: Archetype.private_message,
+        user_id: user.id,
+      )
+
     ActiveRecord::Base.transaction do
       if params[:accept]
         group.add(user)
@@ -445,9 +505,15 @@ class GroupsController < ApplicationController
     if params[:accept]
       PostCreator.new(
         current_user,
-        title: I18n.t("groups.request_accepted_pm.title", group_name: group.name),
-        raw: I18n.t("groups.request_accepted_pm.body", group_name: group.name),
-        archetype: Archetype.private_message,
+        post_type: Post.types[:regular],
+        topic_id: request_topic.id,
+        raw:
+          I18n.t(
+            "groups.request_accepted_pm.body",
+            group_name: group.name,
+            locale: user.effective_locale,
+          ),
+        reply_to_post_number: 1,
         target_usernames: user.username,
         skip_validations: true,
       ).create!
@@ -613,10 +679,15 @@ class GroupsController < ApplicationController
         .order(:name)
 
     if (term = params[:term]).present?
-      groups = groups.where("name ILIKE :term OR full_name ILIKE :term", term: "%#{term}%")
+      groups =
+        groups.where(
+          "position(LOWER(:term) IN LOWER(groups.name)) <> 0 OR position(LOWER(:term) IN LOWER(groups.full_name)) <> 0",
+          term: term,
+        )
     end
 
     groups = groups.where(automatic: false) if params[:ignore_automatic].to_s == "true"
+    groups = DiscoursePluginRegistry.apply_modifier(:groups_search_query, groups, self)
 
     if Group.preloaded_custom_field_names.present?
       Group.preload_custom_fields(groups, Group.preloaded_custom_field_names)
@@ -644,7 +715,6 @@ class GroupsController < ApplicationController
     params.require(:host)
     params.require(:username)
     params.require(:password)
-    params.require(:ssl)
 
     group = Group.find(params[:group_id])
     guardian.ensure_can_edit!(group)
@@ -652,7 +722,6 @@ class GroupsController < ApplicationController
     RateLimiter.new(current_user, "group_test_email_settings", 5, 1.minute).performed!
 
     settings = params.except(:group_id, :protocol)
-    enable_tls = settings[:ssl] == "true"
     email_host = params[:host]
 
     if !%w[smtp imap].include?(params[:protocol])
@@ -663,13 +732,19 @@ class GroupsController < ApplicationController
       begin
         case params[:protocol]
         when "smtp"
-          enable_starttls_auto = false
-          settings.delete(:ssl)
+          raise Discourse::InvalidParameters if params[:ssl_mode].blank?
+
+          settings.delete(:ssl_mode)
+
+          if params[:ssl_mode].blank? ||
+               !Group.smtp_ssl_modes.values.include?(params[:ssl_mode].to_i)
+            raise Discourse::InvalidParameters.new("SSL mode must be present and valid")
+          end
 
           final_settings =
             settings.merge(
-              enable_tls: enable_tls,
-              enable_starttls_auto: enable_starttls_auto,
+              enable_tls: params[:ssl_mode].to_i == Group.smtp_ssl_modes[:ssl_tls],
+              enable_starttls_auto: params[:ssl_mode].to_i == Group.smtp_ssl_modes[:starttls],
             ).permit(:host, :port, :username, :password, :enable_tls, :enable_starttls_auto, :debug)
           EmailSettingsValidator.validate_as_user(
             current_user,
@@ -677,8 +752,17 @@ class GroupsController < ApplicationController
             **final_settings.to_h.symbolize_keys,
           )
         when "imap"
+          raise Discourse::InvalidParameters if params[:ssl].blank?
+
           final_settings =
-            settings.merge(ssl: enable_tls).permit(:host, :port, :username, :password, :ssl, :debug)
+            settings.merge(ssl: settings[:ssl] == "true").permit(
+              :host,
+              :port,
+              :username,
+              :password,
+              :ssl,
+              :debug,
+            )
           EmailSettingsValidator.validate_as_user(
             current_user,
             "imap",
@@ -723,9 +807,7 @@ class GroupsController < ApplicationController
       flair_upload_id
     ]
 
-    if automatic
-      attributes.push(:visibility_level)
-    else
+    if !automatic
       attributes.push(
         :title,
         :allow_membership_requests,
@@ -736,12 +818,14 @@ class GroupsController < ApplicationController
       )
     end
 
+    attributes.push(:visibility_level, :members_visibility_level) if current_user.staff?
+
     if !automatic && current_user.staff?
       attributes.push(
         :incoming_email,
         :smtp_server,
         :smtp_port,
-        :smtp_ssl,
+        :smtp_ssl_mode,
         :smtp_enabled,
         :smtp_updated_by,
         :smtp_updated_at,
@@ -756,8 +840,6 @@ class GroupsController < ApplicationController
         :email_password,
         :email_from_alias,
         :primary_group,
-        :visibility_level,
-        :members_visibility_level,
         :name,
         :grant_trust_level,
         :automatic_membership_email_domains,
@@ -821,7 +903,7 @@ class GroupsController < ApplicationController
 
     if should_clear_smtp
       attributes[:smtp_server] = nil
-      attributes[:smtp_ssl] = false
+      attributes[:smtp_ssl_mode] = false
       attributes[:smtp_port] = nil
       attributes[:email_username] = nil
       attributes[:email_password] = nil

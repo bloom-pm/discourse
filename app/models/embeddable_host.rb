@@ -3,15 +3,17 @@
 class EmbeddableHost < ActiveRecord::Base
   validate :host_must_be_valid
   belongs_to :category
+  belongs_to :user, optional: true
+  has_many :embeddable_host_tags
+  has_many :tags, through: :embeddable_host_tags
   after_destroy :reset_embedding_settings
 
   before_validation do
-    self.host.sub!(%r{^https?://}, "")
-    self.host.sub!(%r{/.*$}, "")
+    self.host.sub!(%r{\Ahttps?://}, "")
+    self.host.sub!(%r{/.*\z}, "")
   end
 
-  # TODO(2021-07-23): Remove
-  self.ignored_columns = ["path_whitelist"]
+  self.ignored_columns = ["path_whitelist"] # TODO: Remove when 20240212034010_drop_deprecated_columns has been promoted to pre-deploy
 
   def self.record_for_url(uri)
     if uri.is_a?(String)
@@ -22,10 +24,10 @@ class EmbeddableHost < ActiveRecord::Base
         end
     end
 
-    return false unless uri.present?
+    return false if uri.blank?
 
     host = uri.host
-    return false unless host.present?
+    return false if host.blank?
 
     host << ":#{uri.port}" if uri.port.present? && uri.port != 80 && uri.port != 443
 
@@ -44,9 +46,6 @@ class EmbeddableHost < ActiveRecord::Base
 
   def self.url_allowed?(url)
     return false if url.nil?
-
-    # Work around IFRAME reload on WebKit where the referer will be set to the Forum URL
-    return true if url&.starts_with?(Discourse.base_url) && EmbeddableHost.exists?
 
     uri =
       begin
@@ -85,4 +84,5 @@ end
 #  updated_at    :datetime         not null
 #  class_name    :string
 #  allowed_paths :string
+#  user_id       :integer
 #

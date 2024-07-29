@@ -9,11 +9,12 @@ RSpec.describe Migration::SafeMigrate do
   end
 
   def migrate_up(path)
-    migrations = ActiveRecord::MigrationContext.new(path, ActiveRecord::SchemaMigration).migrations
+    migrations = ActiveRecord::MigrationContext.new(path).migrations
     ActiveRecord::Migrator.new(
       :up,
       migrations,
-      ActiveRecord::SchemaMigration,
+      ActiveRecord::Base.connection.schema_migration,
+      ActiveRecord::Base.connection.internal_metadata,
       migrations.first.version,
     ).run
   end
@@ -68,6 +69,16 @@ RSpec.describe Migration::SafeMigrate do
 
     expect(User.first).not_to eq(nil)
     expect { User.first.username }.not_to raise_error
+  end
+
+  it "allows dropping NOT NULL" do
+    Migration::SafeMigrate.enable!
+
+    path = File.expand_path "#{Rails.root}/spec/fixtures/db/migrate/drop_not_null"
+
+    output = capture_stdout { migrate_up(path) }
+
+    expect(output).to include("change_column_null(:users, :username, true, nil)")
   end
 
   it "supports being disabled" do

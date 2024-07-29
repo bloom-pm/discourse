@@ -1,0 +1,34 @@
+.full-page-chat {
+  #main-chat-outlet.chat-view {
+    grid-template-areas:
+      "list"
+      "footer";
+  }
+
+  .channels-list {
+    grid-area: list;
+    padding-bottom: 0;
+  }
+}
+
+.c-footer {
+  &__item {
+    .c-unread-indicator,
+    .c-unread-indicator.-urgent {
+      margin-left: 1rem;
+    }
+
+    &.--active {
+      .full-page-chat & {
+        .d-icon,
+        .d-button-label {
+          color: var(--d-nav-color--active);
+        }
+      }
+    }
+  }
+}
+
+.has-full-page-chat div#reply-control {
+  display: none;
+}

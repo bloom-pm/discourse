@@ -1,7 +1,5 @@
 // Styles for /admin section
 
-@import "common/foundation/helpers";
-
 $mobile-breakpoint: 700px;
 
 // Common admin styles
@@ -12,6 +10,7 @@ $mobile-breakpoint: 700px;
   width: 100%;
   overflow: hidden;
   height: 100%;
+  background: var(--d-content-background);
 
   @include breakpoint(tablet) {
     width: calc(100% + 10px);
@@ -75,10 +74,17 @@ $mobile-breakpoint: 700px;
 }
 
 .admin-contents {
+  --space-1: 0.25rem;
+  --space-2: calc(0.25rem * 2);
+  --space-3: calc(0.25rem * 3);
+  --space-4: calc(0.25rem * 4);
+  --space-5: calc(0.25rem * 5);
+  --space-6: calc(0.25rem * 6);
+
   position: relative;
   .nav-stacked {
     @media screen and (max-width: 700px) {
-      margin: 0 15px 0 -10px;
+      margin: 0;
     }
   }
 
@@ -89,6 +95,14 @@ $mobile-breakpoint: 700px;
   }
   .row:after {
     clear: both;
+  }
+
+  &.admin-site-settings-category {
+    overflow: hidden;
+
+    @media (max-width: 500px) {
+      background-color: var(--primary-very-low);
+    }
   }
 }
 
@@ -226,7 +240,7 @@ $mobile-breakpoint: 700px;
     border-bottom: 1px solid var(--primary-low);
     margin-bottom: 0.5em;
     &.overridden {
-      background-color: var(--highlight-medium);
+      background-color: var(--highlight-bg);
     }
     h3 {
       font-weight: normal;
@@ -271,8 +285,13 @@ $mobile-breakpoint: 700px;
   }
   .edit-site-text {
     textarea {
+      display: block;
       width: 100%;
       max-width: 800px;
+      margin: 0;
+    }
+    .save-button {
+      margin-top: 1em;
     }
     .save-button,
     .title {
@@ -285,6 +304,24 @@ $mobile-breakpoint: 700px;
     }
     .go-back {
       margin-top: 1em;
+    }
+    .desc {
+      padding-top: 3px;
+      font-size: var(--font-down-1);
+      line-height: var(--line-height-large);
+      color: var(--primary-medium);
+    }
+    .outdated {
+      border: 1px solid var(--primary-low);
+      box-sizing: border-box;
+      color: var(--primary);
+      margin-bottom: 1em;
+      max-width: 800px;
+      padding: 1em;
+
+      p {
+        color: var(--primary-high);
+      }
     }
   }
   p.warning {
@@ -312,7 +349,6 @@ $mobile-breakpoint: 700px;
 }
 
 .admin-content {
-  margin-bottom: 50px;
   .admin-contents {
     padding: 0 0 8px 0;
     @include clearfix();
@@ -382,7 +418,7 @@ $mobile-breakpoint: 700px;
     width: 460px;
     right: 0;
     z-index: z("dropdown");
-    box-shadow: shadow("card");
+    box-shadow: var(--shadow-card);
     margin-top: -2px;
     background-color: var(--secondary);
     padding: 12px 12px 5px;
@@ -412,6 +448,10 @@ $mobile-breakpoint: 700px;
 
 .admin-container {
   margin-top: 10px;
+
+  .admin-section {
+    margin-bottom: 1em;
+  }
 
   .username {
     input {
@@ -464,8 +504,8 @@ $mobile-breakpoint: 700px;
 
 .admin-controls {
   display: flex;
-  background-color: var(--primary-low);
   align-items: center;
+  background: var(--primary-low);
 
   .admin-actions {
     margin-left: auto;
@@ -518,9 +558,9 @@ $mobile-breakpoint: 700px;
   }
 
   .nav-pills {
-    width: calc(100% - 10px);
+    width: 100%;
     display: inline-flex;
-    padding: 10px;
+    padding: 0.5em;
     margin: 0;
     white-space: nowrap;
     overflow-x: auto;
@@ -532,17 +572,6 @@ $mobile-breakpoint: 700px;
 
     &:before {
       display: none;
-    }
-    > li {
-      margin: 0;
-      a.active {
-        background: var(--primary-medium);
-      }
-      &:last-of-type {
-        > a {
-          margin-right: 25px;
-        }
-      }
     }
   }
   h1 {
@@ -625,6 +654,12 @@ $mobile-breakpoint: 700px;
     display: inline-block;
     margin-right: 5px;
   }
+
+  .horizontal-overflow-nav__scroll-right,
+  .horizontal-overflow-nav__scroll-left {
+    --fade-color: var(--primary-low-rgb);
+    background: var(--primary-low);
+  }
 }
 
 .badges,
@@ -659,6 +694,20 @@ $mobile-breakpoint: 700px;
   @media (max-width: 500px) {
     width: 50%;
   }
+  .nav-stacked {
+    background-color: inherit;
+
+    a.active {
+      color: var(--primary);
+      background-color: initial;
+      font-weight: 700;
+      border-right: 4px solid var(--d-nav-color--active);
+
+      &::after {
+        display: none; // Hides the arrow
+      }
+    }
+  }
 }
 
 .admin-detail {
@@ -669,7 +718,7 @@ $mobile-breakpoint: 700px;
   width: 82%;
   box-sizing: border-box;
   @media (max-width: $mobile-breakpoint) {
-    width: 95%;
+    width: 100%;
     border: none;
   }
 }
@@ -689,7 +738,7 @@ $mobile-breakpoint: 700px;
   @media (max-width: $mobile-breakpoint) {
     transition: transform 0.3s ease;
     @include transform(translateX(0));
-    margin-left: -10px;
+    padding: 30px 20px;
   }
 }
 
@@ -801,19 +850,15 @@ section.details {
   }
 }
 
-tr.not-activated {
-  td,
-  td a,
-  td a:visited {
-    color: #bbb;
-  }
-}
-
-.details.not-activated {
-  .username .value,
-  .email .value a,
-  .email .value a:visited {
-    color: #bbb;
+.directory-table {
+  .not-activated {
+    .directory-table__cell {
+      &,
+      a,
+      a:visited {
+        color: #bbb;
+      }
+    }
   }
 }
 
@@ -1007,25 +1052,32 @@ a.inline-editable-field {
 
 // Styles for subtabs in admin
 @import "common/admin/dashboard";
+@import "common/admin/sidebar";
 @import "common/admin/settings";
 @import "common/admin/users";
 @import "common/admin/penalty";
 @import "common/admin/badges";
 @import "common/admin/emails";
+@import "common/admin/flags";
 @import "common/admin/json_schema_editor";
+@import "common/admin/schema_field";
 @import "common/admin/staff_logs";
 @import "common/admin/customize";
 @import "common/admin/customize-install-theme";
 @import "common/admin/api";
 @import "common/admin/backups";
 @import "common/admin/plugins";
+@import "common/admin/admin_config_area";
 @import "common/admin/admin_reports";
 @import "common/admin/admin_report";
 @import "common/admin/admin_report_counters";
 @import "common/admin/admin_report_chart";
+@import "common/admin/admin_report_radar";
 @import "common/admin/admin_report_stacked_chart";
 @import "common/admin/admin_report_table";
 @import "common/admin/admin_report_inline_table";
 @import "common/admin/admin_intro";
 @import "common/admin/admin_emojis";
 @import "common/admin/mini_profiler";
+@import "common/admin/schema_theme_setting_editor";
+@import "common/admin/customize_themes_show_schema";

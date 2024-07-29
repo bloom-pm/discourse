@@ -8,7 +8,7 @@ class ComposerMessagesFinder
   end
 
   def self.check_methods
-    @check_methods ||= instance_methods.find_all { |m| m =~ /^check\_/ }
+    @check_methods ||= instance_methods.find_all { |m| m =~ /\Acheck\_/ }
   end
 
   def find
@@ -90,7 +90,7 @@ class ComposerMessagesFinder
     # - "allow uploaded avatars" is disabled
     if SiteSetting.disable_avatar_education_message ||
          SiteSetting.discourse_connect_overrides_avatar ||
-         !TrustLevelAndStaffAndDisabledSetting.matches?(SiteSetting.allow_uploaded_avatars, @user)
+         !@user.in_any_groups?(SiteSetting.uploaded_avatars_allowed_groups_map)
       return
     end
 
@@ -181,8 +181,9 @@ class ComposerMessagesFinder
   end
 
   def check_get_a_room(min_users_posted: 5)
+    return unless @user.guardian.can_send_private_messages?
     return unless educate_reply?(:notified_about_get_a_room)
-    return unless @details[:post_id].present?
+    return if @details[:post_id].blank?
     return if @topic.category&.read_restricted
 
     reply_to_user_id = Post.where(id: @details[:post_id]).pluck(:user_id)[0]
@@ -197,8 +198,8 @@ class ComposerMessagesFinder
         .pluck(:reply_to_user_id)
         .find_all { |uid| uid != @user.id && uid == reply_to_user_id }
 
-    return unless last_x_replies.size == SiteSetting.get_a_room_threshold
-    return unless @topic.posts.count("distinct user_id") >= min_users_posted
+    return if last_x_replies.size != SiteSetting.get_a_room_threshold
+    return if @topic.posts.count("distinct user_id") < min_users_posted
 
     UserHistory.create!(
       action: UserHistory.actions[:notified_about_get_a_room],
@@ -206,7 +207,7 @@ class ComposerMessagesFinder
       topic_id: @details[:topic_id],
     )
 
-    reply_username = User.where(id: last_x_replies[0]).pluck_first(:username)
+    reply_username = User.where(id: last_x_replies[0]).pick(:username)
 
     {
       id: "get_a_room",
@@ -223,6 +224,33 @@ class ComposerMessagesFinder
             base_path: Discourse.base_path,
           ),
         ),
+    }
+  end
+
+  def check_dont_feed_the_trolls
+    return if !replying?
+
+    post =
+      if @details[:post_id]
+        Post.find_by(id: @details[:post_id])
+      else
+        @topic&.first_post
+      end
+
+    return if post.blank?
+
+    flags = post.flags.active.group(:user_id).count
+    flagged_by_replier = flags[@user.id].to_i > 0
+    flagged_by_others = flags.values.sum >= SiteSetting.dont_feed_the_trolls_threshold
+
+    return if !flagged_by_replier && !flagged_by_others
+
+    {
+      id: "dont_feed_the_trolls",
+      templateName: "education",
+      wait_for_typing: false,
+      extraClass: "urgent",
+      body: PrettyText.cook(I18n.t("education.dont_feed_the_trolls")),
     }
   end
 
@@ -243,7 +271,7 @@ class ComposerMessagesFinder
           I18n.t(
             "education.reviving_old_topic",
             time_ago:
-              FreedomPatches::Rails4.time_ago_in_words(
+              AgeWords.time_ago_in_words(
                 @topic.last_posted_at,
                 false,
                 scope: :"datetime.distance_in_words_verbose",

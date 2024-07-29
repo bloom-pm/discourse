@@ -28,18 +28,9 @@ class TopicCreator
     category = find_category
     if category.present? && guardian.can_tag?(topic)
       tags = @opts[:tags].presence || []
-      existing_tags = tags.present? ? Tag.where(name: tags) : []
-      valid_tags = guardian.can_create_tag? ? tags : existing_tags
 
-      # all add to topic.errors
-      DiscourseTagging.validate_min_required_tags_for_category(
-        guardian,
-        topic,
-        category,
-        valid_tags,
-      )
-      DiscourseTagging.validate_required_tags_from_group(guardian, topic, category, existing_tags)
-      DiscourseTagging.validate_category_restricted_tags(guardian, topic, category, valid_tags)
+      # adds topic.errors
+      DiscourseTagging.validate_category_tags(guardian, topic, category, tags)
     end
 
     DiscourseEvent.trigger(:after_validate_topic, topic, self)
@@ -57,7 +48,7 @@ class TopicCreator
     setup_tags(topic)
 
     if fields = @opts[:custom_fields]
-      topic.custom_fields.merge!(fields)
+      topic.custom_fields = fields
     end
 
     DiscourseEvent.trigger(:before_create_topic, topic, self)
@@ -76,7 +67,8 @@ class TopicCreator
   private
 
   def validate_visibility(topic)
-    if !@opts[:skip_validations] && !topic.visible && !guardian.can_create_unlisted_topic?(topic)
+    if !@opts[:skip_validations] && !topic.visible &&
+         !guardian.can_create_unlisted_topic?(topic, !!opts[:embed_url])
       topic.errors.add(:base, :unable_to_unlist)
     end
   end
@@ -131,7 +123,7 @@ class TopicCreator
       visible: @opts[:visible],
     }
 
-    %i[subtype archetype meta_data import_mode advance_draft].each do |key|
+    %i[subtype archetype import_mode advance_draft].each do |key|
       topic_params[key] = @opts[key] if @opts[key].present?
     end
 
@@ -181,7 +173,7 @@ class TopicCreator
 
         return Category.find(SiteSetting.shared_drafts_category) if @opts[:shared_draft]
 
-        if (@opts[:category].is_a? Integer) || (@opts[:category] =~ /^\d+$/)
+        if (@opts[:category].is_a? Integer) || (@opts[:category] =~ /\A\d+\z/)
           Category.find_by(id: @opts[:category])
         end
       end
@@ -189,10 +181,14 @@ class TopicCreator
 
   def setup_tags(topic)
     if @opts[:tags].present?
-      valid_tags = DiscourseTagging.tag_topic_by_names(topic, @guardian, @opts[:tags])
-      unless valid_tags
-        topic.errors.add(:base, :unable_to_tag)
-        rollback_from_errors!(topic)
+      if @opts[:skip_validations]
+        DiscourseTagging.add_or_create_tags_by_name(topic, @opts[:tags])
+      else
+        valid_tags = DiscourseTagging.tag_topic_by_names(topic, @guardian, @opts[:tags])
+        unless valid_tags
+          topic.errors.add(:base, :unable_to_tag)
+          rollback_from_errors!(topic)
+        end
       end
     end
 
@@ -200,8 +196,8 @@ class TopicCreator
     if watched_words.present?
       word_watcher = WordWatcher.new("#{@opts[:title]} #{@opts[:raw]}")
       word_watcher_tags = topic.tags.map(&:name)
-      watched_words.each do |word, opts|
-        if word_watcher.word_matches?(word, case_sensitive: opts[:case_sensitive])
+      watched_words.each do |_, opts|
+        if word_watcher.word_matches?(opts[:word], case_sensitive: opts[:case_sensitive])
           word_watcher_tags += opts[:replacement].split(",")
         end
       end
@@ -210,7 +206,7 @@ class TopicCreator
   end
 
   def setup_auto_close_time(topic)
-    return unless @opts[:auto_close_time].present?
+    return if @opts[:auto_close_time].blank?
     return unless @guardian.can_moderate?(topic)
     topic.set_auto_close(@opts[:auto_close_time], by_user: @user)
   end
@@ -219,8 +215,8 @@ class TopicCreator
     return unless @opts[:archetype] == Archetype.private_message
     topic.subtype = TopicSubtype.user_to_user unless topic.subtype
 
-    unless @opts[:target_usernames].present? || @opts[:target_emails].present? ||
-             @opts[:target_group_names].present?
+    if @opts[:target_usernames].blank? && @opts[:target_emails].blank? &&
+         @opts[:target_group_names].blank?
       rollback_with!(topic, :no_user_selected)
     end
 

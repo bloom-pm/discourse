@@ -7,7 +7,7 @@ module Onebox
     end
 
     def self.engines
-      constants.select { |constant| constant.to_s =~ /Onebox$/ }.sort.map(&method(:const_get))
+      constants.select { |constant| constant.to_s =~ /Onebox\z/ }.sort.map(&method(:const_get))
     end
 
     def self.all_iframe_origins
@@ -34,7 +34,6 @@ module Onebox
       return @options if opt.nil? # make sure options provided
       opt = opt.to_h if opt.instance_of?(OpenStruct)
       @options.merge!(opt)
-      @options
     end
 
     def initialize(url, timeout = nil)
@@ -165,6 +164,7 @@ require_relative "engine/google_play_app_onebox"
 require_relative "engine/image_onebox"
 require_relative "engine/video_onebox"
 require_relative "engine/audio_onebox"
+require_relative "engine/threads_status_onebox"
 require_relative "engine/stack_exchange_onebox"
 require_relative "engine/twitter_status_onebox"
 require_relative "engine/wikimedia_onebox"
@@ -210,3 +210,5 @@ require_relative "engine/google_drive_onebox"
 require_relative "engine/facebook_media_onebox"
 require_relative "engine/hackernews_onebox"
 require_relative "engine/motoko_onebox"
+require_relative "engine/tiktok_onebox"
+require_relative "engine/loom_onebox"

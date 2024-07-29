@@ -4,20 +4,25 @@ class Admin::ApiController < Admin::AdminController
   # Note: in the REST API, ApiKeys are referred to simply as "key"
   # If we used "api_key", then our user provider would try to use the value for authentication
 
+  INDEX_LIMIT = 50
+
   def index
     offset = (params[:offset] || 0).to_i
-    limit = (params[:limit] || 50).to_i.clamp(1, 50)
+    limit = fetch_limit_from_params(default: INDEX_LIMIT, max: INDEX_LIMIT)
 
     keys =
       ApiKey
         .where(hidden: false)
-        .includes(:user, :api_key_scopes)
-        # Sort revoked keys by revoked_at and active keys by created_at
+        .includes(:user)
         .order("revoked_at DESC NULLS FIRST, created_at DESC")
         .offset(offset)
         .limit(limit)
 
-    render_json_dump(keys: serialize_data(keys, ApiKeySerializer), offset: offset, limit: limit)
+    render_json_dump(
+      keys: serialize_data(keys, BasicApiKeySerializer),
+      offset: offset,
+      limit: limit,
+    )
   end
 
   def show

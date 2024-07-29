@@ -1,25 +1,46 @@
 import Controller from "@ember/controller";
-import discourseComputed from "discourse-common/utils/decorators";
-import discourseDebounce from "discourse-common/lib/debounce";
-import { inject as service } from "@ember/service";
 import { action } from "@ember/object";
+import { service } from "@ember/service";
+import runAfterFramePaint from "discourse/lib/after-frame-paint";
+import { isTesting } from "discourse-common/config/environment";
+import discourseDebounce from "discourse-common/lib/debounce";
+import deprecated from "discourse-common/lib/deprecated";
+import discourseComputed from "discourse-common/utils/decorators";
 
 const HIDE_SIDEBAR_KEY = "sidebar-hidden";
 
 export default Controller.extend({
-  queryParams: [{ sidebarQueryParamOverride: "enable_sidebar" }],
+  queryParams: [{ navigationMenuQueryParamOverride: "navigation_menu" }],
 
   showTop: true,
-  showFooter: false,
   router: service(),
+  footer: service(),
+  header: service(),
+  sidebarState: service(),
   showSidebar: false,
-  sidebarQueryParamOverride: null,
   sidebarDisabledRouteOverride: false,
+  navigationMenuQueryParamOverride: null,
   showSiteHeader: true,
 
   init() {
     this._super(...arguments);
     this.showSidebar = this.calculateShowSidebar();
+  },
+
+  get showFooter() {
+    return this.footer.showFooter;
+  },
+
+  set showFooter(value) {
+    deprecated(
+      "showFooter state is now stored in the `footer` service, and should be controlled by adding the {{hide-application-footer}} helper to an Ember template.",
+      { id: "discourse.application-show-footer" }
+    );
+    this.footer.showFooter = value;
+  },
+
+  get showPoweredBy() {
+    return this.showFooter && this.siteSettings.enable_powered_by_discourse;
   },
 
   @discourseComputed
@@ -41,52 +62,33 @@ export default Controller.extend({
     return this.siteSettings.login_required && !this.currentUser;
   },
 
-  @discourseComputed(
-    "siteSettings.bootstrap_mode_enabled",
-    "router.currentRouteName"
-  )
-  showBootstrapModeNotice(bootstrapModeEnabled, currentRouteName) {
-    return (
-      this.currentUser?.get("staff") &&
-      bootstrapModeEnabled &&
-      !currentRouteName.startsWith("wizard")
-    );
-  },
-
   @discourseComputed
   showFooterNav() {
     return this.capabilities.isAppWebview || this.capabilities.isiOSPWA;
   },
 
   _mainOutletAnimate() {
-    document.querySelector("body").classList.remove("sidebar-animate");
+    document.body.classList.remove("sidebar-animate");
   },
 
-  @discourseComputed(
-    "sidebarQueryParamOverride",
-    "siteSettings.navigation_menu",
-    "canDisplaySidebar",
-    "sidebarDisabledRouteOverride"
-  )
-  sidebarEnabled(
-    sidebarQueryParamOverride,
-    navigationMenu,
-    canDisplaySidebar,
-    sidebarDisabledRouteOverride
-  ) {
-    if (!canDisplaySidebar) {
+  get sidebarEnabled() {
+    if (!this.canDisplaySidebar) {
       return false;
     }
 
-    if (sidebarDisabledRouteOverride) {
+    if (this.sidebarState.sidebarHidden) {
       return false;
     }
 
-    if (sidebarQueryParamOverride === "1") {
+    if (this.sidebarDisabledRouteOverride) {
+      return false;
+    }
+
+    if (this.navigationMenuQueryParamOverride === "sidebar") {
       return true;
     }
 
-    if (sidebarQueryParamOverride === "0") {
+    if (this.navigationMenuQueryParamOverride === "header_dropdown") {
       return false;
     }
 
@@ -95,7 +97,15 @@ export default Controller.extend({
       return false;
     }
 
-    return navigationMenu === "sidebar";
+    // Always show sidebar for admin if user can see the admin sidbar
+    if (
+      this.sidebarState.isForcingAdminSidebar &&
+      this.sidebarState.currentUserUsingAdminSidebar
+    ) {
+      return true;
+    }
+
+    return this.siteSettings.navigation_menu === "sidebar";
   },
 
   calculateShowSidebar() {
@@ -109,7 +119,7 @@ export default Controller.extend({
   @action
   toggleSidebar() {
     // enables CSS transitions, but not on did-insert
-    document.querySelector("body").classList.add("sidebar-animate");
+    document.body.classList.add("sidebar-animate");
 
     discourseDebounce(this, this._mainOutletAnimate, 250);
 
@@ -122,5 +132,25 @@ export default Controller.extend({
         this.keyValueStore.setItem(HIDE_SIDEBAR_KEY, "true");
       }
     }
+  },
+
+  @action
+  trackDiscoursePainted() {
+    if (isTesting()) {
+      return;
+    }
+    runAfterFramePaint(() => {
+      performance.mark("discourse-paint");
+      try {
+        performance.measure(
+          "discourse-init-to-paint",
+          "discourse-init",
+          "discourse-paint"
+        );
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn("Failed to measure init-to-paint", e);
+      }
+    });
   },
 });

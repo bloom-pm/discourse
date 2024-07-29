@@ -2,29 +2,20 @@
 
 if GlobalSetting.skip_redis?
   Rails.application.reloader.to_prepare do
-    Rails.logger = Rails.logger.chained.first if Rails.logger.respond_to? :chained
+    Rails.logger.stop_broadcasting_to(Logster.logger) if defined?(Logster::Logger) && Logster.logger
   end
   return
-end
-
-if Rails.env.development? && RUBY_VERSION.match?(/^2\.5\.[23]/)
-  STDERR.puts "WARNING: Discourse development environment runs slower on Ruby 2.5.3 or below"
-  STDERR.puts "We recommend you upgrade to the latest Ruby 2.x for the optimal development performance"
-
-  # we have to used to older and slower version of the logger cause the new one exposes a Ruby bug in
-  # the Queue class which causes segmentation faults
-  Logster::Scheduler.disable
 end
 
 if Rails.env.development? && !Sidekiq.server? && ENV["RAILS_LOGS_STDOUT"] == "1"
   Rails.application.config.after_initialize do
     console = ActiveSupport::Logger.new(STDOUT)
-    original_logger = Rails.logger.chained.first
+    original_logger = Rails.logger.broadcasts.first
     console.formatter = original_logger.formatter
     console.level = original_logger.level
 
     unless ActiveSupport::Logger.logger_outputs_to?(original_logger, STDOUT)
-      original_logger.extend(ActiveSupport::Logger.broadcast(console))
+      Rails.logger.broadcast_to(console)
     end
   end
 end
@@ -67,6 +58,11 @@ if Rails.env.production?
     /RateLimiter::LimitExceeded.*/m,
   ]
   Logster.config.env_expandable_keys.push(:hostname, :problem_db)
+end
+
+Rails.application.config.after_initialize do
+  Logster.config.back_to_site_link_path = "#{Discourse.base_path}/admin"
+  Logster.config.back_to_site_link_text = I18n.t("dashboard.back_from_logster_text")
 end
 
 Logster.store.max_backlog = GlobalSetting.max_logster_logs
@@ -122,10 +118,7 @@ RailsMultisite::ConnectionManagement.each_connection do
 end
 
 if Rails.configuration.multisite
-  if Rails.logger.respond_to? :chained
-    chained = Rails.logger.chained
-    chained && chained.first.formatter = RailsMultisite::Formatter.new
-  end
+  Rails.logger.broadcasts.first.formatter = RailsMultisite::Formatter.new
 end
 
 Logster.config.project_directories = [
@@ -135,7 +128,7 @@ Discourse.plugins.each do |plugin|
   next if !plugin.metadata.url
 
   Logster.config.project_directories << {
-    path: "#{Rails.root.to_s}/plugins/#{plugin.directory_name}",
+    path: "#{Rails.root}/plugins/#{plugin.directory_name}",
     url: plugin.metadata.url,
   }
 end

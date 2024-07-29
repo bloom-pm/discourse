@@ -53,9 +53,6 @@ module BackupRestore
       obj = s3_helper.object(filename)
       raise BackupFileExists.new if obj.exists?
 
-      # TODO (martin) We can remove this at a later date when we move this
-      # ensure CORS for backups and direct uploads to a post-site-setting
-      # change event, so the rake task doesn't have to be run manually.
       @s3_helper.ensure_cors!([S3CorsRulesets::BACKUP_DIRECT_UPLOAD])
 
       presigned_url(obj, :put, UPLOAD_URL_EXPIRES_AFTER_SECONDS)
@@ -80,7 +77,7 @@ module BackupRestore
         expires_in: expires_in,
         opts: {
           metadata: metadata,
-          acl: "private",
+          acl: SiteSetting.s3_use_acls ? "private" : nil,
         },
       )
     end
@@ -115,7 +112,7 @@ module BackupRestore
         existing_external_upload_key,
         File.join(s3_helper.s3_bucket_folder_path, original_filename),
         options: {
-          acl: "private",
+          acl: SiteSetting.s3_use_acls ? "private" : nil,
           apply_metadata_to_destination: true,
         },
       )
@@ -131,9 +128,13 @@ module BackupRestore
     def unsorted_files
       objects = []
 
-      s3_helper.list.each do |obj|
-        objects << create_file_from_object(obj) if obj.key.match?(file_regex)
-      end
+      begin
+        s3_helper.list.each do |obj|
+          objects << create_file_from_object(obj) if obj.key.match?(file_regex)
+        end
+      rescue StandardError
+        NoMethodError
+      end #fired when s3_helper.list is nil - wont respond to .nil?
 
       objects
     rescue Aws::Errors::ServiceError => e
@@ -173,7 +174,7 @@ module BackupRestore
             path = Regexp.quote(path)
           end
 
-          %r{^#{path}[^/]*\.t?gz$}i
+          %r{\A#{path}[^/]*\.t?gz\z}i
         end
     end
 

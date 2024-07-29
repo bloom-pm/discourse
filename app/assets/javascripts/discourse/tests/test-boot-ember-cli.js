@@ -1,17 +1,12 @@
-import config from "../config/environment";
-import { setEnvironment } from "discourse-common/config/environment";
-import { start } from "ember-qunit";
 import loadEmberExam from "ember-exam/test-support/load";
+import { start } from "ember-qunit";
 import * as QUnit from "qunit";
 import { setup } from "qunit-dom";
-import Ember from "ember";
 import setupTests from "discourse/tests/setup-tests";
+import config from "../config/environment";
 
-setEnvironment("testing");
-
-document.addEventListener("discourse-booted", () => {
-  // eslint-disable-next-line no-undef
-  if (!EmberENV.TESTS_FILE_LOADED) {
+document.addEventListener("discourse-init", () => {
+  if (!window.EmberENV.TESTS_FILE_LOADED) {
     throw new Error(
       'The tests file was not loaded. Make sure your tests index.html includes "assets/tests.js".'
     );
@@ -25,10 +20,12 @@ document.addEventListener("discourse-booted", () => {
   }
 
   const params = new URLSearchParams(window.location.search);
-  const skipCore = params.get("qunit_skip_core") === "1";
+  const target = params.get("target");
+  const testingTheme = !!document.querySelector("script[data-theme-id]");
+  const testingCore = !testingTheme && (!target || target === "core");
   const disableAutoStart = params.get("qunit_disable_auto_start") === "1";
 
-  Ember.ENV.LOG_STACKTRACE_ON_DEPRECATION = false;
+  window.EmberENV.LOG_STACKTRACE_ON_DEPRECATION = false;
 
   document.body.insertAdjacentHTML(
     "afterbegin",
@@ -60,7 +57,7 @@ document.addEventListener("discourse-booted", () => {
     setupTestContainer: false,
     loadTests: false,
     startTests: !disableAutoStart,
-    setupEmberOnerrorValidation: !skipCore,
+    setupEmberOnerrorValidation: testingCore,
     setupTestIsolationValidation: true,
   });
 });

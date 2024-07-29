@@ -1,14 +1,12 @@
 # frozen_string_literal: true
 
-require "rails_helper"
-
 describe "API keys scoped to chat#create_message" do
   before do
     SiteSetting.chat_enabled = true
     SiteSetting.chat_allowed_groups = Group::AUTO_GROUPS[:everyone]
   end
 
-  fab!(:admin) { Fabricate(:admin) }
+  fab!(:admin)
   fab!(:chat_channel) { Fabricate(:category_channel) }
   fab!(:chat_channel_2) { Fabricate(:category_channel) }
 
@@ -44,7 +42,7 @@ describe "API keys scoped to chat#create_message" do
   end
 
   it "can create chat messages" do
-    UserChatChannelMembership.create(user: admin, chat_channel: chat_channel, following: true)
+    Chat::UserChatChannelMembership.create(user: admin, chat_channel: chat_channel, following: true)
     expect {
       post "/chat/#{chat_channel.id}.json",
            headers: {
@@ -54,12 +52,12 @@ describe "API keys scoped to chat#create_message" do
            params: {
              message: "asdfasdf asdfasdf",
            }
-    }.to change { ChatMessage.where(chat_channel: chat_channel).count }.by(1)
+    }.to change { Chat::Message.where(chat_channel: chat_channel).count }.by(1)
     expect(response.status).to eq(200)
   end
 
   it "cannot post in a channel it is not scoped for" do
-    UserChatChannelMembership.create(user: admin, chat_channel: chat_channel, following: true)
+    Chat::UserChatChannelMembership.create(user: admin, chat_channel: chat_channel, following: true)
     expect {
       post "/chat/#{chat_channel.id}.json",
            headers: {
@@ -69,12 +67,16 @@ describe "API keys scoped to chat#create_message" do
            params: {
              message: "asdfasdf asdfasdf",
            }
-    }.not_to change { ChatMessage.where(chat_channel: chat_channel).count }
+    }.not_to change { Chat::Message.where(chat_channel: chat_channel).count }
     expect(response.status).to eq(403)
   end
 
   it "can only post in scoped channels" do
-    UserChatChannelMembership.create(user: admin, chat_channel: chat_channel_2, following: true)
+    Chat::UserChatChannelMembership.create(
+      user: admin,
+      chat_channel: chat_channel_2,
+      following: true,
+    )
     expect {
       post "/chat/#{chat_channel_2.id}.json",
            headers: {
@@ -84,7 +86,7 @@ describe "API keys scoped to chat#create_message" do
            params: {
              message: "asdfasdf asdfasdf",
            }
-    }.to change { ChatMessage.where(chat_channel: chat_channel_2).count }.by(1)
+    }.to change { Chat::Message.where(chat_channel: chat_channel_2).count }.by(1)
     expect(response.status).to eq(200)
   end
 end

@@ -155,6 +155,7 @@ task "users:disable_2fa", [:username] => [:environment] do |_, args|
   username = args[:username]
   user = find_user(username)
   UserSecondFactor.where(user_id: user.id, method: UserSecondFactor.methods[:totp]).each(&:destroy!)
+  UserSecurityKey.where(user_id: user.id).destroy_all
   puts "2FA disabled for #{username}"
 end
 
@@ -182,6 +183,15 @@ task "users:anonymize_all" => :environment do
   puts "", "#{total} users anonymized.", ""
 end
 
+desc "Anonymize user with the given username"
+task "users:anonymize", [:username] => [:environment] do |_, args|
+  username = args[:username]
+  user = find_user(username)
+  system_user = Discourse.system_user
+  UserAnonymizer.new(user, system_user).make_anonymous
+  puts "User #{username} anonymized"
+end
+
 desc "List all users which have been staff in the last month"
 task "users:list_recent_staff" => :environment do
   current_staff_ids = User.human_users.where("admin OR moderator").pluck(:id)
@@ -198,6 +208,17 @@ task "users:list_recent_staff" => :environment do
   users.each { |user| puts "#{user.id}: #{user.username} (#{user.email})" }
   puts "----"
   puts "user_ids = [#{all_ids.uniq.join(",")}]"
+end
+
+desc "Check if a user exists for given email address"
+task "users:exists", [:email] => [:environment] do |_, args|
+  email = args[:email]
+  if User.find_by_email(email)
+    puts "User with email #{email} exists"
+    exit 0
+  end
+  puts "ERROR: User with email #{email} not found"
+  exit 1
 end
 
 def find_user(username)

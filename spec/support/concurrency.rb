@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "fiber"
-
 module Concurrency
   module Logic
     class DeadEnd < StandardError
@@ -21,7 +19,7 @@ module Concurrency
         def choose(*options)
           raise DeadEnd if options.empty?
 
-          @path << [options.size, 0] unless @index < @path.size
+          @path << [options.size, 0] if @index >= @path.size
 
           pair = @path[@index]
           raise "non-determinism" unless pair[0] == options.size

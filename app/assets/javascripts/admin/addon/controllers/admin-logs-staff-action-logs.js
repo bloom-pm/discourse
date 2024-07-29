@@ -1,28 +1,32 @@
 import Controller from "@ember/controller";
 import EmberObject, { action } from "@ember/object";
-import I18n from "I18n";
-import discourseComputed from "discourse-common/utils/decorators";
+import { scheduleOnce } from "@ember/runloop";
+import { service } from "@ember/service";
 import { exportEntity } from "discourse/lib/export-csv";
 import { outputExportResult } from "discourse/lib/export-result";
-import { scheduleOnce } from "@ember/runloop";
-import showModal from "discourse/lib/show-modal";
+import discourseComputed from "discourse-common/utils/decorators";
+import I18n from "discourse-i18n";
+import StaffActionLogDetailsModal from "../components/modal/staff-action-log-details";
+import ThemeChangeModal from "../components/modal/theme-change";
 
-export default Controller.extend({
-  queryParams: ["filters"],
+export default class AdminLogsStaffActionLogsController extends Controller {
+  @service modal;
+  @service store;
 
-  model: null,
-  filters: null,
-  userHistoryActions: null,
+  queryParams = ["filters"];
+  model = null;
+  filters = null;
+  userHistoryActions = null;
 
   @discourseComputed("filters.action_name")
   actionFilter(name) {
     return name ? I18n.t("admin.logs.staff_actions.actions." + name) : null;
-  },
+  }
 
   @discourseComputed("filters")
   filtersExists(filters) {
     return filters && Object.keys(filters).length > 0;
-  },
+  }
 
   _refresh() {
     this.store.findAll("staff-action-log", this.filters).then((result) => {
@@ -44,11 +48,11 @@ export default Controller.extend({
         );
       }
     });
-  },
+  }
 
   scheduleRefresh() {
     scheduleOnce("afterRender", this, this._refresh);
-  },
+  }
 
   resetFilters() {
     this.setProperties({
@@ -56,7 +60,7 @@ export default Controller.extend({
       filters: EmberObject.create(),
     });
     this.scheduleRefresh();
-  },
+  }
 
   changeFilters(props) {
     this.set("model", EmberObject.create({ loadingMore: true }));
@@ -76,7 +80,7 @@ export default Controller.extend({
 
     this.send("onFiltersChange", this.filters);
     this.scheduleRefresh();
-  },
+  }
 
   @action
   filterActionIdChanged(filterActionId) {
@@ -87,7 +91,7 @@ export default Controller.extend({
           .action_id,
       });
     }
-  },
+  }
 
   @action
   clearFilter(key, event) {
@@ -102,14 +106,14 @@ export default Controller.extend({
     } else {
       this.changeFilters({ [key]: null });
     }
-  },
+  }
 
   @action
   clearAllFilters(event) {
     event?.preventDefault();
     this.set("filterActionId", null);
     this.resetFilters();
-  },
+  }
 
   @action
   filterByAction(logItem, event) {
@@ -119,54 +123,47 @@ export default Controller.extend({
       action_id: logItem.get("action"),
       custom_type: logItem.get("custom_type"),
     });
-  },
+  }
 
   @action
   filterByStaffUser(acting_user, event) {
     event?.preventDefault();
     this.changeFilters({ acting_user: acting_user.username });
-  },
+  }
 
   @action
   filterByTargetUser(target_user, event) {
     event?.preventDefault();
     this.changeFilters({ target_user: target_user.username });
-  },
+  }
 
   @action
   filterBySubject(subject, event) {
     event?.preventDefault();
     this.changeFilters({ subject });
-  },
+  }
 
   @action
   exportStaffActionLogs() {
     exportEntity("staff_action").then(outputExportResult);
-  },
+  }
 
   @action
   loadMore() {
     this.model.loadMore();
-  },
+  }
 
   @action
   showDetailsModal(model, event) {
     event?.preventDefault();
-    showModal("admin-staff-action-log-details", {
-      model,
-      admin: true,
-      modalClass: "log-details-modal",
+    this.modal.show(StaffActionLogDetailsModal, {
+      model: { staffActionLog: model },
     });
-  },
+  }
 
   @action
   showCustomDetailsModal(model, event) {
     event?.preventDefault();
-    let modal = showModal("admin-theme-change", {
-      model,
-      admin: true,
-      modalClass: "history-modal",
-    });
-    modal.loadDiff();
-  },
-});
+    this.modal.show(ThemeChangeModal, { model: { staffActionLog: model } });
+  }
+}

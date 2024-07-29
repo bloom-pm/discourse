@@ -1,13 +1,12 @@
+import { visit } from "@ember/test-helpers";
+import { test } from "qunit";
+import PreloadStore from "discourse/lib/preload-store";
+import discoveryFixtures from "discourse/tests/fixtures/discovery-fixtures";
 import {
   acceptance,
   exists,
   query,
 } from "discourse/tests/helpers/qunit-helpers";
-import { visit } from "@ember/test-helpers";
-import { test } from "qunit";
-
-import PreloadStore from "discourse/lib/preload-store";
-import discoveryFixtures from "discourse/tests/fixtures/discovery-fixtures";
 import { cloneJSON } from "discourse-common/lib/object";
 
 acceptance("Categories - 'categories_only'", function (needs) {
@@ -79,7 +78,7 @@ acceptance("Categories - 'categories_with_featured_topics'", function (needs) {
 });
 
 acceptance(
-  "Categories - 'subcategories_with_featured_topics'",
+  "Categories - 'subcategories_with_featured_topics' (desktop)",
   function (needs) {
     needs.settings({
       desktop_category_page_style: "subcategories_with_featured_topics",
@@ -98,6 +97,33 @@ acceptance(
       );
       assert.ok(
         exists("table.category-list.with-topics div[data-topic-id=11994]"),
+        "shows a featured topic"
+      );
+    });
+  }
+);
+
+acceptance(
+  "Categories - 'subcategories_with_featured_topics' (mobile)",
+  function (needs) {
+    needs.mobileView();
+    needs.settings({
+      desktop_category_page_style: "subcategories_with_featured_topics",
+    });
+    test("basic functionality", async function (assert) {
+      await visit("/categories");
+      assert.ok(
+        exists("div.subcategory-list.with-topics h3 .category-name"),
+        "shows heading for top-level category"
+      );
+      assert.ok(
+        exists(
+          "div.subcategory-list.with-topics div[data-category-id=26] h3 .category-name"
+        ),
+        "shows element for subcategories"
+      );
+      assert.ok(
+        exists("div.category-list.with-topics a[data-topic-id=11994]"),
         "shows a featured topic"
       );
     });

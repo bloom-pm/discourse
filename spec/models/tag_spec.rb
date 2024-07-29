@@ -13,11 +13,11 @@ RSpec.describe Tag do
   let(:tag) { Fabricate(:tag) }
   let(:tag2) { Fabricate(:tag) }
   let(:topic) { Fabricate(:topic, tags: [tag]) }
-  fab!(:user) { Fabricate(:user) }
+  fab!(:user)
 
   before do
     SiteSetting.tagging_enabled = true
-    SiteSetting.min_trust_level_to_tag_topics = 0
+    SiteSetting.tag_topic_allowed_groups = Group::AUTO_GROUPS[:trust_level_0]
   end
 
   describe "Associations" do
@@ -29,19 +29,19 @@ RSpec.describe Tag do
 
       expect { tag_sidebar_section_link.linkable.destroy! }.to change {
         SidebarSectionLink.count
-      }.from(3).to(1)
-      expect(SidebarSectionLink.first).to eq(category_sidebar_section_link)
+      }.from(12).to(10)
+      expect(SidebarSectionLink.last).to eq(category_sidebar_section_link)
     end
   end
 
   describe "new" do
-    subject { Fabricate.build(:tag) }
+    subject(:tag) { Fabricate.build(:tag) }
 
     it "triggers a extensibility event" do
-      event = DiscourseEvent.track_events { subject.save! }.last
+      event = DiscourseEvent.track_events { tag.save! }.last
 
       expect(event[:event_name]).to eq(:tag_created)
-      expect(event[:params].first).to eq(subject)
+      expect(event[:params].first).to eq(tag)
     end
 
     it "prevents case-insensitive duplicates" do
@@ -59,13 +59,13 @@ RSpec.describe Tag do
   end
 
   describe "destroy" do
-    subject { Fabricate(:tag) }
+    subject(:tag) { Fabricate(:tag) }
 
     it "triggers a extensibility event" do
-      event = DiscourseEvent.track_events { subject.destroy! }.last
+      event = DiscourseEvent.track_events { tag.destroy! }.last
 
       expect(event[:event_name]).to eq(:tag_destroyed)
-      expect(event[:params].first).to eq(subject)
+      expect(event[:params].first).to eq(tag)
     end
 
     it "removes it from its tag group" do
@@ -202,31 +202,104 @@ RSpec.describe Tag do
     end
   end
 
-  describe "topic counts" do
+  describe ".ensure_consistency!" do
     it "should exclude private message topics" do
       topic
       Fabricate(:private_message_topic, tags: [tag])
       Tag.ensure_consistency!
       tag.reload
-      expect(tag.topic_count).to eq(1)
+      expect(tag.staff_topic_count).to eq(1)
+      expect(tag.public_topic_count).to eq(1)
+    end
+
+    it "should update Tag#topic_count and Tag#public_topic_count correctly" do
+      tag = Fabricate(:tag, name: "tag1")
+      tag2 = Fabricate(:tag, name: "tag2")
+      tag3 = Fabricate(:tag, name: "tag3")
+      group = Fabricate(:group)
+      category = Fabricate(:category)
+      private_category = Fabricate(:private_category, group: group)
+      private_category2 = Fabricate(:private_category, group: group)
+
+      _topic_with_tag = Fabricate(:topic, category: category, tags: [tag])
+
+      _topic_with_tag_in_private_category =
+        Fabricate(:topic, category: private_category, tags: [tag])
+
+      _topic_with_tag2_in_private_category2 =
+        Fabricate(:topic, category: private_category2, tags: [tag2])
+
+      tag.update!(staff_topic_count: 123, public_topic_count: 456)
+      tag2.update!(staff_topic_count: 123, public_topic_count: 456)
+      tag3.update!(staff_topic_count: 123, public_topic_count: 456)
+
+      Tag.ensure_consistency!
+
+      tag.reload
+      tag2.reload
+      tag3.reload
+
+      expect(tag.staff_topic_count).to eq(2)
+      expect(tag.public_topic_count).to eq(1)
+      expect(tag2.staff_topic_count).to eq(1)
+      expect(tag2.public_topic_count).to eq(0)
+      expect(tag3.staff_topic_count).to eq(0)
+      expect(tag3.public_topic_count).to eq(0)
     end
   end
 
   describe "unused tags scope" do
     let!(:tags) do
       [
-        Fabricate(:tag, name: "used_publically", topic_count: 2, pm_topic_count: 0),
-        Fabricate(:tag, name: "used_privately", topic_count: 0, pm_topic_count: 3),
-        Fabricate(:tag, name: "used_everywhere", topic_count: 0, pm_topic_count: 3),
-        Fabricate(:tag, name: "unused1", topic_count: 0, pm_topic_count: 0),
-        Fabricate(:tag, name: "unused2", topic_count: 0, pm_topic_count: 0),
+        Fabricate(
+          :tag,
+          name: "used_publically",
+          staff_topic_count: 2,
+          public_topic_count: 2,
+          pm_topic_count: 0,
+        ),
+        Fabricate(
+          :tag,
+          name: "used_privately",
+          staff_topic_count: 0,
+          public_topic_count: 0,
+          pm_topic_count: 3,
+        ),
+        Fabricate(
+          :tag,
+          name: "used_everywhere",
+          staff_topic_count: 0,
+          public_topic_count: 0,
+          pm_topic_count: 3,
+        ),
+        Fabricate(
+          :tag,
+          name: "unused1",
+          staff_topic_count: 0,
+          public_topic_count: 0,
+          pm_topic_count: 0,
+        ),
+        Fabricate(
+          :tag,
+          name: "unused2",
+          staff_topic_count: 0,
+          public_topic_count: 0,
+          pm_topic_count: 0,
+        ),
       ]
     end
 
     let(:tag_in_group) do
-      Fabricate(:tag, name: "unused_in_group", topic_count: 0, pm_topic_count: 0)
+      Fabricate(
+        :tag,
+        name: "unused_in_group",
+        public_topic_count: 0,
+        staff_topic_count: 0,
+        pm_topic_count: 0,
+      )
     end
     let!(:tag_group) { Fabricate(:tag_group, tag_names: [tag_in_group.name]) }
+    let!(:synonym_tag) { Fabricate(:tag, target_tag: tags.first) }
 
     it "returns the correct tags" do
       expect(Tag.unused.pluck(:name)).to contain_exactly("unused1", "unused2")
@@ -290,6 +363,35 @@ RSpec.describe Tag do
       category = Fabricate(:category, tags: [tag, tag2])
       tag2.update!(target_tag: tag)
       expect(category.reload.tags).to include(tag2)
+    end
+  end
+
+  describe ".topic_count_column" do
+    fab!(:admin)
+
+    it "returns 'staff_topic_count' when user is staff" do
+      expect(Tag.topic_count_column(Guardian.new(admin))).to eq("staff_topic_count")
+    end
+
+    it "returns 'public_topic_count' when user is not staff" do
+      expect(Tag.topic_count_column(Guardian.new(user))).to eq("public_topic_count")
+    end
+
+    it "returns 'staff_topic_count' when user is not staff but `include_secure_categories_in_tag_counts` site setting is enabled" do
+      SiteSetting.include_secure_categories_in_tag_counts = true
+
+      expect(Tag.topic_count_column(Guardian.new(user))).to eq("staff_topic_count")
+    end
+  end
+
+  describe "description" do
+    it "uses the HTMLSanitizer to remove unsafe tags and attributes" do
+      tag.description =
+        "<div>hi</div><script>a=0;</script> <a onclick='const a=0;' href=\"https://www.discourse.org\">discourse</a>"
+      tag.save!
+      expect(tag.description.strip).to eq(
+        "<div>hi</div>a=0; <a href=\"https://www.discourse.org\">discourse</a>",
+      )
     end
   end
 end

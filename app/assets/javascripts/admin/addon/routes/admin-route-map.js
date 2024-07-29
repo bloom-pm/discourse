@@ -14,6 +14,10 @@ export default function () {
         path: "/dashboard/reports",
         resetNamespace: true,
       });
+      this.route("admin.dashboardNewFeatures", {
+        path: "/dashboard/whats-new",
+        resetNamespace: true,
+      });
     });
 
     this.route(
@@ -51,9 +55,11 @@ export default function () {
 
         this.route(
           "adminCustomizeThemes",
-          { path: "themes", resetNamespace: true },
+          { path: "/:type", resetNamespace: true },
           function () {
-            this.route("show", { path: "/:theme_id" });
+            this.route("show", { path: "/:theme_id" }, function () {
+              this.route("schema", { path: "schema/:setting_name" });
+            });
             this.route("edit", { path: "/:theme_id/:target/:field_name/edit" });
           }
         );
@@ -98,10 +104,17 @@ export default function () {
           }
         );
         this.route(
+          "adminCustomizeFormTemplates",
+          { path: "/form-templates", resetNamespace: true },
+          function () {
+            this.route("new");
+            this.route("edit", { path: "/:id" });
+          }
+        );
+        this.route(
           "adminWatchedWords",
           { path: "/watched_words", resetNamespace: true },
           function () {
-            this.route("index", { path: "/" });
             this.route("action", { path: "/action/:action_id" });
           }
         );
@@ -114,7 +127,7 @@ export default function () {
         { path: "/keys", resetNamespace: true },
         function () {
           this.route("show", { path: "/:api_key_id" });
-          this.route("new", { path: "/new" });
+          this.route("new");
         }
       );
 
@@ -140,6 +153,7 @@ export default function () {
       "adminReports",
       { path: "/reports", resetNamespace: true },
       function () {
+        this.route("index", { path: "/" });
         this.route("show", { path: ":type" });
       }
     );
@@ -157,7 +171,7 @@ export default function () {
           { path: "/search_logs", resetNamespace: true },
           function () {
             this.route("index", { path: "/" });
-            this.route("term", { path: "/term" });
+            this.route("term");
           }
         );
       }
@@ -196,11 +210,33 @@ export default function () {
     );
 
     this.route(
+      "adminConfig",
+      { path: "/config", resetNamespace: true },
+      function () {
+        this.route("flags", function () {
+          this.route("index", { path: "/" });
+          this.route("new");
+          this.route("edit", { path: "/:flag_id" });
+        });
+
+        this.route("about");
+      }
+    );
+
+    this.route(
       "adminPlugins",
       { path: "/plugins", resetNamespace: true },
       function () {
         this.route("index", { path: "/" });
+        this.route("show", { path: "/:plugin_id" }, function () {
+          this.route("settings");
+        });
       }
     );
+
+    this.route("admin.whatsNew", {
+      path: "/whats-new",
+      resetNamespace: true,
+    });
   });
 }

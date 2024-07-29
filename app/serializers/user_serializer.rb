@@ -51,7 +51,9 @@ class UserSerializer < UserCardSerializer
                      :custom_avatar_template,
                      :has_title_badges,
                      :muted_usernames,
+                     :can_mute_users,
                      :ignored_usernames,
+                     :can_ignore_users,
                      :allowed_pm_usernames,
                      :mailing_list_posts_per_day,
                      :can_change_bio,
@@ -59,13 +61,14 @@ class UserSerializer < UserCardSerializer
                      :can_change_website,
                      :can_change_tracking_preferences,
                      :user_api_keys,
+                     :user_passkeys,
                      :user_auth_tokens,
                      :user_notification_schedule,
                      :use_logo_small_as_avatar,
                      :sidebar_tags,
                      :sidebar_category_ids,
-                     :sidebar_list_destination,
-                     :display_sidebar_tags
+                     :display_sidebar_tags,
+                     :can_pick_theme_with_custom_homepage
 
   untrusted_attributes :bio_raw, :bio_cooked, :profile_background_upload_url
 
@@ -74,7 +77,11 @@ class UserSerializer < UserCardSerializer
   ###
   #
   def user_notification_schedule
-    object.user_notification_schedule || UserNotificationSchedule::DEFAULT
+    UserNotificationScheduleSerializer.new(
+      object.user_notification_schedule,
+      scope: scope,
+      root: false,
+    ).as_json || UserNotificationSchedule::DEFAULT
   end
 
   def mailing_list_posts_per_day
@@ -83,7 +90,7 @@ class UserSerializer < UserCardSerializer
   end
 
   def groups
-    object.groups.order(:id).visible_groups(scope.user).members_visible_groups(scope.user)
+    object.groups.order(:id).visible_groups(scope.user)
   end
 
   def group_users
@@ -165,6 +172,19 @@ class UserSerializer < UserCardSerializer
     )
   end
 
+  def user_passkeys
+    UserSecurityKey
+      .where(user_id: object.id, factor_type: UserSecurityKey.factor_types[:first_factor])
+      .order("created_at ASC")
+      .map do |usk|
+        { id: usk.id, name: usk.name, last_used: usk.last_used, created_at: usk.created_at }
+      end
+  end
+
+  def include_user_passkeys?
+    SiteSetting.enable_passkeys?
+  end
+
   def bio_raw
     object.user_profile.bio_raw
   end
@@ -240,8 +260,16 @@ class UserSerializer < UserCardSerializer
     MutedUser.where(user_id: object.id).joins(:muted_user).pluck(:username)
   end
 
+  def can_mute_users
+    scope.can_mute_users?
+  end
+
   def ignored_usernames
     IgnoredUser.where(user_id: object.id).joins(:ignored_user).pluck(:username)
+  end
+
+  def can_ignore_users
+    scope.can_ignore_users?
   end
 
   def allowed_pm_usernames
@@ -307,6 +335,10 @@ class UserSerializer < UserCardSerializer
   def use_logo_small_as_avatar
     object.is_system_user? && SiteSetting.logo_small &&
       SiteSetting.use_site_small_logo_as_system_avatar
+  end
+
+  def can_pick_theme_with_custom_homepage
+    ThemeModifierHelper.new(theme_ids: Theme.enabled_theme_and_component_ids).custom_homepage
   end
 
   private

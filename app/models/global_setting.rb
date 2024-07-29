@@ -5,7 +5,7 @@ class GlobalSetting
     define_singleton_method(key) { provider.lookup(key, default) }
   end
 
-  VALID_SECRET_KEY ||= /^[0-9a-f]{128}$/
+  VALID_SECRET_KEY ||= /\A[0-9a-f]{128}\z/
   # this is named SECRET_TOKEN as opposed to SECRET_KEY_BASE
   # for legacy reasons
   REDIS_SECRET_KEY ||= "SECRET_TOKEN"
@@ -63,14 +63,12 @@ class GlobalSetting
 
         define_singleton_method(key) do
           val = instance_variable_get("@#{key}_cache")
-          unless val.nil?
-            val == :missing ? nil : val
-          else
+          if val.nil?
             val = provider.lookup(key, default)
             val = :missing if val.nil?
             instance_variable_set("@#{key}_cache", val)
-            val == :missing ? nil : val
           end
+          val == :missing ? nil : val
         end
       end
   end
@@ -91,6 +89,7 @@ class GlobalSetting
     @skip_redis
   end
 
+  # rubocop:disable Lint/BooleanSymbol
   def self.use_s3?
     (
       @use_s3 ||=
@@ -104,6 +103,7 @@ class GlobalSetting
         end
     ) == :true
   end
+  # rubocop:enable Lint/BooleanSymbol
 
   def self.s3_bucket_name
     @s3_bucket_name ||= s3_bucket.downcase.split("/")[0]
@@ -127,7 +127,6 @@ class GlobalSetting
     %w[
       pool
       connect_timeout
-      timeout
       socket
       host
       backup_host
@@ -248,10 +247,37 @@ class GlobalSetting
     define_singleton_method(name) { default } unless self.respond_to? name
   end
 
+  def self.smtp_settings
+    if GlobalSetting.smtp_address
+      settings = {
+        address: GlobalSetting.smtp_address,
+        port: GlobalSetting.smtp_port,
+        domain: GlobalSetting.smtp_domain,
+        user_name: GlobalSetting.smtp_user_name,
+        password: GlobalSetting.smtp_password,
+        enable_starttls_auto: GlobalSetting.smtp_enable_start_tls,
+        open_timeout: GlobalSetting.smtp_open_timeout,
+        read_timeout: GlobalSetting.smtp_read_timeout,
+      }
+
+      if settings[:password] || settings[:user_name]
+        settings[:authentication] = GlobalSetting.smtp_authentication
+      end
+
+      settings[
+        :openssl_verify_mode
+      ] = GlobalSetting.smtp_openssl_verify_mode if GlobalSetting.smtp_openssl_verify_mode
+
+      settings[:tls] = true if GlobalSetting.smtp_force_tls
+      settings.compact
+      settings
+    end
+  end
+
   class BaseProvider
     def self.coerce(setting)
       return setting == "true" if setting == "true" || setting == "false"
-      return $1.to_i if setting.to_s.strip =~ /^([0-9]+)$/
+      return $1.to_i if setting.to_s.strip =~ /\A([0-9]+)\z/
       setting
     end
 
@@ -283,7 +309,7 @@ class GlobalSetting
         .result()
         .split("\n")
         .each do |line|
-          if line =~ /^\s*([a-z_]+[a-z0-9_]*)\s*=\s*(\"([^\"]*)\"|\'([^\']*)\'|[^#]*)/
+          if line =~ /\A\s*([a-z_]+[a-z0-9_]*)\s*=\s*(\"([^\"]*)\"|\'([^\']*)\'|[^#]*)/
             @data[$1.strip.to_sym] = ($4 || $3 || $2).strip
           end
         end
@@ -314,7 +340,7 @@ class GlobalSetting
     end
 
     def keys
-      ENV.keys.select { |k| k =~ /^DISCOURSE_/ }.map { |k| k[10..-1].downcase.to_sym }
+      ENV.keys.select { |k| k =~ /\ADISCOURSE_/ }.map { |k| k[10..-1].downcase.to_sym }
     end
   end
 

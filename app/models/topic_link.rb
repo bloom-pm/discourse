@@ -175,7 +175,7 @@ class TopicLink < ActiveRecord::Base
 
     lookup = {}
     results.each do |tl|
-      normalized = tl.url.downcase.sub(%r{^https?://}, "").sub(%r{/$}, "")
+      normalized = tl.url.downcase.sub(%r{\Ahttps?://}, "").sub(%r{/\z}, "")
       lookup[normalized] = {
         domain: tl.domain,
         username: tl.user.username_lower,
@@ -289,6 +289,10 @@ class TopicLink < ActiveRecord::Base
       # Store the same URL that will be used in the cooked version of the post
       url = UrlHelper.cook_url(upload.url, secure: upload.secure?)
     elsif route = Discourse.route_for(parsed)
+      # this is a special case for the silent flag
+      # in internal links
+      return nil if url && (url.split("?")[1] == "silent=true")
+
       internal = true
 
       # We aren't interested in tracking internal links to users

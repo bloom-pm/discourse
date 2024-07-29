@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 RSpec.describe Jobs::TruncateUserFlagStats do
-  fab!(:user) { Fabricate(:user) }
-  fab!(:other_user) { Fabricate(:user) }
+  fab!(:user) { Fabricate(:user, refresh_auto_groups: true) }
+  fab!(:other_user) { Fabricate(:user, refresh_auto_groups: true) }
 
   before do
     # We might make this a site setting eventually
@@ -53,7 +53,7 @@ RSpec.describe Jobs::TruncateUserFlagStats do
 
     r0.perform(Discourse.system_user, :agree_and_keep)
     r1.perform(Discourse.system_user, :disagree)
-    r2.perform(Discourse.system_user, :ignore)
+    r2.perform(Discourse.system_user, :ignore_and_do_nothing)
     r3.perform(Discourse.system_user, :agree_and_keep)
 
     user.user_stat.reload

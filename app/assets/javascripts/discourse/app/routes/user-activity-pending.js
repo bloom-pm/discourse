@@ -1,11 +1,14 @@
-import DiscourseRoute from "discourse/routes/discourse";
+import { service } from "@ember/service";
 import { emojiUnescape } from "discourse/lib/text";
 import { escapeExpression } from "discourse/lib/utilities";
+import DiscourseRoute from "discourse/routes/discourse";
 
-export default DiscourseRoute.extend({
+export default class UserActivityPending extends DiscourseRoute {
+  @service router;
+
   beforeModel() {
     this.username = this.modelFor("user").username_lower;
-  },
+  }
 
   model() {
     return this.store
@@ -21,7 +24,7 @@ export default DiscourseRoute.extend({
 
         return pendingPosts;
       });
-  },
+  }
 
   activate() {
     this.appEvents.on(
@@ -29,7 +32,7 @@ export default DiscourseRoute.extend({
       this,
       "_handleCountChange"
     );
-  },
+  }
 
   deactivate() {
     this.appEvents.off(
@@ -37,12 +40,12 @@ export default DiscourseRoute.extend({
       this,
       "_handleCountChange"
     );
-  },
+  }
 
   _handleCountChange(count) {
     this.refresh();
     if (count <= 0) {
-      this.transitionTo("userActivity");
+      this.router.transitionTo("userActivity");
     }
-  },
-});
+  }
+}

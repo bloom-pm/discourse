@@ -3,8 +3,10 @@
 RSpec.describe Middleware::AnonymousCache do
   let(:middleware) { Middleware::AnonymousCache.new(lambda { |_| [200, {}, []] }) }
 
+  before { Middleware::AnonymousCache.enable_anon_cache }
+
   def env(opts = {})
-    create_request_env(path: "http://test.com/path?bla=1").merge(opts)
+    create_request_env(path: opts.delete(:path) || "http://test.com/path?bla=1").merge(opts)
   end
 
   describe Middleware::AnonymousCache::Helper do
@@ -37,6 +39,18 @@ RSpec.describe Middleware::AnonymousCache do
 
       it "is false for srv/status routes" do
         expect(new_helper("PATH_INFO" => "/srv/status").cacheable?).to eq(false)
+      end
+
+      it "is false for API requests using header" do
+        expect(new_helper("HTTP_API_KEY" => "abcde").cacheable?).to eq(false)
+      end
+
+      it "is false for API requests using parameter" do
+        expect(new_helper(path: "/path?api_key=abc").cacheable?).to eq(false)
+      end
+
+      it "is false for User API requests using header" do
+        expect(new_helper("HTTP_USER_API_KEY" => "abcde").cacheable?).to eq(false)
       end
     end
 
@@ -96,6 +110,18 @@ RSpec.describe Middleware::AnonymousCache do
       key1 = new_helper("HTTP_USER_AGENT" => "Safari (iPhone OS 7)").cache_key
       key2 = new_helper("HTTP_USER_AGENT" => "Safari (iPhone OS 15)").cache_key
       expect(key1).not_to eq(key2)
+    end
+
+    it "handles user agents with invalid bytes" do
+      agent = (+"Evil Googlebot String \xc3\x28").force_encoding("ASCII")
+      expect {
+        key1 = new_helper("HTTP_USER_AGENT" => agent).cache_key
+        key2 =
+          new_helper(
+            "HTTP_USER_AGENT" => agent.encode("utf-8", invalid: :replace, undef: :replace),
+          ).cache_key
+        expect(key1).to eq(key2)
+      }.not_to raise_error
     end
 
     context "when cached" do
@@ -204,9 +230,9 @@ RSpec.describe Middleware::AnonymousCache do
   describe "#force_anonymous!" do
     before { RateLimiter.enable }
 
-    it "will revert to anonymous once we reach the limit" do
-      RateLimiter.clear_all!
+    use_redis_snapshotting
 
+    it "will revert to anonymous once we reach the limit" do
       is_anon = false
 
       app =
@@ -322,6 +348,9 @@ RSpec.describe Middleware::AnonymousCache do
             "QUERY_STRING" => "api_key=#{api_key.key}&api_username=system",
           }
       expect(@status).to eq(200)
+
+      get "/latest", headers: { "HTTP_API_KEY" => api_key.key, "HTTP_API_USERNAME" => "system" }
+      expect(@status).to eq(200)
     end
 
     it "applies blocked_crawler_user_agents correctly" do
@@ -333,6 +362,15 @@ RSpec.describe Middleware::AnonymousCache do
       get "/", headers: { "HTTP_USER_AGENT" => "Googlebot/2.1 (+http://www.google.com/bot.html)" }
 
       expect(@status).to eq(403)
+
+      expect {
+        get "/",
+            headers: {
+              "HTTP_USER_AGENT" => (+"Evil Googlebot String \xc3\x28").force_encoding("ASCII"),
+            }
+
+        expect(@status).to eq(403)
+      }.not_to raise_error
 
       get "/",
           headers: {

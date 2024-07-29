@@ -5,14 +5,14 @@ RSpec.describe ReviewableFlaggedPost, type: :model do
     ReviewableFlaggedPost.default_visible.pending.count
   end
 
-  fab!(:user) { Fabricate(:user) }
-  fab!(:post) { Fabricate(:post) }
-  fab!(:moderator) { Fabricate(:moderator) }
+  fab!(:user) { Fabricate(:user, refresh_auto_groups: true) }
+  fab!(:post)
+  fab!(:moderator) { Fabricate(:moderator, refresh_auto_groups: true) }
 
   it "sets `potential_spam` when a spam flag is added" do
     reviewable = PostActionCreator.off_topic(user, post).reviewable
     expect(reviewable.potential_spam?).to eq(false)
-    PostActionCreator.spam(Fabricate(:user), post)
+    PostActionCreator.spam(Fabricate(:user, refresh_auto_groups: true), post)
     expect(reviewable.reload.potential_spam?).to eq(true)
   end
 
@@ -27,13 +27,14 @@ RSpec.describe ReviewableFlaggedPost, type: :model do
         actions = reviewable.actions_for(guardian)
         expect(actions.has?(:agree_and_hide)).to eq(true)
         expect(actions.has?(:agree_and_keep)).to eq(true)
+        expect(actions.has?(:agree_and_edit)).to eq(true)
         expect(actions.has?(:agree_and_keep_hidden)).to eq(false)
         expect(actions.has?(:agree_and_silence)).to eq(true)
         expect(actions.has?(:agree_and_suspend)).to eq(true)
         expect(actions.has?(:delete_user)).to eq(true)
         expect(actions.has?(:delete_user_block)).to eq(true)
         expect(actions.has?(:disagree)).to eq(true)
-        expect(actions.has?(:ignore)).to eq(true)
+        expect(actions.has?(:ignore_and_do_nothing)).to eq(true)
         expect(actions.has?(:delete_and_ignore)).to eq(true)
         expect(actions.has?(:delete_and_ignore_replies)).to eq(false)
         expect(actions.has?(:delete_and_agree)).to eq(true)
@@ -56,6 +57,7 @@ RSpec.describe ReviewableFlaggedPost, type: :model do
         post.hidden = true
         actions = reviewable.actions_for(guardian)
         expect(actions.has?(:agree_and_keep)).to eq(false)
+        expect(actions.has?(:agree_and_edit)).to eq(false)
         expect(actions.has?(:agree_and_keep_hidden)).to eq(true)
       end
 
@@ -67,7 +69,6 @@ RSpec.describe ReviewableFlaggedPost, type: :model do
       it "returns delete replies options if there are replies" do
         post.update(reply_count: 3)
         expect(reviewable.actions_for(guardian).has?(:delete_and_agree_replies)).to eq(true)
-        expect(reviewable.actions_for(guardian).has?(:delete_and_ignore_replies)).to eq(true)
       end
 
       it "returns appropriate actions for a hidden post" do
@@ -100,9 +101,31 @@ RSpec.describe ReviewableFlaggedPost, type: :model do
           expect(reviewable.actions_for(guardian).has?(:delete_user_block)).to be true
         end
       end
+
+      context "for ignore_and_do_nothing" do
+        it "does not return `ignore_and_do_nothing` when post is hidden" do
+          post.update(hidden: true)
+
+          expect(reviewable.actions_for(guardian).has?(:ignore_and_do_nothing)).to eq(false)
+        end
+
+        it "returns `ignore_and_do_nothing` if the acting user is system" do
+          post.update(hidden: true)
+          system_guardian = Guardian.new(Discourse.system_user)
+
+          expect(reviewable.actions_for(system_guardian).has?(:ignore_and_do_nothing)).to eq(true)
+        end
+      end
     end
 
     it "agree_and_keep agrees with the flags and keeps the post" do
+      reviewable.perform(moderator, :agree_and_keep)
+      expect(reviewable).to be_approved
+      expect(score.reload).to be_agreed
+      expect(post).not_to be_hidden
+    end
+
+    it "agree_and_keep agrees with the flags and edits the post" do
       reviewable.perform(moderator, :agree_and_keep)
       expect(reviewable).to be_approved
       expect(score.reload).to be_agreed
@@ -168,7 +191,7 @@ RSpec.describe ReviewableFlaggedPost, type: :model do
     end
 
     it "ignores the flags" do
-      reviewable.perform(moderator, :ignore)
+      reviewable.perform(moderator, :ignore_and_do_nothing)
       expect(reviewable).to be_ignored
       expect(score.reload).to be_ignored
     end
@@ -273,7 +296,7 @@ RSpec.describe ReviewableFlaggedPost, type: :model do
       expect(post.hidden).to eq(false)
       expect(post.hidden_at).to be_blank
 
-      reviewable.perform(moderator, :ignore)
+      reviewable.perform(moderator, :ignore_and_do_nothing)
       expect(pending_count).to eq(0)
 
       post.reload
@@ -340,6 +363,11 @@ RSpec.describe ReviewableFlaggedPost, type: :model do
     it "ignores flagged responses" do
       SiteSetting.notify_users_after_responses_deleted_on_flagged_post = true
       flagged_reply = Fabricate(:reviewable_flagged_post, target: reply)
+      Fabricate(
+        :post,
+        reply_to_post_number: flagged_reply.target.post_number,
+        topic: flagged_reply.target.topic,
+      )
       flagged_post.perform(moderator, :delete_and_agree_replies)
 
       expect(flagged_reply.reload).to be_ignored
@@ -366,7 +394,7 @@ RSpec.describe ReviewableFlaggedPost, type: :model do
     let(:reviewable) { Fabricate(:reviewable_flagged_post, score: expected_score) }
 
     it "doesn't recalculate the score after ignore" do
-      reviewable.perform(moderator, :ignore)
+      reviewable.perform(moderator, :ignore_and_do_nothing)
 
       expect(reviewable.score).to eq(expected_score)
     end

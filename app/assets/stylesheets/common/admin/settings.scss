@@ -58,6 +58,7 @@
       float: left;
     }
     .input-setting-string,
+    .input-setting-integer,
     .input-setting-textarea {
       width: 100%;
       @media (max-width: $mobile-breakpoint) {
@@ -109,8 +110,8 @@
     }
   }
   .setting.overridden {
-    input {
-      background-color: var(--highlight-medium);
+    .values input {
+      background-color: var(--highlight-bg);
     }
     h3 {
       position: relative;
@@ -130,10 +131,17 @@
     input[type="text"],
     input[type="password"],
     textarea {
-      background-color: var(--highlight-medium);
+      background-color: var(--highlight-bg);
     }
   }
   .warning {
     color: var(--danger);
+  }
+  .file-types-list__button {
+    margin-top: 0.5em;
+    margin-bottom: 0.2em;
+    background: var(--primary-medium);
+    color: var(--secondary);
+    font-size: var(--font-down-2);
   }
 }

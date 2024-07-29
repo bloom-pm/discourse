@@ -3,8 +3,9 @@
 require "net/imap"
 
 class Group < ActiveRecord::Base
-  # TODO(2021-05-26): remove
-  self.ignored_columns = %w[flair_url]
+  # TODO: Remove flair_url when 20240212034010_drop_deprecated_columns has been promoted to pre-deploy
+  # TODO: Remove smtp_ssl when db/post_migrate/20240717053710_drop_groups_smtp_ssl has been promoted to pre-deploy
+  self.ignored_columns = %w[flair_url smtp_ssl]
 
   include HasCustomFields
   include AnonCacheInvalidator
@@ -24,6 +25,7 @@ class Group < ActiveRecord::Base
 
   has_many :categories, through: :category_groups
   has_many :users, through: :group_users
+  has_many :human_users, -> { human_users }, through: :group_users, source: :user
   has_many :requesters, through: :group_requests, source: :user
   has_many :group_histories, dependent: :destroy
   has_many :category_reviews,
@@ -65,6 +67,7 @@ class Group < ActiveRecord::Base
   after_commit :automatic_group_membership, on: %i[create update]
   after_commit :trigger_group_created_event, on: :create
   after_commit :trigger_group_updated_event, on: :update
+  before_destroy :cache_group_users_for_destroyed_event, prepend: true
   after_commit :trigger_group_destroyed_event, on: :destroy
   after_commit :set_default_notifications, on: %i[create update]
 
@@ -88,6 +91,10 @@ class Group < ActiveRecord::Base
   validate :incoming_email_validator
   validate :can_allow_membership_requests, if: :allow_membership_requests
   validate :validate_grant_trust_level, if: :will_save_change_to_grant_trust_level?
+  validates :automatic_membership_email_domains, length: { maximum: 1000 }
+  validates :bio_raw, length: { maximum: 3000 }
+  validates :membership_request_template, length: { maximum: 5000 }
+  validates :full_name, length: { maximum: 100 }
 
   AUTO_GROUPS = {
     everyone: 0,
@@ -140,6 +147,19 @@ class Group < ActiveRecord::Base
     @visibility_levels = Enum.new(public: 0, logged_on_users: 1, members: 2, staff: 3, owners: 4)
   end
 
+  def self.smtp_ssl_modes
+    @visibility_levels = Enum.new(none: 0, ssl_tls: 1, starttls: 2)
+  end
+
+  def self.auto_groups_between(lower, upper)
+    lower_group = Group::AUTO_GROUPS[lower.to_sym]
+    upper_group = Group::AUTO_GROUPS[upper.to_sym]
+
+    return [] if lower_group.blank? || upper_group.blank?
+
+    (lower_group..upper_group).to_a & AUTO_GROUPS.values
+  end
+
   validates :mentionable_level, inclusion: { in: ALIAS_LEVELS.values }
   validates :messageable_level, inclusion: { in: ALIAS_LEVELS.values }
 
@@ -160,7 +180,18 @@ class Group < ActiveRecord::Base
             if user.blank?
               sql = "groups.visibility_level = :public"
             elsif is_staff
-              sql = "groups.visibility_level IN (:public, :logged_on_users, :members, :staff)"
+              sql = <<~SQL
+                groups.visibility_level IN (:public, :logged_on_users, :members, :staff)
+                OR
+                groups.id IN (
+                  SELECT g.id
+                    FROM groups g
+                    JOIN group_users gu ON gu.group_id = g.id
+                    AND gu.user_id = :user_id
+                    AND gu.owner
+                  WHERE g.visibility_level = :owners
+                )
+              SQL
             else
               sql = <<~SQL
           groups.id IN (
@@ -204,8 +235,18 @@ class Group < ActiveRecord::Base
             if user.blank?
               sql = "groups.members_visibility_level = :public"
             elsif is_staff
-              sql =
-                "groups.members_visibility_level IN (:public, :logged_on_users, :members, :staff)"
+              sql = <<~SQL
+                groups.members_visibility_level IN (:public, :logged_on_users, :members, :staff)
+                OR
+                groups.id IN (
+                  SELECT g.id
+                    FROM groups g
+                    JOIN group_users gu ON gu.group_id = g.id
+                    AND gu.user_id = :user_id
+                    AND gu.owner
+                  WHERE g.members_visibility_level = :owners
+                )
+              SQL
             else
               sql = <<~SQL
           groups.id IN (
@@ -249,12 +290,12 @@ class Group < ActiveRecord::Base
   scope :messageable,
         lambda { |user|
           where(
-            "messageable_level in (:levels) OR
+            "groups.messageable_level in (:levels) OR
           (
-            messageable_level = #{ALIAS_LEVELS[:members_mods_and_admins]} AND id in (
+            groups.messageable_level = #{ALIAS_LEVELS[:members_mods_and_admins]} AND groups.id in (
             SELECT group_id FROM group_users WHERE user_id = :user_id)
           ) OR (
-            messageable_level = #{ALIAS_LEVELS[:owners_mods_and_admins]} AND id in (
+            groups.messageable_level = #{ALIAS_LEVELS[:owners_mods_and_admins]} AND groups.id in (
             SELECT group_id FROM group_users WHERE user_id = :user_id AND owner IS TRUE)
           )",
             levels: alias_levels(user),
@@ -264,14 +305,14 @@ class Group < ActiveRecord::Base
 
   def self.mentionable_sql_clause(include_public: true)
     clause = +<<~SQL
-      mentionable_level in (:levels)
+      groups.mentionable_level in (:levels)
       OR (
-        mentionable_level = #{ALIAS_LEVELS[:members_mods_and_admins]}
-        AND id in (
+        groups.mentionable_level = #{ALIAS_LEVELS[:members_mods_and_admins]}
+        AND groups.id in (
           SELECT group_id FROM group_users WHERE user_id = :user_id)
       ) OR (
-        mentionable_level = #{ALIAS_LEVELS[:owners_mods_and_admins]}
-        AND id in (
+        groups.mentionable_level = #{ALIAS_LEVELS[:owners_mods_and_admins]}
+        AND groups.id in (
           SELECT group_id FROM group_users WHERE user_id = :user_id AND owner IS TRUE)
       )
       SQL
@@ -394,29 +435,7 @@ class Group < ActiveRecord::Base
 
     result = guardian.filter_allowed_categories(result)
     result = result.where("posts.id < ?", opts[:before_post_id].to_i) if opts[:before_post_id]
-    result.order("posts.created_at desc")
-  end
-
-  def messages_for(guardian, opts = nil)
-    opts ||= {}
-
-    result =
-      Post
-        .includes(:user, :topic, topic: :category)
-        .references(:posts, :topics, :category)
-        .where("topics.archetype = ?", Archetype.private_message)
-        .where(post_type: Post.types[:regular])
-        .where(
-          "topics.id IN (SELECT topic_id FROM topic_allowed_groups WHERE group_id = ?)",
-          self.id,
-        )
-
-    if opts[:category_id].present?
-      result = result.where("topics.category_id = ?", opts[:category_id].to_i)
-    end
-
-    result = guardian.filter_allowed_categories(result)
-    result = result.where("posts.id < ?", opts[:before_post_id].to_i) if opts[:before_post_id]
+    result = result.where("posts.created_at < ?", opts[:before].to_datetime) if opts[:before]
     result.order("posts.created_at desc")
   end
 
@@ -437,18 +456,19 @@ class Group < ActiveRecord::Base
 
     result = guardian.filter_allowed_categories(result)
     result = result.where("posts.id < ?", opts[:before_post_id].to_i) if opts[:before_post_id]
+    result = result.where("posts.created_at < ?", opts[:before].to_datetime) if opts[:before]
     result.order("posts.created_at desc")
   end
 
   def self.trust_group_ids
-    (10..19).to_a
+    Group.auto_groups_between(:trust_level_0, :trust_level_4).to_a
   end
 
   def set_message_default_notification_levels!(topic, ignore_existing: false)
     group_users
       .pluck(:user_id, :notification_level)
       .each do |user_id, notification_level|
-        next if user_id == -1
+        next if user_id == Discourse::SYSTEM_USER_ID
         next if user_id == topic.user_id
         next if ignore_existing && TopicUser.where(user_id: user_id, topic_id: topic.id).exists?
 
@@ -517,13 +537,13 @@ class Group < ActiveRecord::Base
     remove_subquery =
       case name
       when :admins
-        "SELECT id FROM users WHERE id <= 0 OR NOT admin OR staged"
+        "SELECT id FROM users WHERE NOT admin OR staged"
       when :moderators
-        "SELECT id FROM users WHERE id <= 0 OR NOT moderator OR staged"
+        "SELECT id FROM users WHERE NOT moderator OR staged"
       when :staff
-        "SELECT id FROM users WHERE id <= 0 OR (NOT admin AND NOT moderator) OR staged"
+        "SELECT id FROM users WHERE (NOT admin AND NOT moderator) OR staged"
       when :trust_level_0, :trust_level_1, :trust_level_2, :trust_level_3, :trust_level_4
-        "SELECT id FROM users WHERE id <= 0 OR trust_level < #{id - 10} OR staged"
+        "SELECT id FROM users WHERE trust_level < #{id - 10} OR staged"
       end
 
     removed_user_ids = DB.query_single <<-SQL
@@ -547,15 +567,15 @@ class Group < ActiveRecord::Base
     insert_subquery =
       case name
       when :admins
-        "SELECT id FROM users WHERE id > 0 AND admin AND NOT staged"
+        "SELECT id FROM users WHERE admin AND NOT staged"
       when :moderators
-        "SELECT id FROM users WHERE id > 0 AND moderator AND NOT staged"
+        "SELECT id FROM users WHERE moderator AND NOT staged"
       when :staff
-        "SELECT id FROM users WHERE id > 0 AND (moderator OR admin) AND NOT staged"
+        "SELECT id FROM users WHERE (moderator OR admin) AND NOT staged"
       when :trust_level_1, :trust_level_2, :trust_level_3, :trust_level_4
-        "SELECT id FROM users WHERE id > 0 AND trust_level >= #{id - 10} AND NOT staged"
+        "SELECT id FROM users WHERE trust_level >= #{id - 10} AND NOT staged"
       when :trust_level_0
-        "SELECT id FROM users WHERE id > 0 AND NOT staged"
+        "SELECT id FROM users WHERE NOT staged"
       end
 
     added_user_ids = DB.query_single <<-SQL
@@ -599,14 +619,15 @@ class Group < ActiveRecord::Base
   end
 
   def self.reset_groups_user_count!(only_group_ids: [])
-    where_sql = ""
-
-    if only_group_ids.present?
-      where_sql = "WHERE group_id IN (#{only_group_ids.map(&:to_i).join(",")})"
-    end
+    where_sql =
+      if only_group_ids.present?
+        "WHERE group_id IN (#{only_group_ids.map(&:to_i).join(",")}) AND user_id > 0"
+      else
+        "WHERE user_id > 0"
+      end
 
     DB.exec <<-SQL
-      WITH X AS (
+      WITH tally AS (
         SELECT
           group_id,
           COUNT(user_id) users
@@ -615,10 +636,10 @@ class Group < ActiveRecord::Base
         GROUP BY group_id
       )
       UPDATE groups
-         SET user_count = X.users
-        FROM X
-       WHERE id = X.group_id
-         AND user_count <> X.users
+         SET user_count = tally.users
+        FROM tally
+       WHERE id = tally.group_id
+         AND user_count <> tally.users
     SQL
   end
   private_class_method :reset_groups_user_count!
@@ -652,14 +673,17 @@ class Group < ActiveRecord::Base
     groups ||= Group
 
     relation =
-      groups.where("name ILIKE :term_like OR full_name ILIKE :term_like", term_like: "%#{name}%")
+      groups.where(
+        "groups.name ILIKE :term_like OR groups.full_name ILIKE :term_like",
+        term_like: "%#{name}%",
+      )
 
     if sort == :auto
       prefix = "#{name.gsub("_", "\\_")}%"
       relation =
         relation.reorder(
           DB.sql_fragment(
-            "CASE WHEN name ILIKE :like OR full_name ILIKE :like THEN 0 ELSE 1 END ASC, name ASC",
+            "CASE WHEN groups.name ILIKE :like OR groups.full_name ILIKE :like THEN 0 ELSE 1 END ASC, groups.name ASC",
             like: prefix,
           ),
         )
@@ -681,7 +705,7 @@ class Group < ActiveRecord::Base
 
   def self.lookup_groups(group_ids: [], group_names: [])
     if group_ids.present?
-      group_ids = group_ids.split(",") if group_ids.is_a?(String)
+      group_ids = group_ids.to_s.split(",") if !group_ids.is_a?(Array)
       group_ids.map!(&:to_i)
       groups = Group.where(id: group_ids) if group_ids.present?
     end
@@ -792,20 +816,25 @@ class Group < ActiveRecord::Base
     group_user = self.group_users.find_by(user: user)
     return false if group_user.blank?
 
-    has_webhooks = WebHook.active_web_hooks(:group_user)
-    payload =
-      WebHook.generate_payload(:group_user, group_user, WebHookGroupUserSerializer) if has_webhooks
     group_user.destroy
     trigger_user_removed_event(user)
-    if has_webhooks
-      WebHook.enqueue_hooks(
-        :group_user,
-        :user_removed_from_group,
-        id: group_user.id,
-        payload: payload,
-      )
-    end
+    enqueue_user_removed_from_group_webhook_events(group_user)
+
     true
+  end
+
+  def enqueue_user_removed_from_group_webhook_events(group_user)
+    return if !WebHook.active_web_hooks(:group_user)
+
+    payload = WebHook.generate_payload(:group_user, group_user, WebHookGroupUserSerializer)
+
+    WebHook.enqueue_hooks(
+      :group_user,
+      :user_removed_from_group,
+      id: group_user.id,
+      payload: payload,
+      group_ids: [self.id],
+    )
   end
 
   def trigger_user_added_event(user, automatic)
@@ -834,7 +863,7 @@ class Group < ActiveRecord::Base
   end
 
   def bulk_add(user_ids)
-    return unless user_ids.present?
+    return if user_ids.blank?
 
     Group.transaction do
       sql = <<~SQL
@@ -865,14 +894,7 @@ class Group < ActiveRecord::Base
       User.where(id: user_ids).update_all(user_attributes) if user_attributes.present?
 
       # update group user count
-      DB.exec <<~SQL
-        UPDATE groups g
-        SET user_count =
-          (SELECT COUNT(gu.user_id)
-           FROM group_users gu
-           WHERE gu.group_id = g.id)
-        WHERE g.id = #{self.id};
-      SQL
+      recalculate_user_count
     end
 
     if self.grant_trust_level.present?
@@ -880,6 +902,32 @@ class Group < ActiveRecord::Base
     end
 
     self
+  end
+
+  def bulk_remove(user_ids)
+    Group.transaction do
+      group_users_to_be_destroyed = group_users.includes(:user).where(user_id: user_ids).destroy_all
+      group_users_to_be_destroyed.each do |group_user|
+        trigger_user_removed_event(group_user.user)
+        enqueue_user_removed_from_group_webhook_events(group_user)
+      end
+    end
+
+    recalculate_user_count
+
+    true
+  end
+
+  def recalculate_user_count
+    DB.exec <<~SQL
+      UPDATE groups g
+      SET user_count =
+        (SELECT COUNT(gu.user_id)
+         FROM group_users gu
+         WHERE gu.group_id = g.id
+         AND gu.user_id > 0)
+      WHERE g.id = #{self.id};
+    SQL
   end
 
   def add_automatically(user, subject: nil)
@@ -911,23 +959,36 @@ class Group < ActiveRecord::Base
     self.member_of(groups, user).where("gu.owner")
   end
 
-  %i[group_created group_updated group_destroyed].each do |event|
+  def cache_group_users_for_destroyed_event
+    @cached_group_user_ids = group_users.pluck(:user_id)
+  end
+
+  %i[group_created group_updated].each do |event|
     define_method("trigger_#{event}_event") do
       DiscourseEvent.trigger(event, self)
       true
     end
   end
 
+  def trigger_group_destroyed_event
+    DiscourseEvent.trigger(:group_destroyed, self, @cached_group_user_ids)
+    true
+  end
+
   def flair_type
-    return :icon if flair_icon.present?
-    return :image if flair_upload.present?
+    if flair_icon.present?
+      :icon
+    elsif flair_upload.present?
+      :image
+    end
   end
 
   def flair_url
-    return flair_icon if flair_type == :icon
-    return upload_cdn_path(flair_upload.url) if flair_type == :image
-
-    nil
+    if flair_type == :icon
+      flair_icon
+    elsif flair_type == :image
+      upload_cdn_path(flair_upload.url)
+    end
   end
 
   %i[muted regular tracking watching watching_first_post].each do |level|
@@ -1005,7 +1066,7 @@ class Group < ActiveRecord::Base
     user = email_username_user
     domain = email_username_domain
     if user.present? && domain.present?
-      /^#{Regexp.escape(user)}(\+[^@]*)?@#{Regexp.escape(domain)}$/i
+      /\A#{Regexp.escape(user)}(\+[^@]*)?@#{Regexp.escape(domain)}\z/i
     end
   end
 
@@ -1160,8 +1221,8 @@ class Group < ActiveRecord::Base
     value
       .split("|")
       .each do |domain|
-        domain.sub!(%r{^https?://}, "")
-        domain.sub!(%r{/.*$}, "")
+        domain.sub!(%r{\Ahttps?://}, "")
+        domain.sub!(%r{/.*\z}, "")
 
         if domain =~ Group::VALID_DOMAIN_REGEX
           valid_domains << domain
@@ -1237,7 +1298,6 @@ end
 #  mentionable_level                  :integer          default(0)
 #  smtp_server                        :string
 #  smtp_port                          :integer
-#  smtp_ssl                           :boolean
 #  imap_server                        :string
 #  imap_port                          :integer
 #  imap_ssl                           :boolean
@@ -1261,6 +1321,7 @@ end
 #  imap_updated_at                    :datetime
 #  imap_updated_by_id                 :integer
 #  email_from_alias                   :string
+#  smtp_ssl_mode                      :integer          default(0), not null
 #
 # Indexes
 #

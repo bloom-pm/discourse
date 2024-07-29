@@ -18,6 +18,7 @@ class UserMerger
     merge_user_visits
     update_site_settings
     merge_user_attributes
+    merge_user_associated_accounts
 
     DiscourseEvent.trigger(:merging_users, @source_user, @target_user)
     update_user_stats
@@ -286,11 +287,34 @@ class UserMerger
         bio_cooked_version   = COALESCE(t.bio_cooked_version, s.bio_cooked_version),
         profile_background_upload_id = COALESCE(t.profile_background_upload_id, s.profile_background_upload_id),
         dismissed_banner_key = COALESCE(t.dismissed_banner_key, s.dismissed_banner_key),
-        badge_granted_title  = t.badge_granted_title OR s.badge_granted_title,
+        granted_title_badge_id = COALESCE(t.granted_title_badge_id, s.granted_title_badge_id),
         card_background_upload_id = COALESCE(t.card_background_upload_id, s.card_background_upload_id),
         views                = t.views + s.views
       FROM user_profiles AS s
       WHERE t.user_id = :target_user_id AND s.user_id = :source_user_id
+    SQL
+  end
+
+  def merge_user_associated_accounts
+    if @acting_user
+      ::MessageBus.publish "/merge_user",
+                           {
+                             message:
+                               I18n.t("admin.user.merge_user.merging_user_associated_accounts"),
+                           },
+                           user_ids: [@acting_user.id]
+    end
+
+    UserAssociatedAccount.where(user_id: @source_user.id).update_all(<<~SQL)
+      user_id = CASE
+        WHEN EXISTS (
+          SELECT 1
+          FROM user_associated_accounts AS conflicts
+          WHERE (conflicts.user_id = #{@target_user.id} AND conflicts.provider_name = user_associated_accounts.provider_name)
+        )
+        THEN NULL
+        ELSE #{@target_user.id}
+      END
     SQL
   end
 

@@ -27,6 +27,7 @@ class Upload < ActiveRecord::Base
   has_many :upload_references, dependent: :destroy
   has_many :posts, through: :upload_references, source: :target, source_type: "Post"
   has_many :topic_thumbnails
+  has_many :badges, foreign_key: :image_upload_id, dependent: :nullify
 
   attr_accessor :for_group_message
   attr_accessor :for_theme
@@ -57,8 +58,28 @@ class Upload < ActiveRecord::Base
 
   scope :by_users, -> { where("uploads.id > ?", SEEDED_ID_THRESHOLD) }
 
+  scope :without_s3_file_missing_confirmed_verification_status,
+        -> do
+          where.not(verification_status: Upload.verification_statuses[:s3_file_missing_confirmed])
+        end
+
+  scope :with_invalid_etag_verification_status,
+        -> { where(verification_status: Upload.verification_statuses[:invalid_etag]) }
+
   def self.verification_statuses
-    @verification_statuses ||= Enum.new(unchecked: 1, verified: 2, invalid_etag: 3)
+    @verification_statuses ||=
+      Enum.new(
+        unchecked: 1,
+        verified: 2,
+        invalid_etag: 3, # Used by S3Inventory to mark S3 Upload records that have an invalid ETag value compared to the ETag value of the inventory file
+        s3_file_missing_confirmed: 4, # Used by S3Inventory to skip S3 Upload records that are confirmed to not be backed by a file in the S3 file store
+      )
+  end
+
+  def self.mark_invalid_s3_uploads_as_missing
+    Upload.with_invalid_etag_verification_status.update_all(
+      verification_status: Upload.verification_statuses[:s3_file_missing_confirmed],
+    )
   end
 
   def self.add_unused_callback(&block)
@@ -98,6 +119,10 @@ class Upload < ActiveRecord::Base
 
   def to_s
     self.url
+  end
+
+  def to_markdown
+    UploadMarkdown.new(self).to_markdown
   end
 
   def thumbnail(width = self.thumbnail_width, height = self.thumbnail_height)
@@ -140,7 +165,7 @@ class Upload < ActiveRecord::Base
     external_copy = nil
 
     if original_path.blank?
-      external_copy = Discourse.store.download(self)
+      external_copy = Discourse.store.download!(self)
       original_path = external_copy.path
     end
 
@@ -156,13 +181,8 @@ class Upload < ActiveRecord::Base
       # this is relatively cheap once cached
       original_path = Discourse.store.path_for(self)
       if original_path.blank?
-        external_copy =
-          begin
-            Discourse.store.download(self)
-          rescue StandardError
-            nil
-          end
-        original_path = external_copy.try(:path)
+        external_copy = Discourse.store.download_safe(self)
+        original_path = external_copy&.path
       end
 
       image_info =
@@ -263,25 +283,26 @@ class Upload < ActiveRecord::Base
   end
 
   def local?
-    !(url =~ %r{^(https?:)?//})
+    !(url =~ %r{\A(https?:)?//})
   end
 
   def fix_dimensions!
     return if !FileHelper.is_supported_image?("image.#{extension}")
 
-    path =
-      if local?
-        Discourse.store.path_for(self)
-      else
-        Discourse.store.download(self).path
-      end
-
     begin
+      path =
+        if local?
+          Discourse.store.path_for(self)
+        else
+          Discourse.store.download!(self).path
+        end
+
       if extension == "svg"
         w, h =
           begin
             Discourse::Utils.execute_command(
               "identify",
+              "-ping",
               "-format",
               "%w %h",
               path,
@@ -357,13 +378,7 @@ class Upload < ActiveRecord::Base
         if local?
           Discourse.store.path_for(self)
         else
-          begin
-            Discourse.store.download(self)&.path
-          rescue OpenURI::HTTPError => e
-            # Some issue with downloading the image from a remote store.
-            # Assume the upload is broken and save an empty string to prevent re-evaluation
-            nil
-          end
+          Discourse.store.download_safe(self)&.path
         end
 
       if local_path.nil?
@@ -380,6 +395,8 @@ class Upload < ActiveRecord::Base
               "10",
               "convert",
               local_path,
+              "-depth",
+              "8",
               "-resize",
               "1x1",
               "-define",
@@ -418,6 +435,7 @@ class Upload < ActiveRecord::Base
       begin
         Discourse::Utils.execute_command(
           "identify",
+          "-ping",
           "-format",
           "%Q",
           local_path,
@@ -436,6 +454,10 @@ class Upload < ActiveRecord::Base
 
   def self.sha1_from_short_url(url)
     self.sha1_from_base62_encoded($2) if url =~ %r{(upload://)?([a-zA-Z0-9]+)(\..*)?}
+  end
+
+  def self.sha1_from_long_url(url)
+    $2 if url =~ URL_REGEX || url =~ OptimizedImage::URL_REGEX
   end
 
   def self.sha1_from_base62_encoded(encoded_sha1)
@@ -471,7 +493,7 @@ class Upload < ActiveRecord::Base
     secure_status_did_change = self.secure? != mark_secure
     self.update(secure_params(mark_secure, reason, source))
 
-    if Discourse.store.external?
+    if secure_status_did_change && SiteSetting.s3_use_acls && Discourse.store.external?
       begin
         Discourse.store.update_upload_ACL(self)
       rescue Aws::S3::Errors::NotImplemented => err
@@ -526,7 +548,7 @@ class Upload < ActiveRecord::Base
             # keep track of the url
             previous_url = upload.url.dup
             # where is the file currently stored?
-            external = previous_url =~ %r{^//}
+            external = previous_url =~ %r{\A//}
             # download if external
             if external
               url = SiteSetting.scheme + ":" + previous_url

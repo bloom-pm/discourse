@@ -5,11 +5,12 @@ class TagsController < ::ApplicationController
   include TopicQueryParams
 
   before_action :ensure_tags_enabled
-  before_action :ensure_visible, only: %i[show info]
 
   def self.show_methods
     Discourse.anonymous_filters.map { |f| :"show_#{f}" }
   end
+
+  before_action :ensure_visible, only: [:show, :info, *show_methods]
 
   requires_login except: [:index, :show, :tag_feed, :search, :info, *show_methods]
 
@@ -26,6 +27,7 @@ class TagsController < ::ApplicationController
                   update_notifications
                   personal_messages
                   info
+                  list
                 ]
 
   before_action :fetch_tag, only: %i[info create_synonyms destroy_synonym]
@@ -40,7 +42,8 @@ class TagsController < ::ApplicationController
 
     if SiteSetting.tags_listed_by_group
       ungrouped_tags = Tag.where("tags.id NOT IN (SELECT tag_id FROM tag_group_memberships)")
-      ungrouped_tags = ungrouped_tags.where("tags.topic_count > 0") unless show_all_tags
+      ungrouped_tags = ungrouped_tags.used_tags_in_regular_topics(guardian) unless show_all_tags
+      ungrouped_tags = ungrouped_tags.order(:id)
 
       grouped_tag_counts =
         TagGroup
@@ -51,39 +54,42 @@ class TagsController < ::ApplicationController
             {
               id: tag_group.id,
               name: tag_group.name,
-              tags:
-                self.class.tag_counts_json(
-                  tag_group.none_synonym_tags,
-                  show_pm_tags: guardian.can_tag_pms?,
-                ),
+              tags: self.class.tag_counts_json(tag_group.none_synonym_tags, guardian),
             }
           end
 
-      @tags = self.class.tag_counts_json(ungrouped_tags, show_pm_tags: guardian.can_tag_pms?)
+      @tags = self.class.tag_counts_json(ungrouped_tags, guardian)
       @extras = { tag_groups: grouped_tag_counts }
     else
-      tags = show_all_tags ? Tag.all : Tag.where("tags.topic_count > 0")
+      tags = show_all_tags ? Tag.all : Tag.used_tags_in_regular_topics(guardian)
+      tags = tags.order(:id)
       unrestricted_tags = DiscourseTagging.filter_visible(tags.where(target_tag_id: nil), guardian)
 
       categories =
         Category
-          .where("id IN (SELECT category_id FROM category_tags)")
-          .where("id IN (?)", guardian.allowed_category_ids)
-          .includes(:tags)
+          .where(
+            "id IN (SELECT category_id FROM category_tags WHERE category_id IN (?))",
+            guardian.allowed_category_ids,
+          )
+          .includes(:none_synonym_tags)
+          .order(:id)
 
       category_tag_counts =
         categories
           .map do |c|
             category_tags =
               self.class.tag_counts_json(
-                DiscourseTagging.filter_visible(c.tags.where(target_tag_id: nil), guardian),
+                DiscourseTagging.filter_visible(c.none_synonym_tags, guardian),
+                guardian,
               )
+
             next if category_tags.empty?
+
             { id: c.id, tags: category_tags }
           end
           .compact
 
-      @tags = self.class.tag_counts_json(unrestricted_tags, show_pm_tags: guardian.can_tag_pms?)
+      @tags = self.class.tag_counts_json(unrestricted_tags, guardian)
       @extras = { categories: category_tag_counts }
     end
 
@@ -92,6 +98,46 @@ class TagsController < ::ApplicationController
 
       format.json { render json: { tags: @tags, extras: @extras } }
     end
+  end
+
+  LIST_LIMIT = 51
+
+  def list
+    offset = params[:offset].to_i || 0
+    tags = guardian.can_admin_tags? ? Tag.all : Tag.visible(guardian)
+
+    load_more_query_params = { offset: offset + 1 }
+
+    if filter = params[:filter]
+      tags = tags.where("LOWER(tags.name) ILIKE ?", "%#{filter.downcase}%")
+      load_more_query_params[:filter] = filter
+    end
+
+    if only_tags = params[:only_tags]
+      tags = tags.where("LOWER(tags.name) IN (?)", only_tags.split(",").map(&:downcase))
+      load_more_query_params[:only_tags] = only_tags
+    end
+
+    if exclude_tags = params[:exclude_tags]
+      tags = tags.where("LOWER(tags.name) NOT IN (?)", exclude_tags.split(",").map(&:downcase))
+      load_more_query_params[:exclude_tags] = exclude_tags
+    end
+
+    tags_count = tags.count
+    tags = tags.order("LOWER(tags.name) ASC").limit(LIST_LIMIT).offset(offset * LIST_LIMIT)
+
+    load_more_url = URI("/tags/list.json")
+    load_more_url.query = URI.encode_www_form(load_more_query_params)
+
+    render_serialized(
+      tags,
+      TagSerializer,
+      root: "list_tags",
+      meta: {
+        total_rows_list_tags: tags_count,
+        load_more_list_tags: load_more_url.to_s,
+      },
+    )
   end
 
   Discourse.filters.each do |filter|
@@ -185,7 +231,7 @@ class TagsController < ::ApplicationController
             if tag_group_name
               tag_group =
                 TagGroup.find_by(name: tag_group_name) || TagGroup.create!(name: tag_group_name)
-              tag.tag_groups << tag_group unless tag.tag_groups.include?(tag_group)
+              tag.tag_groups << tag_group if tag.tag_groups.exclude?(tag_group)
             end
           end
         end
@@ -242,13 +288,12 @@ class TagsController < ::ApplicationController
     filter_params = {
       for_input: params[:filterForInput],
       selected_tags: params[:selected_tags],
-      limit: params[:limit],
       exclude_synonyms: params[:excludeSynonyms],
       exclude_has_synonyms: params[:excludeHasSynonyms],
     }
 
-    if filter_params[:limit] && filter_params[:limit].to_i < 0
-      raise Discourse::InvalidParameters.new(:limit)
+    if limit = fetch_limit_from_params(default: nil, max: SiteSetting.max_tag_search_results)
+      filter_params[:limit] = limit
     end
 
     filter_params[:category] = Category.find_by_id(params[:categoryId]) if params[:categoryId]
@@ -264,7 +309,7 @@ class TagsController < ::ApplicationController
     tags_with_counts, filter_result_context =
       DiscourseTagging.filter_allowed_tags(guardian, **filter_params, with_context: true)
 
-    tags = self.class.tag_counts_json(tags_with_counts, show_pm_tags: guardian.can_tag_pms?)
+    tags = self.class.tag_counts_json(tags_with_counts, guardian)
 
     json_response = { results: tags }
 
@@ -388,22 +433,32 @@ class TagsController < ::ApplicationController
     end
   end
 
-  def self.tag_counts_json(tags, show_pm_tags: true)
+  def self.tag_counts_json(tags, guardian)
+    show_pm_tags = guardian.can_tag_pms?
     target_tags = Tag.where(id: tags.map(&:target_tag_id).compact.uniq).select(:id, :name)
+
     tags
       .map do |t|
-        next if t.topic_count == 0 && t.pm_topic_count > 0 && !show_pm_tags
+        topic_count = t.public_send(Tag.topic_count_column(guardian))
 
-        {
+        next if topic_count == 0 && t.pm_topic_count > 0 && !show_pm_tags
+
+        attrs = {
           id: t.name,
           text: t.name,
           name: t.name,
           description: t.description,
-          count: t.topic_count,
-          pm_count: show_pm_tags ? t.pm_topic_count : 0,
+          count: topic_count,
+          pm_only: topic_count == 0 && t.pm_topic_count > 0,
           target_tag:
             t.target_tag_id ? target_tags.find { |x| x.id == t.target_tag_id }&.name : nil,
         }
+
+        if show_pm_tags && SiteSetting.display_personal_messages_tag_counts
+          attrs[:pm_count] = t.pm_topic_count
+        end
+
+        attrs
       end
       .compact
   end
@@ -530,6 +585,6 @@ class TagsController < ::ApplicationController
   end
 
   def tag_params
-    [@tag_id].concat(Array(@additional_tags))
+    Array(params[:tags]).concat(Array(@additional_tags))
   end
 end

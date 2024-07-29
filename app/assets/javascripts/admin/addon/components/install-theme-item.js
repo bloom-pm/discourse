@@ -1,4 +1,5 @@
 import Component from "@ember/component";
-export default Component.extend({
-  classNames: ["install-theme-item"],
-});
+import { classNames } from "@ember-decorators/component";
+
+@classNames("install-theme-item")
+export default class InstallThemeItem extends Component {}

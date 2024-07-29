@@ -3,10 +3,10 @@
 class CurrentUserSerializer < BasicUserSerializer
   include UserTagNotificationsMixin
   include UserSidebarMixin
+  include UserStatusMixin
 
   attributes :name,
              :unread_notifications,
-             :unread_private_messages,
              :unread_high_priority_notifications,
              :all_unread_notifications_count,
              :read_first_notification?,
@@ -20,10 +20,14 @@ class CurrentUserSerializer < BasicUserSerializer
              :trust_level,
              :can_send_private_email_messages,
              :can_send_private_messages,
+             :can_upload_avatar,
              :can_edit,
              :can_invite_to_forum,
              :no_password,
              :can_delete_account,
+             :can_post_anonymously,
+             :can_ignore_users,
+             :can_delete_all_posts_and_topics,
              :custom_fields,
              :muted_category_ids,
              :indirectly_muted_category_ids,
@@ -53,6 +57,7 @@ class CurrentUserSerializer < BasicUserSerializer
              :associated_account_ids,
              :top_category_ids,
              :groups,
+             :needs_required_fields_check?,
              :second_factor_enabled,
              :ignored_users,
              :featured_topic,
@@ -61,20 +66,35 @@ class CurrentUserSerializer < BasicUserSerializer
              :can_review,
              :draft_count,
              :pending_posts_count,
-             :status,
              :grouped_unread_notifications,
-             :redesigned_user_menu_enabled,
-             :redesigned_user_page_nav_enabled,
-             :redesigned_topic_timeline_enabled,
              :display_sidebar_tags,
              :sidebar_tags,
              :sidebar_category_ids,
-             :sidebar_list_destination
+             :sidebar_sections,
+             :new_new_view_enabled?,
+             :use_admin_sidebar,
+             :can_view_raw_email,
+             :use_glimmer_topic_list?,
+             :login_method,
+             :render_experimental_about_page
 
   delegate :user_stat, to: :object, private: true
   delegate :any_posts, :draft_count, :pending_posts_count, :read_faq?, to: :user_stat
 
   has_one :user_option, embed: :object, serializer: CurrentUserOptionSerializer
+  has_many :all_sidebar_sections,
+           embed: :object,
+           key: :sidebar_sections,
+           serializer: SidebarSectionSerializer
+
+  def initialize(object, options = {})
+    super
+    options[:include_status] = true
+  end
+
+  def login_method
+    @options[:login_method]
+  end
 
   def groups
     owned_group_ids = GroupUser.where(user_id: id, owner: true).pluck(:group_id).to_set
@@ -111,6 +131,35 @@ class CurrentUserSerializer < BasicUserSerializer
 
   def can_send_private_messages
     scope.can_send_private_messages?
+  end
+
+  def use_admin_sidebar
+    object.staff? && object.in_any_groups?(SiteSetting.admin_sidebar_enabled_groups_map)
+  end
+
+  def include_use_admin_sidebar?
+    object.staff?
+  end
+
+  def render_experimental_about_page
+    object.in_any_groups?(SiteSetting.experimental_redesigned_about_page_groups_map)
+  end
+
+  def can_post_anonymously
+    SiteSetting.allow_anonymous_posting &&
+      (is_anonymous || object.in_any_groups?(SiteSetting.anonymous_posting_allowed_groups_map))
+  end
+
+  def can_ignore_users
+    scope.can_ignore_users?
+  end
+
+  def can_delete_all_posts_and_topics
+    object.in_any_groups?(SiteSetting.delete_all_posts_and_topics_allowed_groups_map)
+  end
+
+  def can_upload_avatar
+    !is_anonymous && object.in_any_groups?(SiteSetting.uploaded_avatars_allowed_groups_map)
   end
 
   def can_edit
@@ -249,7 +298,7 @@ class CurrentUserSerializer < BasicUserSerializer
   end
 
   def featured_topic
-    object.user_profile.featured_topic
+    BasicTopicSerializer.new(object.user_profile.featured_topic, scope: scope, root: false).as_json
   end
 
   def has_topic_draft
@@ -260,53 +309,15 @@ class CurrentUserSerializer < BasicUserSerializer
     Draft.has_topic_draft(object)
   end
 
-  def include_status?
-    SiteSetting.enable_user_status && object.has_status?
-  end
-
-  def status
-    UserStatusSerializer.new(object.user_status, root: false)
-  end
-
   def unseen_reviewable_count
     Reviewable.unseen_reviewable_count(object)
   end
 
-  def redesigned_user_menu_enabled
-    object.redesigned_user_menu_enabled?
+  def can_view_raw_email
+    scope.user.in_any_groups?(SiteSetting.view_raw_email_allowed_groups_map)
   end
 
-  def include_all_unread_notifications_count?
-    redesigned_user_menu_enabled
-  end
-
-  def include_grouped_unread_notifications?
-    redesigned_user_menu_enabled
-  end
-
-  def include_unseen_reviewable_count?
-    redesigned_user_menu_enabled
-  end
-
-  def include_new_personal_messages_notifications_count?
-    redesigned_user_menu_enabled
-  end
-
-  def redesigned_user_page_nav_enabled
-    if SiteSetting.enable_new_user_profile_nav_groups.present?
-      object.in_any_groups?(SiteSetting.enable_new_user_profile_nav_groups_map)
-    else
-      false
-    end
-  end
-
-  def redesigned_topic_timeline_enabled
-    if SiteSetting.enable_experimental_topic_timeline_groups.present?
-      object.in_any_groups?(
-        SiteSetting.enable_experimental_topic_timeline_groups.split("|").map(&:to_i),
-      )
-    else
-      false
-    end
+  def use_glimmer_topic_list?
+    scope.user.in_any_groups?(SiteSetting.experimental_glimmer_topic_list_groups_map)
   end
 end

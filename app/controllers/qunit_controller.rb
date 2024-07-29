@@ -1,11 +1,18 @@
 # frozen_string_literal: true
 
 class QunitController < ApplicationController
-  skip_before_action *%i[check_xhr preload_json redirect_to_login_if_required]
+  skip_before_action *%i[
+                       check_xhr
+                       preload_json
+                       redirect_to_login_if_required
+                       redirect_to_profile_if_required
+                     ]
   layout false
 
   def theme
     raise Discourse::NotFound.new if !can_see_theme_qunit?
+
+    @has_test_bundle = EmberCli.has_tests?
 
     param_key = nil
     @suggested_themes = nil

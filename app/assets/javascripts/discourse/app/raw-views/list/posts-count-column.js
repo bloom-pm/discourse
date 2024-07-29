@@ -1,6 +1,6 @@
 import EmberObject from "@ember/object";
-import I18n from "I18n";
 import discourseComputed from "discourse-common/utils/decorators";
+import I18n from "discourse-i18n";
 
 export default EmberObject.extend({
   tagName: "td",
@@ -19,7 +19,10 @@ export default EmberObject.extend({
 
   @discourseComputed("topic.replyCount", "ratioText")
   title(count, ratio) {
-    return I18n.messageFormat("posts_likes_MF", { count, ratio }).trim();
+    return I18n.messageFormat("posts_likes_MF", {
+      count,
+      ratio,
+    });
   },
 
   @discourseComputed("ratio")

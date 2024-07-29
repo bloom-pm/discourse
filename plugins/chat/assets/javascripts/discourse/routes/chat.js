@@ -1,15 +1,22 @@
-import DiscourseRoute from "discourse/routes/discourse";
-import I18n from "I18n";
-import { defaultHomepage } from "discourse/lib/utilities";
-import { inject as service } from "@ember/service";
-import { scrollTop } from "discourse/mixins/scroll-top";
 import { schedule } from "@ember/runloop";
-import { action } from "@ember/object";
+import { service } from "@ember/service";
+import { withPluginApi } from "discourse/lib/plugin-api";
+import { defaultHomepage } from "discourse/lib/utilities";
+import { scrollTop } from "discourse/mixins/scroll-top";
+import DiscourseRoute from "discourse/routes/discourse";
+import I18n from "discourse-i18n";
+import { getUserChatSeparateSidebarMode } from "discourse/plugins/chat/discourse/lib/get-user-chat-separate-sidebar-mode";
+import {
+  CHAT_PANEL,
+  initSidebarState,
+} from "discourse/plugins/chat/discourse/lib/init-sidebar-state";
 
 export default class ChatRoute extends DiscourseRoute {
   @service chat;
   @service router;
   @service chatStateManager;
+  @service chatDrawerRouter;
+  @service currentUser;
 
   titleToken() {
     return I18n.t("chat.title_capitalized");
@@ -20,32 +27,28 @@ export default class ChatRoute extends DiscourseRoute {
       return this.router.transitionTo(`discovery.${defaultHomepage()}`);
     }
 
-    const INTERCEPTABLE_ROUTES = [
-      "chat.channel.index",
-      "chat.channel",
-      "chat",
-      "chat.index",
-      "chat.draft-channel",
-    ];
-
     if (
       transition.from && // don't intercept when directly loading chat
       this.chatStateManager.isDrawerPreferred &&
-      INTERCEPTABLE_ROUTES.includes(transition.targetName)
+      this.chatDrawerRouter.routeNames.includes(transition.targetName)
     ) {
       transition.abort();
 
-      let URL = transition.intent.url;
+      if (this.chatDrawerRouter.currentRouteName === transition.targetName) {
+        return;
+      }
+
+      let url = transition.intent.url;
       if (transition.targetName.startsWith("chat.channel")) {
-        URL ??= this.router.urlFor(
+        url ??= this.router.urlFor(
           transition.targetName,
           ...transition.intent.contexts
         );
       } else {
-        URL ??= this.router.urlFor(transition.targetName);
+        url ??= this.router.urlFor(transition.targetName);
       }
 
-      this.appEvents.trigger("chat:open-url", URL);
+      this.appEvents.trigger("chat:open-url", url);
       return;
     }
 
@@ -53,32 +56,52 @@ export default class ChatRoute extends DiscourseRoute {
   }
 
   activate() {
+    withPluginApi("1.8.0", (api) => {
+      api.setSidebarPanel(CHAT_PANEL);
+
+      const chatSeparateSidebarMode = getUserChatSeparateSidebarMode(
+        this.currentUser
+      );
+
+      if (chatSeparateSidebarMode.never) {
+        api.setCombinedSidebarMode();
+        api.hideSidebarSwitchPanelButtons();
+      } else {
+        api.setSeparatedSidebarMode();
+      }
+    });
+
     this.chatStateManager.storeAppURL();
     this.chat.updatePresence();
 
     schedule("afterRender", () => {
       document.body.classList.add("has-full-page-chat");
       document.documentElement.classList.add("has-full-page-chat");
-    });
-  }
-
-  deactivate() {
-    schedule("afterRender", () => {
-      document.body.classList.remove("has-full-page-chat");
-      document.documentElement.classList.remove("has-full-page-chat");
       scrollTop();
     });
   }
 
-  @action
-  willTransition(transition) {
-    if (!transition?.to?.name?.startsWith("chat.channel")) {
-      this.chat.setActiveChannel(null);
+  deactivate(transition) {
+    withPluginApi("1.8.0", (api) => {
+      initSidebarState(api, this.currentUser);
+    });
+
+    if (transition) {
+      let url = this.router.urlFor(transition.from.name);
+
+      if (this.router.rootURL !== "/") {
+        url = url.replace(new RegExp(`^${this.router.rootURL}`), "/");
+      }
+
+      this.chatStateManager.storeChatURL(url);
     }
 
-    if (!transition?.to?.name?.startsWith("chat.")) {
-      this.chatStateManager.storeChatURL();
-      this.chat.updatePresence();
-    }
+    this.chat.activeChannel = null;
+    this.chat.updatePresence();
+
+    schedule("afterRender", () => {
+      document.body.classList.remove("has-full-page-chat");
+      document.documentElement.classList.remove("has-full-page-chat");
+    });
   }
 }

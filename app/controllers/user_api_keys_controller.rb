@@ -4,7 +4,9 @@ class UserApiKeysController < ApplicationController
   layout "no_ember"
 
   requires_login only: %i[create create_otp revoke undo_revoke]
-  skip_before_action :redirect_to_login_if_required, only: %i[new otp]
+  skip_before_action :redirect_to_login_if_required,
+                     :redirect_to_profile_if_required,
+                     only: %i[new otp]
   skip_before_action :check_xhr, :preload_json
 
   AUTH_API_VERSION ||= 4
@@ -183,7 +185,7 @@ class UserApiKeysController < ApplicationController
   end
 
   def meets_tl?
-    current_user.staff? || current_user.trust_level >= SiteSetting.min_trust_level_for_user_api_key
+    current_user.staff? || current_user.in_any_groups?(SiteSetting.user_api_key_allowed_groups_map)
   end
 
   def one_time_password(public_key, username)

@@ -1,16 +1,17 @@
+import { service } from "@ember/service";
 import DiscourseRoute from "discourse/routes/discourse";
-import { inject as service } from "@ember/service";
 
 export default class ChatDraftChannelRoute extends DiscourseRoute {
   @service chat;
+  @service router;
 
   beforeModel() {
     if (!this.chat.userCanDirectMessage) {
-      this.transitionTo("chat");
+      this.router.transitionTo("chat");
     }
   }
 
   activate() {
-    this.chat.setActiveChannel(null);
+    this.chat.activeChannel = null;
   }
 }

@@ -1,21 +1,21 @@
-import { test } from "qunit";
-import I18n from "I18n";
-import sinon from "sinon";
 import { click, fillIn, visit } from "@ember/test-helpers";
-import {
-  acceptance,
-  exists,
-  query,
-} from "discourse/tests/helpers/qunit-helpers";
+import { test } from "qunit";
+import sinon from "sinon";
 import DiscourseURL from "discourse/lib/url";
 import pretender, {
   fixturesByUrl,
   response,
 } from "discourse/tests/helpers/create-pretender";
+import {
+  acceptance,
+  exists,
+  query,
+} from "discourse/tests/helpers/qunit-helpers";
 import { cloneJSON } from "discourse-common/lib/object";
+import I18n from "discourse-i18n";
 
 acceptance("User Preferences - Account", function (needs) {
-  needs.user();
+  needs.user({ can_upload_avatar: true });
 
   let customUserProps = {};
   let pickAvatarRequestData = null;
@@ -295,7 +295,7 @@ acceptance("User Preferences - Account", function (needs) {
     );
 
     await click("#gravatar");
-    await click(".modal-footer .btn");
+    await click(".d-modal__footer .btn");
 
     assert.deepEqual(
       pickAvatarRequestData,
@@ -305,5 +305,31 @@ acceptance("User Preferences - Account", function (needs) {
       },
       "includes the right pick avatar request params"
     );
+  });
+});
+
+acceptance("User Preferences — Account - Download Archive", function (needs) {
+  const currentUser = "eviltrout";
+  needs.user();
+  needs.pretender((server, helper) => {
+    server.post("/export_csv/export_entity.json", () => {
+      return helper.response({});
+    });
+  });
+
+  test("Can see and trigger download for account data", async function (assert) {
+    await visit(`/u/${currentUser}/preferences/account`);
+
+    assert.ok(query(".btn-request-archive"), "button exists");
+
+    await click(".btn-request-archive");
+    await click("#dialog-holder .btn-primary");
+
+    assert.equal(
+      query(".dialog-body").innerText.trim(),
+      I18n.t("user.download_archive.success")
+    );
+
+    await click("#dialog-holder .btn-primary");
   });
 });

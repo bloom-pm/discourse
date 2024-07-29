@@ -1,5 +1,9 @@
 const handlers = [];
 const disabledDeprecations = new Set();
+const deprecationWorkflow = window.deprecationWorkflow;
+const workflows = deprecationWorkflow?.config?.workflow;
+
+let emberDeprecationSilencer;
 
 /**
  * Display a deprecation warning with the provided message. The warning will be prefixed with the theme/plugin name
@@ -35,7 +39,7 @@ export default function deprecated(msg, options = {}) {
   msg = msg.join(" ");
 
   let consolePrefix = "";
-  if (window.Discourse) {
+  if (require.has("discourse/lib/source-identifier")) {
     // This module doesn't exist in pretty-text/wizard/etc.
     consolePrefix =
       require("discourse/lib/source-identifier").consolePrefix() || "";
@@ -43,11 +47,19 @@ export default function deprecated(msg, options = {}) {
 
   handlers.forEach((h) => h(msg, options));
 
-  if (raiseError) {
+  const matchedWorkflow = workflows?.find((w) => w.matchId === id);
+
+  if (
+    raiseError ||
+    matchedWorkflow?.handler === "throw" ||
+    (!matchedWorkflow && deprecationWorkflow?.throwOnUnhandled)
+  ) {
     throw msg;
   }
 
-  console.warn(...[consolePrefix, msg].filter(Boolean)); //eslint-disable-line no-console
+  if (matchedWorkflow?.handler !== "silence") {
+    console.warn(...[consolePrefix, msg].filter(Boolean)); //eslint-disable-line no-console
+  }
 }
 
 /**
@@ -64,6 +76,7 @@ export function registerDeprecationHandler(callback) {
  * @param {function} callback The function to call while deprecations are silenced.
  */
 export function withSilencedDeprecations(deprecationIds, callback) {
+  ensureEmberDeprecationSilencer();
   const idArray = [].concat(deprecationIds);
   try {
     idArray.forEach((id) => disabledDeprecations.add(id));
@@ -86,11 +99,32 @@ export function withSilencedDeprecations(deprecationIds, callback) {
  * @param {function} callback The asynchronous function to call while deprecations are silenced.
  */
 export async function withSilencedDeprecationsAsync(deprecationIds, callback) {
+  ensureEmberDeprecationSilencer();
   const idArray = [].concat(deprecationIds);
   try {
     idArray.forEach((id) => disabledDeprecations.add(id));
     return await callback();
   } finally {
     idArray.forEach((id) => disabledDeprecations.delete(id));
+  }
+}
+
+function ensureEmberDeprecationSilencer() {
+  if (emberDeprecationSilencer) {
+    return;
+  }
+
+  emberDeprecationSilencer = (message, options, next) => {
+    if (options?.id && disabledDeprecations.has(options.id)) {
+      return;
+    } else {
+      next(message, options);
+    }
+  };
+
+  if (require.has("@ember/debug")) {
+    require("@ember/debug").registerDeprecationHandler(
+      emberDeprecationSilencer
+    );
   }
 }

@@ -61,41 +61,55 @@ class PostsController < ApplicationController
   def latest
     params.permit(:before)
     last_post_id = params[:before].to_i
-    last_post_id = Post.last.id if last_post_id <= 0
+    last_post_id = nil if last_post_id <= 0
 
     if params[:id] == "private_posts"
       raise Discourse::NotFound if current_user.nil?
+
+      allowed_private_topics = TopicAllowedUser.where(user_id: current_user.id).select(:topic_id)
+
+      allowed_groups = GroupUser.where(user_id: current_user.id).select(:group_id)
+      allowed_private_topics_by_group =
+        TopicAllowedGroup.where(group_id: allowed_groups).select(:topic_id)
+
+      all_allowed =
+        Topic
+          .where(id: allowed_private_topics)
+          .or(Topic.where(id: allowed_private_topics_by_group))
+          .select(:id)
+
       posts =
         Post
           .private_posts
-          .order(created_at: :desc)
-          .where("posts.id <= ?", last_post_id)
-          .where("posts.id > ?", last_post_id - 50)
+          .order(id: :desc)
           .includes(topic: :category)
           .includes(user: %i[primary_group flair_group])
           .includes(:reply_to_user)
           .limit(50)
       rss_description = I18n.t("rss_description.private_posts")
+
+      posts = posts.where(topic_id: all_allowed) if !current_user.admin?
     else
       posts =
         Post
           .public_posts
           .visible
           .where(post_type: Post.types[:regular])
-          .order(created_at: :desc)
-          .where("posts.id <= ?", last_post_id)
-          .where("posts.id > ?", last_post_id - 50)
+          .order(id: :desc)
           .includes(topic: :category)
           .includes(user: %i[primary_group flair_group])
           .includes(:reply_to_user)
+          .where("categories.id" => Category.secured(guardian).select(:id))
           .limit(50)
+
       rss_description = I18n.t("rss_description.posts")
       @use_canonical = true
     end
 
-    # Remove posts the user doesn't have permission to see
-    # This isn't leaking any information we weren't already through the post ID numbers
-    posts = posts.reject { |post| !guardian.can_see?(post) || post.topic.blank? }
+    posts = posts.where("posts.id <= ?", last_post_id) if last_post_id
+
+    posts = posts.to_a
+
     counts = PostAction.counts_for(posts, current_user)
 
     respond_to do |format|
@@ -183,26 +197,25 @@ class PostsController < ApplicationController
   end
 
   def create
-    @manager_params = create_params
-    @manager_params[:first_post_checks] = !is_api?
-    @manager_params[:advance_draft] = !is_api?
+    manager_params = create_params
+    manager_params[:first_post_checks] = !is_api?
+    manager_params[:advance_draft] = !is_api?
 
-    manager = NewPostManager.new(current_user, @manager_params)
+    manager = NewPostManager.new(current_user, manager_params)
 
-    if is_api?
-      memoized_payload =
-        DistributedMemoizer.memoize(signature_for(@manager_params), 120) do
-          result = manager.perform
-          MultiJson.dump(serialize_data(result, NewPostResultSerializer, root: false))
-        end
+    json =
+      if is_api?
+        memoized_payload =
+          DistributedMemoizer.memoize(signature_for(manager_params), 120) do
+            MultiJson.dump(serialize_data(manager.perform, NewPostResultSerializer, root: false))
+          end
 
-      parsed_payload = JSON.parse(memoized_payload)
-      backwards_compatible_json(parsed_payload, parsed_payload["success"])
-    else
-      result = manager.perform
-      json = serialize_data(result, NewPostResultSerializer, root: false)
-      backwards_compatible_json(json, result.success?)
-    end
+        JSON.parse(memoized_payload)
+      else
+        serialize_data(manager.perform, NewPostResultSerializer, root: false)
+      end
+
+    backwards_compatible_json(json)
   end
 
   def update
@@ -309,13 +322,6 @@ class PostsController < ApplicationController
   def reply_ids
     post = find_post_from_params
     render json: post.reply_ids(guardian).to_json
-  end
-
-  def all_reply_ids
-    Discourse.deprecate("/posts/:id/reply-ids/all is deprecated.", drop_from: "3.0")
-
-    post = find_post_from_params
-    render json: post.reply_ids(guardian, only_replies_to_single_post: false).to_json
   end
 
   def destroy
@@ -466,6 +472,33 @@ class PostsController < ApplicationController
     render body: nil
   end
 
+  def permanently_delete_revisions
+    guardian.ensure_can_permanently_delete_post_revisions!
+
+    post = find_post_from_params
+    raise Discourse::InvalidParameters.new(:post) if post.blank?
+    raise Discourse::NotFound if post.revisions.blank?
+
+    RateLimiter.new(
+      current_user,
+      "admin_permanently_delete_post_revisions",
+      20,
+      1.minute,
+      apply_limit_to_staff: true,
+    ).performed!
+
+    ActiveRecord::Base.transaction do
+      updated_at = Time.zone.now
+      post.revisions.destroy_all
+      post.update(version: 1, public_version: 1, last_version_at: updated_at)
+      StaffActionLogger.new(current_user).log_permanently_delete_post_revisions(post)
+    end
+
+    post.rebake!
+
+    render body: nil
+  end
+
   def show_revision
     post_revision = find_post_revision_from_params
     guardian.ensure_can_show_post_revision!(post_revision)
@@ -515,8 +548,10 @@ class PostsController < ApplicationController
       ] if post_revision.modifications["category_id"].present? &&
         post_revision.modifications["category_id"][0] != topic.category.id
     end
-    return render_json_error(I18n.t("revert_version_same")) unless changes.length > 0
-    changes[:edit_reason] = "reverted to version ##{post_revision.number.to_i - 1}"
+    return render_json_error(I18n.t("revert_version_same")) if changes.length <= 0
+    changes[:edit_reason] = I18n.with_locale(SiteSetting.default_locale) do
+      I18n.t("reverted_to_version", version: post_revision.number.to_i - 1)
+    end
 
     revisor = PostRevisor.new(post, topic)
     revisor.revise!(current_user, changes)
@@ -587,7 +622,7 @@ class PostsController < ApplicationController
         bookmarkable_id: params[:post_id],
         bookmarkable_type: "Post",
         user_id: current_user.id,
-      ).pluck_first(:id)
+      ).pick(:id)
     destroyed_bookmark = BookmarkManager.new(current_user).destroy(bookmark_id)
 
     render json:
@@ -634,31 +669,7 @@ class PostsController < ApplicationController
     render body: nil
   end
 
-  def flagged_posts
-    Discourse.deprecate(
-      "PostsController#flagged_posts is deprecated. Please use /review instead.",
-      since: "2.8.0.beta4",
-      drop_from: "2.9",
-    )
-
-    params.permit(:offset, :limit)
-    guardian.ensure_can_see_flagged_posts!
-
-    user = fetch_user_from_params
-    offset = [params[:offset].to_i, 0].max
-    limit = [(params[:limit] || 60).to_i, 100].min
-
-    posts =
-      user_posts(guardian, user.id, offset: offset, limit: limit).where(
-        id:
-          PostAction
-            .where(post_action_type_id: PostActionType.notify_flag_type_ids)
-            .where(disagreed_at: nil)
-            .select(:post_id),
-      )
-
-    render_serialized(posts, AdminUserActionSerializer)
-  end
+  DELETED_POSTS_MAX_LIMIT = 100
 
   def deleted_posts
     params.permit(:offset, :limit)
@@ -666,7 +677,7 @@ class PostsController < ApplicationController
 
     user = fetch_user_from_params
     offset = [params[:offset].to_i, 0].max
-    limit = [(params[:limit] || 60).to_i, 100].min
+    limit = fetch_limit_from_params(default: 60, max: DELETED_POSTS_MAX_LIMIT)
 
     posts = user_posts(guardian, user.id, offset: offset, limit: limit).where.not(deleted_at: nil)
 
@@ -698,9 +709,13 @@ class PostsController < ApplicationController
   # We can't break the API for making posts. The new, queue supporting API
   # doesn't return the post as the root JSON object, but as a nested object.
   # If a param is present it uses that result structure.
-  def backwards_compatible_json(json_obj, success)
+  def backwards_compatible_json(json_obj)
     json_obj.symbolize_keys!
-    if params[:nested_post].blank? && json_obj[:errors].blank? && json_obj[:action] != :enqueued
+
+    success = json_obj[:success]
+
+    if params[:nested_post].blank? && json_obj[:errors].blank? &&
+         json_obj[:action].to_s != "enqueued"
       json_obj = json_obj[:post]
     end
 
@@ -777,27 +792,25 @@ class PostsController < ApplicationController
       topics = Topic.where(id: topic_ids).with_deleted.where.not(archetype: "private_message")
       topics = topics.secured(guardian)
 
-      posts = posts.where(topic_id: topics.pluck(:id))
+      posts = posts.where(topic_id: topics)
     end
 
     posts.offset(opts[:offset]).limit(opts[:limit])
   end
 
   def create_params
-    permitted = [
-      :raw,
-      :topic_id,
-      :archetype,
-      :category,
-      # TODO remove together with 'targetUsername' deprecations
-      :target_usernames,
-      :target_recipients,
-      :reply_to_post_number,
-      :auto_track,
-      :typing_duration_msecs,
-      :composer_open_duration_msecs,
-      :visible,
-      :draft_key,
+    permitted = %i[
+      raw
+      topic_id
+      archetype
+      category
+      target_recipients
+      reply_to_post_number
+      auto_track
+      typing_duration_msecs
+      composer_open_duration_msecs
+      visible
+      draft_key
     ]
 
     Post.plugin_permitted_create_params.each do |key, value|
@@ -840,8 +853,22 @@ class PostsController < ApplicationController
         .permit(*permitted)
         .tap do |allowed|
           allowed[:image_sizes] = params[:image_sizes]
-          # TODO this does not feel right, we should name what meta_data is allowed
-          allowed[:meta_data] = params[:meta_data]
+
+          if params.has_key?(:meta_data)
+            Discourse.deprecate(
+              "the :meta_data param is deprecated, use the :topic_custom_fields param instead",
+              since: "3.2",
+              drop_from: "3.3",
+            )
+          end
+
+          topic_custom_fields = {}
+          topic_custom_fields.merge!(editable_topic_custom_fields(:meta_data))
+          topic_custom_fields.merge!(editable_topic_custom_fields(:topic_custom_fields))
+
+          if topic_custom_fields.present?
+            allowed[:topic_opts] = { custom_fields: topic_custom_fields }
+          end
         end
 
     # Staff are allowed to pass `is_warning`
@@ -885,15 +912,7 @@ class PostsController < ApplicationController
     result[:user_agent] = request.user_agent
     result[:referrer] = request.env["HTTP_REFERER"]
 
-    if recipients = result[:target_usernames]
-      Discourse.deprecate(
-        "`target_usernames` is deprecated, use `target_recipients` instead.",
-        output_in_test: true,
-        drop_from: "2.9.0",
-      )
-    else
-      recipients = result[:target_recipients]
-    end
+    recipients = result[:target_recipients]
 
     if recipients
       recipients = recipients.split(",").map(&:downcase)
@@ -909,6 +928,25 @@ class PostsController < ApplicationController
 
     result.permit!
     result.to_h
+  end
+
+  def editable_topic_custom_fields(params_key)
+    if (topic_custom_fields = params[params_key]).present?
+      editable_topic_custom_fields = Topic.editable_custom_fields(guardian)
+
+      if (
+           unpermitted_topic_custom_fields =
+             topic_custom_fields.except(*editable_topic_custom_fields)
+         ).present?
+        raise Discourse::InvalidParameters.new(
+                "The following keys in :#{params_key} are not permitted: #{unpermitted_topic_custom_fields.keys.join(", ")}",
+              )
+      end
+
+      topic_custom_fields.permit(*editable_topic_custom_fields).to_h
+    else
+      {}
+    end
   end
 
   def signature_for(args)

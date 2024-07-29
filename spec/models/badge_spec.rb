@@ -1,6 +1,17 @@
 # frozen_string_literal: true
 
 RSpec.describe Badge do
+  describe "Validations" do
+    subject(:badge) { Fabricate.build(:badge) }
+
+    it { is_expected.to validate_length_of(:name).is_at_most(100) }
+    it { is_expected.to validate_length_of(:description).is_at_most(500) }
+    it { is_expected.to validate_length_of(:long_description).is_at_most(1000) }
+    it { is_expected.to validate_presence_of(:name) }
+    it { is_expected.to validate_presence_of(:badge_type) }
+    it { is_expected.to validate_uniqueness_of(:name) }
+  end
+
   it "has a valid system attribute for new badges" do
     expect(Badge.create!(name: "test", badge_type_id: 1).system?).to be false
   end
@@ -33,11 +44,17 @@ RSpec.describe Badge do
   end
 
   it "can ensure consistency" do
-    b = Badge.first
+    b = Badge.find_by_name("Basic User")
+
     b.grant_count = 100
     b.save
 
-    UserBadge.create!(user_id: -100, badge_id: b.id, granted_at: 1.minute.ago, granted_by_id: -1)
+    UserBadge.create!(
+      user_id: User.minimum(:id) - 1,
+      badge_id: b.id,
+      granted_at: 1.minute.ago,
+      granted_by_id: -1,
+    )
     UserBadge.create!(
       user_id: User.first.id,
       badge_id: b.id,
@@ -81,12 +98,33 @@ RSpec.describe Badge do
   end
 
   describe "#image_url" do
-    it "has CDN url" do
+    before do
       SiteSetting.enable_s3_uploads = true
       SiteSetting.s3_cdn_url = "https://some-s3-cdn.amzn.com"
-      upload = Fabricate(:upload_s3)
-      badge = Fabricate(:badge, image_upload_id: upload.id)
-      expect(badge.image_url).to start_with("https://some-s3-cdn.amzn.com")
+    end
+
+    context "when the badge has an existing image" do
+      it "has a CDN url" do
+        upload = Fabricate(:upload_s3)
+        badge = Fabricate(:badge, image_upload_id: upload.id)
+
+        expect(badge.image_url).to start_with("https://some-s3-cdn.amzn.com")
+      end
+    end
+
+    context "when the badge does not have a related image" do
+      it "does not have a CDN url" do
+        upload = Fabricate(:upload_s3)
+        badge = Fabricate(:badge, image_upload_id: upload.id)
+
+        store = stub
+        store.expects(:remove_upload).returns(true)
+        Discourse.stubs(:store).returns(store)
+
+        upload.destroy!
+
+        expect(badge.reload.image_url).to eq(nil)
+      end
     end
   end
 

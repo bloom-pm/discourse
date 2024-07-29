@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 RSpec.describe Search do
-  fab!(:admin) { Fabricate(:admin) }
-  fab!(:topic) { Fabricate(:topic) }
+  fab!(:admin) { Fabricate(:admin, refresh_auto_groups: true) }
+  fab!(:topic)
 
   before do
     SearchIndexer.enable
@@ -113,37 +113,34 @@ RSpec.describe Search do
         expect(Search.execute("oeuvre").posts).to contain_exactly(post_2)
       end
     end
-  end
 
-  context "with apostrophes" do
-    fab!(:post_1) { Fabricate(:post, raw: "searching for: John's") }
-    fab!(:post_2) { Fabricate(:post, raw: "searching for: Johns") }
+    context "when search_ranking_weights site setting has been configured" do
+      fab!(:topic) { Fabricate(:topic, title: "Some random topic title start") }
+      fab!(:topic2) { Fabricate(:topic, title: "Some random topic title") }
+      fab!(:post1) { Fabricate(:post, raw: "start", topic: topic) }
+      fab!(:post2) { Fabricate(:post, raw: "#{"start " * 100}", topic: topic2) }
 
-    before { SearchIndexer.enable }
+      before do
+        SearchIndexer.enable
+        SiteSetting.max_duplicate_search_index_terms = -1
+        SiteSetting.prioritize_exact_search_title_match = false
+        [post1, post2].each { |post| SearchIndexer.index(post, force: true) }
+      end
 
-    after { SearchIndexer.disable }
+      after { SearchIndexer.disable }
 
-    it "returns correct results" do
-      SiteSetting.search_ignore_accents = false
-      [post_1, post_2].each { |post| SearchIndexer.index(post.topic, force: true) }
+      it "should apply the custom ranking weights correctly" do
+        expect(Search.execute("start").posts).to eq([post2, post1])
 
-      expect(Search.execute("John's").posts).to contain_exactly(post_1, post_2)
-      expect(Search.execute("John’s").posts).to contain_exactly(post_1, post_2)
-      expect(Search.execute("Johns").posts).to contain_exactly(post_1, post_2)
-    end
+        SiteSetting.search_ranking_weights = "{0.00001,0.2,0.4,1.0}"
 
-    it "returns correct results with accents" do
-      SiteSetting.search_ignore_accents = true
-      [post_1, post_2].each { |post| SearchIndexer.index(post.topic, force: true) }
-
-      expect(Search.execute("John's").posts).to contain_exactly(post_1, post_2)
-      expect(Search.execute("John’s").posts).to contain_exactly(post_1, post_2)
-      expect(Search.execute("Johns").posts).to contain_exactly(post_1, post_2)
+        expect(Search.execute("start").posts).to eq([post1, post2])
+      end
     end
   end
 
   describe "custom_eager_load" do
-    fab!(:topic) { Fabricate(:topic) }
+    fab!(:topic)
     fab!(:post) { Fabricate(:post, topic: topic) }
 
     before do
@@ -293,10 +290,17 @@ RSpec.describe Search do
   describe "post indexing" do
     fab!(:category) { Fabricate(:category_with_definition, name: "america") }
     fab!(:topic) { Fabricate(:topic, title: "sam saffron test topic", category: category) }
+    fab!(:user) { Fabricate(:user, refresh_auto_groups: true) }
+
     let!(:post) do
-      Fabricate(:post, topic: topic, raw: 'this <b>fun test</b> <img src="bla" title="my image">')
+      Fabricate(
+        :post,
+        topic: topic,
+        raw: 'this <b>fun test</b> <img src="bla" title="my image">',
+        user: user,
+      )
     end
-    let!(:post2) { Fabricate(:post, topic: topic) }
+    let!(:post2) { Fabricate(:post, topic: topic, user: user) }
 
     it "should index correctly" do
       search_data = post.post_search_data.search_data
@@ -629,10 +633,16 @@ RSpec.describe Search do
     end
 
     context "with personal-direct and group_messages flags" do
-      let!(:current) { Fabricate(:user, admin: true, username: "current_user") }
-      let!(:participant) { Fabricate(:user, username: "participant_1") }
-      let!(:participant_2) { Fabricate(:user, username: "participant_2") }
-      let!(:non_participant) { Fabricate(:user, username: "non_participant") }
+      let!(:current) do
+        Fabricate(:user, admin: true, username: "current_user", refresh_auto_groups: true)
+      end
+      let!(:participant) { Fabricate(:user, username: "participant_1", refresh_auto_groups: true) }
+      let!(:participant_2) do
+        Fabricate(:user, username: "participant_2", refresh_auto_groups: true)
+      end
+      let!(:non_participant) do
+        Fabricate(:user, username: "non_participant", refresh_auto_groups: true)
+      end
 
       let(:group) do
         group = Fabricate(:group, has_messages: true)
@@ -642,7 +652,6 @@ RSpec.describe Search do
       end
 
       def create_pm(users:, group: nil)
-        Group.refresh_automatic_groups!
         pm = Fabricate(:private_message_post_one_user, user: users.first).topic
         users[1..-1].each do |u|
           pm.invite(users.first, u.username)
@@ -723,7 +732,7 @@ RSpec.describe Search do
         end
 
         it "returns nothing if user is not a group member" do
-          pm = create_pm(users: [current, participant], group: group)
+          _pm = create_pm(users: [current, participant], group: group)
 
           results =
             Search.execute("group_messages:#{group.name}", guardian: Guardian.new(non_participant))
@@ -735,7 +744,7 @@ RSpec.describe Search do
         end
 
         it "returns nothing if group has messages disabled" do
-          pm = create_pm(users: [current, participant], group: group)
+          _pm = create_pm(users: [current, participant], group: group)
           group.update!(has_messages: false)
 
           results = Search.execute("group_messages:#{group.name}", guardian: Guardian.new(current))
@@ -926,15 +935,23 @@ RSpec.describe Search do
       expect(result.blurb(result.posts.first)).to eq(expected_blurb)
     end
 
-    it "applies a small penalty to closed topic when ranking" do
-      post =
+    it "applies a small penalty to closed topics and archived topics when ranking" do
+      archived_post =
+        Fabricate(
+          :post,
+          raw: "My weekly update",
+          topic:
+            Fabricate(:topic, title: "A topic that will be archived", archived: true, closed: true),
+        )
+
+      closed_post =
         Fabricate(
           :post,
           raw: "My weekly update",
           topic: Fabricate(:topic, title: "A topic that will be closed", closed: true),
         )
 
-      post2 =
+      open_post =
         Fabricate(
           :post,
           raw: "My weekly update",
@@ -942,12 +959,24 @@ RSpec.describe Search do
         )
 
       result = Search.execute("weekly update")
-      expect(result.posts.pluck(:id)).to eq([post2.id, post.id])
+      expect(result.posts.pluck(:id)).to eq([open_post.id, closed_post.id, archived_post.id])
+    end
+
+    it "can find posts by searching for a url prefix" do
+      post = Fabricate(:post, raw: "checkout the amazing domain https://happy.sappy.com")
+
+      results = Search.execute("happy")
+      expect(results.posts.count).to eq(1)
+      expect(results.posts.first.id).to eq(post.id)
+
+      results = Search.execute("sappy")
+      expect(results.posts.count).to eq(1)
+      expect(results.posts.first.id).to eq(post.id)
     end
 
     it "aggregates searches in a topic by returning the post with the lowest post number" do
       post = Fabricate(:post, topic: topic, raw: "this is a play post")
-      post2 = Fabricate(:post, topic: topic, raw: "play play playing played play")
+      _post2 = Fabricate(:post, topic: topic, raw: "play play playing played play")
       post3 = Fabricate(:post, raw: "this is a play post")
 
       5.times { Fabricate(:post, topic: topic, raw: "play playing played") }
@@ -994,6 +1023,21 @@ RSpec.describe Search do
 
       user.groups << whisperers_group
       results = Search.execute("tiger", guardian: Guardian.new(user))
+      expect(results.posts).to eq([post])
+    end
+
+    it "does not return hidden posts" do
+      Fabricate(:post, raw: "Can you see me? I'm a hidden post", hidden: true)
+
+      results = Search.execute("hidden post")
+      expect(results.posts.count).to eq(0)
+    end
+
+    it "does not rely on postgres's proximity opreators" do
+      topic.update!(title: "End-to-end something something testing")
+
+      results = Search.execute("end-to-end test")
+
       expect(results.posts).to eq([post])
     end
   end
@@ -1211,6 +1255,41 @@ RSpec.describe Search do
       )
     end
 
+    it "allow searching for multiple categories" do
+      category2 = Fabricate(:category, name: "abc")
+      topic2 = Fabricate(:topic, category: category2)
+      post2 = Fabricate(:post, topic: topic2, raw: "snow monkey")
+
+      category3 = Fabricate(:category, name: "def")
+      topic3 = Fabricate(:topic, category: category3)
+      post3 = Fabricate(:post, topic: topic3, raw: "snow monkey")
+
+      search = Search.execute("monkey category:abc,def")
+      expect(search.posts.map(&:id)).to contain_exactly(post2.id, post3.id)
+
+      search = Search.execute("monkey categories:abc,def")
+      expect(search.posts.map(&:id)).to contain_exactly(post2.id, post3.id)
+
+      search = Search.execute("monkey categories:xxxxx,=abc,=def")
+      expect(search.posts.map(&:id)).to contain_exactly(post2.id, post3.id)
+
+      search = Search.execute("snow category:abc,#{category.id}")
+      expect(search.posts.map(&:id)).to contain_exactly(post.id, post2.id)
+
+      child_category = Fabricate(:category, parent_category: category2)
+      child_topic = Fabricate(:topic, category: child_category)
+      child_post = Fabricate(:post, topic: child_topic, raw: "snow monkey")
+
+      search = Search.execute("monkey category:zzz,nnn,=abc,mmm")
+      expect(search.posts.map(&:id)).to contain_exactly(post2.id)
+
+      search =
+        Search.execute(
+          "monkey category:0007847874874874874748749398384398439843984938439843948394834984934839483984983498394834983498349834983,zzz,nnn,abc,mmm",
+        )
+      expect(search.posts.map(&:id)).to contain_exactly(post2.id, child_post.id)
+    end
+
     it "should return the right categories" do
       search = Search.execute("monkey")
 
@@ -1315,7 +1394,10 @@ RSpec.describe Search do
       end
 
       context "with non staff logged in" do
-        it "shows doesn’t show group" do
+        fab!(:user)
+
+        it "shows doesn't show group" do
+          expect(search(user).groups.map(&:name)).to eq([])
         end
       end
     end
@@ -1358,7 +1440,7 @@ RSpec.describe Search do
         SiteSetting.tagging_enabled = true
         DiscourseTagging.tag_topic_by_names(
           post.topic,
-          Guardian.new(Fabricate.build(:admin)),
+          Guardian.new(Fabricate(:admin, refresh_auto_groups: true)),
           [tag.name, uppercase_tag.name],
         )
         post.topic.save
@@ -1628,7 +1710,7 @@ RSpec.describe Search do
 
   describe "Advanced search" do
     describe "bookmarks" do
-      fab!(:user) { Fabricate(:user) }
+      fab!(:user)
       let!(:bookmark_post1) { Fabricate(:post, raw: "boom this is a bookmarked post") }
       let!(:bookmark_post2) { Fabricate(:post, raw: "wow some other cool thing") }
 
@@ -1638,7 +1720,7 @@ RSpec.describe Search do
 
       it "can filter by posts in the user's bookmarks" do
         expect(search_with_bookmarks.posts.map(&:id)).to eq([])
-        bm = Fabricate(:bookmark, user: user, bookmarkable: bookmark_post1)
+        Fabricate(:bookmark, user: user, bookmarkable: bookmark_post1)
         expect(search_with_bookmarks.posts.map(&:id)).to match_array([bookmark_post1.id])
       end
     end
@@ -1750,7 +1832,7 @@ RSpec.describe Search do
 
     context "when searching for posts made by users of a group" do
       fab!(:topic) { Fabricate(:topic, created_at: 3.months.ago) }
-      fab!(:user) { Fabricate(:user) }
+      fab!(:user)
       fab!(:user_2) { Fabricate(:user) }
       fab!(:user_3) { Fabricate(:user) }
       fab!(:group) { Fabricate(:group, name: "Like_a_Boss").tap { |g| g.add(user) } }
@@ -1854,7 +1936,7 @@ RSpec.describe Search do
         )
       post2 = Fabricate(:post, raw: "test URL post with")
 
-      expect(Search.execute("test post with 'a URL).posts").posts).to eq([post2, post])
+      expect(Search.execute("test post URL l").posts).to eq([post2, post])
       expect(Search.execute(%{"test post with 'a URL"}).posts).to eq([post])
       expect(Search.execute(%{"https://some.site.com/search?q=test.test.test"}).posts).to eq([post])
       expect(
@@ -1960,18 +2042,54 @@ RSpec.describe Search do
       expect(
         Search.execute("test in:tracking", guardian: Guardian.new(topic.user)).posts.length,
       ).to eq(1)
+
+      another_user = Fabricate(:user, username: "AnotherUser")
+      post4 = Fabricate(:post, raw: "test by uppercase username", user: another_user)
+      topic4 = post4.topic
+      topic4.update(category: public_category)
+
+      expect(
+        Search
+          .execute("test created:@#{another_user.username}", guardian: Guardian.new())
+          .posts
+          .length,
+      ).to eq(1)
     end
 
     it "can find posts with images" do
-      post_uploaded = Fabricate(:post_with_uploaded_image)
-      Fabricate(:post)
+      user = Fabricate(:user, refresh_auto_groups: true)
+      post_uploaded = Fabricate(:post_with_uploaded_image, user: user)
+      Fabricate(:post, user: user)
 
       CookedPostProcessor.new(post_uploaded).update_post_image
 
       expect(Search.execute("with:images").posts.map(&:id)).to contain_exactly(post_uploaded.id)
     end
 
-    it "can find by latest" do
+    it "defaults to search_default_sort_order when no order is provided" do
+      topic1 = Fabricate(:topic, title: "I do not like that Sam I am", created_at: 1.minute.ago)
+      post1 = Fabricate(:post, topic: topic1, created_at: 10.minutes.ago)
+      post2 =
+        Fabricate(
+          :post,
+          raw: "that Sam I am, that Sam I am",
+          created_at: 5.minutes.ago,
+          topic: Fabricate(:topic, created_at: 1.hour.ago),
+        )
+
+      SiteSetting.search_default_sort_order = SearchSortOrderSiteSetting.value_from_id(:latest)
+
+      expect(Search.execute("sam").posts.map(&:id)).to eq([post2.id, post1.id])
+      expect(Search.execute("sam ORDER:LATEST").posts.map(&:id)).to eq([post2.id, post1.id])
+
+      SiteSetting.search_default_sort_order =
+        SearchSortOrderSiteSetting.value_from_id(:latest_topic)
+
+      expect(Search.execute("sam").posts.map(&:id)).to eq([post1.id, post2.id])
+      expect(Search.execute("sam ORDER:LATEST_TOPIC").posts.map(&:id)).to eq([post1.id, post2.id])
+    end
+
+    it "can order by latest" do
       topic1 = Fabricate(:topic, title: "I do not like that Sam I am")
       post1 = Fabricate(:post, topic: topic1, created_at: 10.minutes.ago)
       post2 = Fabricate(:post, raw: "that Sam I am, that Sam I am", created_at: 5.minutes.ago)
@@ -1980,6 +2098,17 @@ RSpec.describe Search do
       expect(Search.execute("sam ORDER:LATEST").posts.map(&:id)).to eq([post2.id, post1.id])
       expect(Search.execute("sam l").posts.map(&:id)).to eq([post2.id, post1.id])
       expect(Search.execute("l sam").posts.map(&:id)).to eq([post2.id, post1.id])
+    end
+
+    it "can order by oldest" do
+      topic1 = Fabricate(:topic, title: "I do not like that Sam I am")
+      post1 = Fabricate(:post, topic: topic1, raw: "sam is a sam sam sam") # score higher
+
+      topic2 = Fabricate(:topic, title: "I do not like that Sam I am 2", created_at: 5.minutes.ago)
+      post2 = Fabricate(:post, topic: topic2, created_at: 5.minutes.ago)
+
+      expect(Search.execute("sam").posts.map(&:id)).to eq([post1.id, post2.id])
+      expect(Search.execute("sam ORDER:oldest").posts.map(&:id)).to eq([post2.id, post1.id])
     end
 
     it "can order by topic creation" do
@@ -2019,6 +2148,13 @@ RSpec.describe Search do
       expect(Search.execute("Topic order:latest_topic").posts.map(&:id)).to eq(
         [category.topic.first_post.id, latest_irrelevant_topic_post.id, old_relevant_topic_post.id],
       )
+
+      # push weight to the front to ensure test is correct and is not just a coincidence
+      latest_irrelevant_topic_post.update!(raw: "Topic Topic Topic")
+
+      expect(Search.execute("Topic order:oldest_topic").posts.map(&:id)).to eq(
+        [old_relevant_topic_post.id, latest_irrelevant_topic_post.id, category.topic.first_post.id],
+      )
     end
 
     it "can order by topic views" do
@@ -2038,6 +2174,18 @@ RSpec.describe Search do
 
       expect(Search.execute("Topic min_views:150").posts.map(&:id)).to eq([post2.id])
       expect(Search.execute("Topic max_views:150").posts.map(&:id)).to eq([post.id])
+    end
+
+    it "can order by likes" do
+      raw = "Foo bar lorem ipsum"
+      topic = Fabricate(:topic)
+      post1 = Fabricate(:post, topic:, raw:, like_count: 1)
+      post2 = Fabricate(:post, topic:, raw:, like_count: 2)
+      post3 = Fabricate(:post, topic:, raw:, like_count: 3)
+
+      expect(Search.execute("topic:#{topic.id} bar order:likes").posts.map(&:id)).to eq(
+        [post3, post2, post1].map(&:id),
+      )
     end
 
     it "can search for terms with dots" do
@@ -2289,12 +2437,18 @@ RSpec.describe Search do
 
     it "escapes the term correctly" do
       expect(Search.ts_query(term: 'Title with trailing backslash\\')).to eq(
-        "TO_TSQUERY('english', '''Title with trailing backslash\\\\\\\\'':*')",
+        "REGEXP_REPLACE(TO_TSQUERY('english', '''Title with trailing backslash\\\\\\\\'':*')::text, '<->|<\\d+>', '&', 'g')::tsquery",
       )
 
       expect(Search.ts_query(term: "Title with trailing quote'")).to eq(
-        "TO_TSQUERY('english', '''Title with trailing quote'''''':*')",
+        "REGEXP_REPLACE(TO_TSQUERY('english', '''Title with trailing quote'''''':*')::text, '<->|<\\d+>', '&', 'g')::tsquery",
       )
+    end
+
+    it "remaps postgres's proximity operators '<->' and its `<N>` variant" do
+      expect(
+        DB.query_single("SELECT #{Search.ts_query(term: "end-to-end")}::text"),
+      ).to contain_exactly("'end-to-end':* & 'end':* & 'end':*")
     end
   end
 
@@ -2387,11 +2541,47 @@ RSpec.describe Search do
     end
   end
 
+  describe "include:invisible / include:unlisted" do
+    it "allows including invisible topics in the results for users that can see unlisted topics" do
+      topic = Fabricate(:topic, title: "I am testing a search", visible: false)
+      post = Fabricate(:post, topic: topic, raw: "this is the first post", post_number: 1)
+
+      results = Search.execute("testing include:invisible", guardian: Guardian.new(admin))
+      expect(results.posts.map(&:id)).to eq([post.id])
+
+      results =
+        Search.execute(
+          "testing include:unlisted",
+          guardian: Guardian.new(Fabricate(:trust_level_4)),
+        )
+      expect(results.posts.map(&:id)).to eq([post.id])
+
+      results = Search.execute("testing", guardian: Guardian.new(admin))
+      expect(results.posts).to eq([])
+    end
+
+    it "won't work for users that can't see unlisted topics" do
+      topic = Fabricate(:topic, title: "I am testing a search", visible: false)
+      _post = Fabricate(:post, topic: topic, raw: "this is the first post", post_number: 1)
+
+      results =
+        Search.execute("testing include:invisible", guardian: Guardian.new(Fabricate(:user)))
+      expect(results.posts).to eq([])
+
+      results =
+        Search.execute(
+          "testing include:unlisted",
+          guardian: Guardian.new(Fabricate(:trust_level_3)),
+        )
+      expect(results.posts).to eq([])
+    end
+  end
+
   describe "ignore_diacritics" do
     before { SiteSetting.search_ignore_accents = true }
     let!(:post1) { Fabricate(:post, raw: "สวัสดี Rágis hello") }
 
-    it ("allows strips correctly") do
+    it("allows strips correctly") do
       results = Search.execute("hello", type_filter: "topic")
       expect(results.posts.length).to eq(1)
 
@@ -2413,7 +2603,7 @@ RSpec.describe Search do
     before { SiteSetting.search_ignore_accents = false }
     let!(:post1) { Fabricate(:post, raw: "สวัสดี Régis hello") }
 
-    it ("allows strips correctly") do
+    it("allows strips correctly") do
       results = Search.execute("hello", type_filter: "topic")
       expect(results.posts.length).to eq(1)
 
@@ -2468,7 +2658,7 @@ RSpec.describe Search do
       expect(results.posts.length).to eq(Search.per_facet)
       expect(results.more_posts).to eq(nil) # not 6 posts yet
 
-      post6 = Fabricate(:post, raw: "hello post #6")
+      _post6 = Fabricate(:post, raw: "hello post #6")
 
       results = Search.execute("hello", search_type: :header)
       expect(results.posts.length).to eq(Search.per_facet)
@@ -2537,10 +2727,14 @@ RSpec.describe Search do
 
     it "allows to define custom filter" do
       expect(Search.new("advanced").execute.posts).to eq([post1, post0])
+
       Search.advanced_filter(/^min_chars:(\d+)$/) do |posts, match|
         posts.where("(SELECT LENGTH(p2.raw) FROM posts p2 WHERE p2.id = posts.id) >= ?", match.to_i)
       end
+
       expect(Search.new("advanced min_chars:50").execute.posts).to eq([post0])
+    ensure
+      Search.advanced_filters.delete(/^min_chars:(\d+)$/)
     end
 
     it "allows to define custom order" do
@@ -2549,6 +2743,8 @@ RSpec.describe Search do
       Search.advanced_order(:chars) { |posts| posts.reorder("MAX(LENGTH(posts.raw)) DESC") }
 
       expect(Search.new("advanced order:chars").execute.posts).to eq([post0, post1])
+    ensure
+      Search.advanced_orders.delete(:chars)
     end
   end
 
@@ -2578,6 +2774,141 @@ RSpec.describe Search do
     it "does not fail when parsed term is empty" do
       result = Search.execute("#cat ", type_filter: "exclude_topics")
       expect(result.categories.length).to eq(0)
+    end
+  end
+
+  context "when prioritize_exact_search_match is enabled" do
+    before { SearchIndexer.enable }
+
+    after { SearchIndexer.disable }
+
+    it "correctly ranks topics" do
+      SiteSetting.prioritize_exact_search_title_match = true
+
+      topic1 = Fabricate(:topic, title: "saml saml saml is the best")
+      post1 = Fabricate(:post, topic: topic1, raw: "this topic is a story about saml")
+
+      topic2 = Fabricate(:topic, title: "sam has ideas about lots of things")
+      post2 = Fabricate(:post, topic: topic2, raw: "this topic is not about saml saml saml")
+
+      topic3 = Fabricate(:topic, title: "jane has ideas about lots of things")
+      post3 = Fabricate(:post, topic: topic3, raw: "sam sam sam sam lets add sams")
+
+      SearchIndexer.index(post1, force: true)
+      SearchIndexer.index(post2, force: true)
+      SearchIndexer.index(post3, force: true)
+
+      result = Search.execute("sam")
+      expect(result.posts.length).to eq(3)
+
+      # title match should win cause we limited duplication
+      expect(result.posts.pluck(:id)).to eq([post2.id, post1.id, post3.id])
+    end
+  end
+
+  context "when plugin introduces a search_rank_sort_priorities modifier" do
+    before do
+      SearchIndexer.enable
+      DiscoursePluginRegistry.clear_modifiers!
+    end
+    after do
+      SearchIndexer.disable
+
+      DiscoursePluginRegistry.clear_modifiers!
+    end
+
+    it "allow modifying the search rank" do
+      plugin = Plugin::Instance.new
+      plugin.register_modifier(:search_rank_sort_priorities) do |ranks, search|
+        [["topics.closed", 77]]
+      end
+
+      closed_topic = Fabricate(:topic, title: "saml saml saml is the best", closed: true)
+      closed_post = Fabricate(:post, topic: closed_topic, raw: "this topic is a story about saml")
+
+      open_topic = Fabricate(:topic, title: "saml saml saml is the best2")
+      open_post = Fabricate(:post, topic: open_topic, raw: "this topic is a story about saml")
+
+      result = Search.execute("story")
+      expect(result.posts.pluck(:id)).to eq([closed_post.id, open_post.id])
+    end
+  end
+
+  context "when some categories are prioritized" do
+    before { SearchIndexer.enable }
+    after { SearchIndexer.disable }
+
+    it "correctly ranks topics with prioritized categories and stuffed topic terms" do
+      topic1 = Fabricate(:topic, title: "invite invited invites testing stuff with things")
+      post1 =
+        Fabricate(
+          :post,
+          topic: topic1,
+          raw: "this topic is a story about some person invites are fun",
+        )
+
+      category = Fabricate(:category, search_priority: Searchable::PRIORITIES[:high])
+
+      topic2 = Fabricate(:topic, title: "invite is the bestest", category: category)
+      post2 =
+        Fabricate(
+          :post,
+          topic: topic2,
+          raw: "this topic is a story about some other person invites are fun",
+        )
+
+      result = Search.execute("invite")
+      expect(result.posts.length).to eq(2)
+
+      # title match should win cause we limited duplication
+      expect(result.posts.pluck(:id)).to eq([post2.id, post1.id])
+    end
+  end
+
+  context "when max_duplicate_search_index_terms limits duplication" do
+    before { SearchIndexer.enable }
+
+    after { SearchIndexer.disable }
+
+    it "correctly ranks topics" do
+      SiteSetting.max_duplicate_search_index_terms = 5
+
+      topic1 = Fabricate(:topic, title: "this is a topic about sam")
+      post1 = Fabricate(:post, topic: topic1, raw: "this topic is a story about some person")
+
+      topic2 = Fabricate(:topic, title: "this is a topic about bob")
+      post2 =
+        Fabricate(
+          :post,
+          topic: topic2,
+          raw: "this topic is a story about some person #{"sam " * 100}",
+        )
+
+      SearchIndexer.index(post1, force: true)
+      SearchIndexer.index(post2, force: true)
+
+      result = Search.execute("sam")
+      expect(result.posts.length).to eq(2)
+
+      # title match should win cause we limited duplication
+      expect(result.posts.pluck(:id)).to eq([post1.id, post2.id])
+    end
+  end
+
+  describe "Extensibility features of search" do
+    it "is possible to parse queries" do
+      term = "hello l status:closed"
+      search = Search.new(term)
+
+      posts = Post.all.includes(:topic)
+      posts = search.apply_filters(posts)
+      posts = search.apply_order(posts)
+
+      sql = posts.to_sql
+
+      expect(search.term).to eq("hello")
+      expect(sql).to include("ORDER BY posts.created_at DESC")
+      expect(sql).to match(/where.*topics.closed/i)
     end
   end
 end

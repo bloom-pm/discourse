@@ -1,13 +1,13 @@
 import Component from "@ember/component";
-import { iconHTML } from "discourse-common/lib/icon-library";
-import { htmlSafe } from "@ember/template";
 import { schedule } from "@ember/runloop";
+import { htmlSafe } from "@ember/template";
+import { iconHTML } from "discourse-common/lib/icon-library";
 import discourseComputed from "discourse-common/utils/decorators";
-import I18n from "I18n";
+import I18n from "discourse-i18n";
 
 export default Component.extend({
-  tagName: "th",
-  classNames: ["sortable"],
+  tagName: "div",
+  classNames: ["directory-table__column-header", "sortable"],
   attributeBindings: ["title", "colspan", "ariaSort:aria-sort", "role"],
   role: "columnheader",
   labelKey: null,
@@ -59,11 +59,15 @@ export default Component.extend({
     this.toggleChevron();
     this._updateA11yAttributes();
   },
+
   didRender() {
+    this._super(...arguments);
+
     if (this.onActiveRender && this.chevronIcon) {
       this.onActiveRender(this.element);
     }
   },
+
   _updateA11yAttributes() {
     let criteria = "";
     const pressed = this.order === this.field;

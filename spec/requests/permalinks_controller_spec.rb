@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe PermalinksController do
-  fab!(:topic) { Fabricate(:topic) }
+  fab!(:topic)
   fab!(:permalink) { Fabricate(:permalink, url: "deadroute/topic/546") }
 
   describe "show" do
@@ -43,6 +43,15 @@ RSpec.describe PermalinksController do
     it "return 404 if permalink record does not exist" do
       get "/not/a/valid/url"
       expect(response.status).to eq(404)
+    end
+
+    context "when permalink's target_url is an external URL" do
+      before { permalink.update!(external_url: "https://github.com/discourse/discourse") }
+
+      it "redirects to it properly" do
+        get "/#{permalink.url}"
+        expect(response).to redirect_to(permalink.external_url)
+      end
     end
   end
 end

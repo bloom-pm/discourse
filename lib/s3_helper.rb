@@ -27,6 +27,7 @@ class S3Helper
 
   def initialize(s3_bucket_name, tombstone_prefix = "", options = {})
     @s3_client = options.delete(:client)
+    @s3_bucket = options.delete(:bucket)
     @s3_options = default_s3_options.merge(options)
 
     @s3_bucket_name, @s3_bucket_folder_path =
@@ -47,6 +48,8 @@ class S3Helper
     setting_klass = use_db_s3_config ? SiteSetting : GlobalSetting
     options = S3Helper.s3_options(setting_klass)
     options[:client] = s3_client if s3_client.present?
+    options[:use_accelerate_endpoint] = !for_backup &&
+      SiteSetting.Upload.enable_s3_transfer_acceleration
 
     bucket =
       if for_backup
@@ -279,7 +282,12 @@ class S3Helper
   end
 
   def s3_client
-    @s3_client ||= Aws::S3::Client.new(@s3_options)
+    @s3_client ||= init_aws_s3_client
+  end
+
+  def stub_client_responses!
+    raise "This method is only allowed to be used in the testing environment" if !Rails.env.test?
+    @s3_client = init_aws_s3_client(stub_responses: true)
   end
 
   def s3_inventory_path(path = "inventory")
@@ -293,7 +301,7 @@ class S3Helper
   def create_multipart(key, content_type, metadata: {})
     response =
       s3_client.create_multipart_upload(
-        acl: "private",
+        acl: SiteSetting.s3_use_acls ? "private" : nil,
         bucket: s3_bucket_name,
         key: key,
         content_type: content_type,
@@ -349,11 +357,40 @@ class S3Helper
   def presigned_url(key, method:, expires_in: S3Helper::UPLOAD_URL_EXPIRES_AFTER_SECONDS, opts: {})
     Aws::S3::Presigner.new(client: s3_client).presigned_url(
       method,
-      { bucket: s3_bucket_name, key: key, expires_in: expires_in }.merge(opts),
+      {
+        bucket: s3_bucket_name,
+        key: key,
+        expires_in: expires_in,
+        use_accelerate_endpoint: @s3_options[:use_accelerate_endpoint],
+      }.merge(opts),
+    )
+  end
+
+  # Returns url, headers in a tuple which is needed in some cases.
+  def presigned_request(
+    key,
+    method:,
+    expires_in: S3Helper::UPLOAD_URL_EXPIRES_AFTER_SECONDS,
+    opts: {}
+  )
+    Aws::S3::Presigner.new(client: s3_client).presigned_request(
+      method,
+      {
+        bucket: s3_bucket_name,
+        key: key,
+        expires_in: expires_in,
+        use_accelerate_endpoint: @s3_options[:use_accelerate_endpoint],
+      }.merge(opts),
     )
   end
 
   private
+
+  def init_aws_s3_client(stub_responses: false)
+    options = @s3_options
+    options = options.merge(stub_responses: true) if stub_responses
+    Aws::S3::Client.new(options)
+  end
 
   def fetch_bucket_cors_rules
     begin

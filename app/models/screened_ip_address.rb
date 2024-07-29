@@ -29,7 +29,7 @@ class ScreenedIpAddress < ActiveRecord::Base
   end
 
   def check_for_match
-    unless self.errors[:ip_address].present?
+    if self.errors[:ip_address].blank?
       matched = self.class.match_for_ip_address(self.ip_address)
       if matched && matched.action_type == self.action_type
         self.errors.add(:ip_address, :ip_address_already_screened)
@@ -147,7 +147,7 @@ class ScreenedIpAddress < ActiveRecord::Base
               .where("masklen(ip_address) IN (?)", from_masklen)
 
           sum_match_count, max_last_match_at, min_created_at =
-            old_ips.pluck_first("SUM(match_count), MAX(last_match_at), MIN(created_at)")
+            old_ips.pick("SUM(match_count), MAX(last_match_at), MIN(created_at)")
 
           ScreenedIpAddress.create!(
             ip_address: subnet,

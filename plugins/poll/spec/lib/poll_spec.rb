@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe DiscoursePoll::Poll do
-  fab!(:user) { Fabricate(:user) }
+  fab!(:user) { Fabricate(:user, refresh_auto_groups: true) }
   fab!(:user_2) { Fabricate(:user) }
 
   fab!(:post_with_regular_poll) { Fabricate(:post, raw: <<~RAW) }
@@ -19,6 +19,14 @@ RSpec.describe DiscoursePoll::Poll do
       * 4
       * 5
       [/poll]
+    RAW
+
+  fab!(:post_with_ranked_choice_poll) { Fabricate(:post, raw: <<~RAW) }
+    [poll type=ranked_choice public=true]
+    * Red
+    * Blue
+    * Yellow
+    [/poll]
     RAW
 
   describe ".vote" do
@@ -157,6 +165,85 @@ RSpec.describe DiscoursePoll::Poll do
       expect(PollVote.where(poll: poll, user: user).pluck(:poll_option_id)).to contain_exactly(
         poll.poll_options.first.id,
         poll.poll_options.second.id,
+      )
+    end
+
+    it "allows user to vote on options correctly for a ranked choice poll and to vote again" do
+      poll = post_with_ranked_choice_poll.polls.first
+      poll_options = poll.poll_options
+
+      DiscoursePoll::Poll.vote(
+        user,
+        post_with_ranked_choice_poll.id,
+        "poll",
+        {
+          "0": {
+            digest: poll_options.first.digest,
+            rank: "2",
+          },
+          "1": {
+            digest: poll_options.second.digest,
+            rank: "1",
+          },
+          "2": {
+            digest: poll_options.third.digest,
+            rank: "0",
+          },
+        },
+      )
+
+      DiscoursePoll::Poll.vote(
+        user_2,
+        post_with_ranked_choice_poll.id,
+        "poll",
+        {
+          "0": {
+            digest: poll_options.first.digest,
+            rank: "0",
+          },
+          "1": {
+            digest: poll_options.second.digest,
+            rank: "2",
+          },
+          "2": {
+            digest: poll_options.third.digest,
+            rank: "1",
+          },
+        },
+      )
+
+      DiscoursePoll::Poll.vote(
+        user,
+        post_with_ranked_choice_poll.id,
+        "poll",
+        {
+          "0": {
+            digest: poll_options.first.digest,
+            rank: "1",
+          },
+          "1": {
+            digest: poll_options.second.digest,
+            rank: "2",
+          },
+          "2": {
+            digest: poll_options.third.digest,
+            rank: "0",
+          },
+        },
+      )
+
+      expect(PollVote.count).to eq(6)
+
+      expect(PollVote.where(poll: poll, user: user).pluck(:poll_option_id)).to contain_exactly(
+        poll_options.first.id,
+        poll_options.second.id,
+        poll_options.third.id,
+      )
+
+      expect(PollVote.where(poll: poll, user: user_2).pluck(:poll_option_id)).to contain_exactly(
+        poll_options.first.id,
+        poll_options.second.id,
+        poll_options.third.id,
       )
     end
   end

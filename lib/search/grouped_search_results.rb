@@ -14,6 +14,7 @@ class Search
       :type_filter,
       :posts,
       :categories,
+      :extra_categories,
       :users,
       :tags,
       :groups,
@@ -24,6 +25,8 @@ class Search
       :search_context,
       :more_full_page_results,
       :error,
+      :use_pg_headlines_for_excerpt,
+      :can_lazy_load_categories,
     )
 
     attr_accessor :search_log_id
@@ -36,7 +39,9 @@ class Search
       search_context:,
       blurb_length: nil,
       blurb_term: nil,
-      is_header_search: false
+      is_header_search: false,
+      use_pg_headlines_for_excerpt: SiteSetting.use_pg_headlines_for_excerpt,
+      can_lazy_load_categories: false
     )
       @type_filter = type_filter
       @term = term
@@ -45,11 +50,14 @@ class Search
       @blurb_length = blurb_length || BLURB_LENGTH
       @posts = []
       @categories = []
+      @extra_categories = Set.new
       @users = []
       @tags = []
       @groups = []
       @error = nil
       @is_header_search = is_header_search
+      @use_pg_headlines_for_excerpt = use_pg_headlines_for_excerpt
+      @can_lazy_load_categories = can_lazy_load_categories
     end
 
     def error=(error)
@@ -70,10 +78,12 @@ class Search
 
     def blurb(post)
       opts = { term: @blurb_term, blurb_length: @blurb_length }
+      post_search_data_version = post&.post_search_data&.version
 
-      if post.post_search_data.version > SearchIndexer::MIN_POST_REINDEX_VERSION &&
+      if post_search_data_version.present? &&
+           post_search_data_version >= SearchIndexer::MIN_POST_BLURB_INDEX_VERSION &&
            !Search.segment_chinese? && !Search.segment_japanese?
-        if SiteSetting.use_pg_headlines_for_excerpt
+        if use_pg_headlines_for_excerpt
           scrubbed_headline = post.headline.gsub(SCRUB_HEADLINE_REGEXP, '\1')
           prefix_omission = scrubbed_headline.start_with?(post.leading_raw_data) ? "" : OMISSION
           postfix_omission = scrubbed_headline.end_with?(post.trailing_raw_data) ? "" : OMISSION
@@ -97,6 +107,21 @@ class Search
         instance_variable_set("@more_#{type}".to_sym, true)
       else
         (self.public_send(type)) << object
+      end
+
+      if can_lazy_load_categories
+        category =
+          case type
+          when "posts"
+            object.topic.category
+          when "topics"
+            object.category
+          end
+
+        if category
+          extra_categories << category.parent_category if category.parent_category
+          extra_categories << category
+        end
       end
     end
 

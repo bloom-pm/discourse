@@ -1,22 +1,36 @@
 import Component from "@glimmer/component";
 import { tracked } from "@glimmer/tracking";
 import { action } from "@ember/object";
-import { relativeAge } from "discourse/lib/formatter";
-import I18n from "I18n";
+import { service } from "@ember/service";
 import { htmlSafe } from "@ember/template";
-import { inject as service } from "@ember/service";
-import { bind, debounce } from "discourse-common/utils/decorators";
+import { headerOffset } from "discourse/lib/offset-calculator";
 import { actionDescriptionHtml } from "discourse/widgets/post-small-action";
+import { bind, debounce } from "discourse-common/utils/decorators";
 import domUtils from "discourse-common/utils/dom-utils";
+import I18n from "discourse-i18n";
 
 export const SCROLLER_HEIGHT = 50;
-const MIN_SCROLLAREA_HEIGHT = 170;
-const MAX_SCROLLAREA_HEIGHT = 300;
+const DEFAULT_MIN_SCROLLAREA_HEIGHT = 170;
+const DEFAULT_MAX_SCROLLAREA_HEIGHT = 300;
 const LAST_READ_HEIGHT = 20;
+
+let desktopMinScrollAreaHeight = DEFAULT_MIN_SCROLLAREA_HEIGHT;
+let desktopMaxScrollAreaHeight = DEFAULT_MAX_SCROLLAREA_HEIGHT;
+
+export function setDesktopScrollAreaHeight(
+  height = {
+    min: DEFAULT_MIN_SCROLLAREA_HEIGHT,
+    max: DEFAULT_MAX_SCROLLAREA_HEIGHT,
+  }
+) {
+  desktopMinScrollAreaHeight = height.min;
+  desktopMaxScrollAreaHeight = height.max;
+}
 
 export default class TopicTimelineScrollArea extends Component {
   @service appEvents;
   @service siteSettings;
+  @service currentUser;
 
   @tracked showButton = false;
   @tracked current;
@@ -27,11 +41,18 @@ export default class TopicTimelineScrollArea extends Component {
   @tracked total;
   @tracked date;
   @tracked lastReadPercentage = null;
+  @tracked lastRead;
+  @tracked lastReadTop;
   @tracked before;
   @tracked after;
   @tracked timelineScrollareaStyle;
   @tracked dragging = false;
   @tracked excerpt = "";
+
+  intersectionObserver = null;
+  scrollareaElement = null;
+  scrollerElement = null;
+  dragOffset = null;
 
   constructor() {
     super(...arguments);
@@ -43,9 +64,41 @@ export default class TopicTimelineScrollArea extends Component {
       this.appEvents.on("composer:opened", this.calculatePosition);
       this.appEvents.on("composer:resized", this.calculatePosition);
       this.appEvents.on("composer:closed", this.calculatePosition);
+      this.appEvents.on("post-stream:posted", this.calculatePosition);
+    }
+
+    this.intersectionObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        const bounds = entry.boundingClientRect;
+
+        if (entry.target.id === "topic-bottom") {
+          this.topicBottom = bounds.y + window.scrollY;
+        } else {
+          this.topicTop = bounds.y + window.scrollY;
+        }
+      }
+    });
+
+    const elements = [
+      document.querySelector(".container.posts"),
+      document.querySelector("#topic-bottom"),
+    ];
+
+    for (let i = 0; i < elements.length; i++) {
+      this.intersectionObserver.observe(elements[i]);
     }
 
     this.calculatePosition();
+    this.dockCheck();
+  }
+
+  get displaySummary() {
+    return (
+      this.siteSettings.summary_timeline_button &&
+      !this.args.fullScreen &&
+      this.args.model.has_summary &&
+      !this.args.model.postStream.summary
+    );
   }
 
   get displayTimeLineScrollArea() {
@@ -53,8 +106,7 @@ export default class TopicTimelineScrollArea extends Component {
       return true;
     }
 
-    const streamLength = this.args.model.postStream?.stream?.length;
-    if (streamLength === 1) {
+    if (this.total === 1) {
       const postsWrapper = document.querySelector(".posts-wrapper");
       if (postsWrapper && postsWrapper.offsetHeight < 1000) {
         return false;
@@ -79,7 +131,7 @@ export default class TopicTimelineScrollArea extends Component {
   }
 
   get style() {
-    return htmlSafe(`height: ${scrollareaHeight()}px`);
+    return htmlSafe(`height: ${this.scrollareaHeight}px`);
   }
 
   get beforePadding() {
@@ -112,35 +164,56 @@ export default class TopicTimelineScrollArea extends Component {
   }
 
   get topPosition() {
-    const bottom = scrollareaHeight() - LAST_READ_HEIGHT / 2;
+    const bottom = this.scrollareaHeight - LAST_READ_HEIGHT / 2;
     return this.lastReadTop > bottom ? bottom : this.lastReadTop;
   }
 
-  get bottomAge() {
-    return relativeAge(
-      new Date(this.args.model.last_posted_at || this.args.model.created_at),
-      {
-        addAgo: true,
-        defaultFormat: timelineDate,
-      }
-    );
+  get scrollareaHeight() {
+    const composerHeight =
+        document.getElementById("reply-control").offsetHeight || 0,
+      headerHeight = document.querySelector(".d-header")?.offsetHeight || 0;
+
+    // scrollarea takes up about half of the timeline's height
+    const availableHeight =
+      (window.innerHeight - composerHeight - headerHeight) / 2;
+
+    const minHeight = this.args.mobileView
+      ? DEFAULT_MIN_SCROLLAREA_HEIGHT
+      : desktopMinScrollAreaHeight;
+    const maxHeight = this.args.mobileView
+      ? DEFAULT_MAX_SCROLLAREA_HEIGHT
+      : desktopMaxScrollAreaHeight;
+
+    return Math.max(minHeight, Math.min(availableHeight, maxHeight));
   }
 
   get startDate() {
     return timelineDate(this.args.model.createdAt);
   }
 
+  get nowDateOptions() {
+    return {
+      customTitle: I18n.t("topic_entrance.jump_bottom_button_title"),
+      addAgo: true,
+      defaultFormat: timelineDate,
+    };
+  }
+
   get nowDate() {
-    return this.bottomAge;
+    return (
+      this.args.model.get("last_posted_at") || this.args.model.get("created_at")
+    );
   }
 
   get lastReadHeight() {
-    return Math.round(this.lastReadPercentage * scrollareaHeight());
+    return Math.round(this.lastReadPercentage * this.scrollareaHeight);
   }
 
   @bind
   calculatePosition() {
-    this.timelineScrollareaStyle = htmlSafe(`height: ${scrollareaHeight()}px`);
+    this.timelineScrollareaStyle = htmlSafe(
+      `height: ${this.scrollareaHeight}px`
+    );
 
     const topic = this.args.model;
     const postStream = topic.postStream;
@@ -171,8 +244,8 @@ export default class TopicTimelineScrollArea extends Component {
 
     this.date = date;
 
-    const lastReadId = topic.last_read_post_id;
     const lastReadNumber = topic.last_read_post_number;
+    const lastReadId = topic.last_read_post_id;
 
     if (lastReadId && lastReadNumber) {
       const idx = postStream.stream.indexOf(lastReadId) + 1;
@@ -186,7 +259,7 @@ export default class TopicTimelineScrollArea extends Component {
     }
 
     this.before = this.scrollareaRemaining() * this.percentage;
-    this.after = scrollareaHeight() - this.before - SCROLLER_HEIGHT;
+    this.after = this.scrollareaHeight - this.before - SCROLLER_HEIGHT;
 
     if (this.percentage === null) {
       return;
@@ -194,17 +267,11 @@ export default class TopicTimelineScrollArea extends Component {
 
     if (this.hasBackPosition) {
       this.lastReadTop = Math.round(
-        this.lastReadPercentage * scrollareaHeight()
+        this.lastReadPercentage * this.scrollareaHeight
       );
       this.showButton =
         this.before + SCROLLER_HEIGHT - 5 < this.lastReadTop ||
         this.before > this.lastReadTop + 25;
-    }
-
-    if (this.hasBackPosition) {
-      this.lastReadTop = Math.round(
-        this.lastReadPercentage * scrollareaHeight()
-      );
     }
   }
 
@@ -243,28 +310,47 @@ export default class TopicTimelineScrollArea extends Component {
 
   @bind
   updatePercentage(e) {
-    // pageY for mouse and mobile
-    const y = e.pageY || e.touches[0].pageY;
-    const area = document.querySelector(".timeline-scrollarea");
-    const areaTop = domUtils.offset(area).top;
+    const currentCursorY = e.pageY || e.touches[0].pageY;
 
-    this.percentage = this.clamp(parseFloat(y - areaTop) / area.offsetHeight);
+    const desiredScrollerCentre = currentCursorY - this.dragOffset;
+
+    const areaTop = domUtils.offset(this.scrollareaElement).top;
+    const areaHeight = this.scrollareaElement.offsetHeight;
+    const scrollerHeight = this.scrollerElement.offsetHeight;
+
+    // The range of possible positions for the centre of the scroller
+    const scrollableTop = areaTop + scrollerHeight / 2;
+    const scrollableHeight = areaHeight - scrollerHeight;
+
+    this.percentage = this.clamp(
+      parseFloat(desiredScrollerCentre - scrollableTop) / scrollableHeight
+    );
     this.commit();
   }
 
   @bind
-  didStartDrag() {
+  didStartDrag(event) {
+    const y = event.pageY || event.touches[0].pageY;
+
+    const scrollerCentre =
+      domUtils.offset(this.scrollerElement).top +
+      this.scrollerElement.offsetHeight / 2;
+
+    this.dragOffset = y - scrollerCentre;
     this.dragging = true;
   }
 
   @bind
-  dragMove(e) {
-    this.updatePercentage(e);
+  dragMove(event) {
+    event.stopPropagation();
+    event.preventDefault();
+    this.updatePercentage(event);
   }
 
   @bind
   didEndDrag() {
     this.dragging = false;
+    this.dragOffset = null;
     this.commit();
   }
 
@@ -273,11 +359,46 @@ export default class TopicTimelineScrollArea extends Component {
     this.current = e.postIndex;
     this.percentage = e.percent;
     this.calculatePosition();
+    this.dockCheck();
   }
 
   @action
   goBack() {
     this.args.jumpToIndex(this.lastRead);
+  }
+
+  dockCheck() {
+    const timeline = document.querySelector(".timeline-container");
+    const timelineHeight = (timeline && timeline.offsetHeight) || 400;
+
+    const prevDockAt = this.dockAt;
+    const positionTop = headerOffset() + window.pageYOffset;
+    const currentPosition = positionTop + timelineHeight;
+
+    this.dockBottom = false;
+    if (positionTop < this.topicTop) {
+      this.dockAt = parseInt(this.topicTop, 10);
+    } else if (currentPosition > this.topicBottom) {
+      this.dockAt = parseInt(this.topicBottom - timelineHeight, 10);
+      this.dockBottom = true;
+      if (this.dockAt < 0) {
+        this.dockAt = 0;
+      }
+    } else {
+      this.dockAt = null;
+    }
+
+    if (this.dockAt !== prevDockAt) {
+      if (this.dockAt) {
+        this.args.setDocked(true);
+        if (this.dockBottom) {
+          this.args.setDockedBottom(true);
+        }
+      } else {
+        this.args.setDocked(false);
+        this.args.setDockedBottom(false);
+      }
+    }
   }
 
   commit() {
@@ -297,15 +418,21 @@ export default class TopicTimelineScrollArea extends Component {
   }
 
   scrollareaRemaining() {
-    return scrollareaHeight() - SCROLLER_HEIGHT;
+    return this.scrollareaHeight - SCROLLER_HEIGHT;
   }
 
   willDestroy() {
+    super.willDestroy(...arguments);
+
     if (!this.args.mobileView) {
+      this.intersectionObserver?.disconnect();
+      this.intersectionObserver = null;
+
       this.appEvents.off("composer:opened", this.calculatePosition);
       this.appEvents.off("composer:resized", this.calculatePosition);
       this.appEvents.off("composer:closed", this.calculatePosition);
       this.appEvents.off("topic:current-post-scrolled", this.postScrolled);
+      this.appEvents.off("post-stream:posted", this.calculatePosition);
     }
   }
 
@@ -323,21 +450,16 @@ export default class TopicTimelineScrollArea extends Component {
         return this.clamp(parseFloat(postIndex) / total);
     }
   }
-}
 
-export function scrollareaHeight() {
-  const composerHeight =
-      document.getElementById("reply-control").offsetHeight || 0,
-    headerHeight = document.querySelector(".d-header")?.offsetHeight || 0;
+  @action
+  registerScrollarea(element) {
+    this.scrollareaElement = element;
+  }
 
-  // scrollarea takes up about half of the timeline's height
-  const availableHeight =
-    (window.innerHeight - composerHeight - headerHeight) / 2;
-
-  return Math.max(
-    MIN_SCROLLAREA_HEIGHT,
-    Math.min(availableHeight, MAX_SCROLLAREA_HEIGHT)
-  );
+  @action
+  registerScroller(element) {
+    this.scrollerElement = element;
+  }
 }
 
 export function timelineDate(date) {

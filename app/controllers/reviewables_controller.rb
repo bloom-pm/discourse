@@ -16,7 +16,7 @@ class ReviewablesController < ApplicationController
     end
 
     status = (params[:status] || "pending").to_sym
-    raise Discourse::InvalidParameters.new(:status) unless allowed_statuses.include?(status)
+    raise Discourse::InvalidParameters.new(:status) if allowed_statuses.exclude?(status)
 
     topic_id = params[:topic_id] ? params[:topic_id].to_i : nil
     category_id = params[:category_id] ? params[:category_id].to_i : nil
@@ -81,6 +81,7 @@ class ReviewablesController < ApplicationController
           Reviewable.user_menu_list_for(current_user),
           current_user,
         ).as_json,
+      reviewable_count: current_user.reviewable_count,
     }
     render_json_dump(json, rest_serializer: true)
   end
@@ -154,10 +155,25 @@ class ReviewablesController < ApplicationController
   end
 
   def destroy
-    reviewable = Reviewable.find_by(id: params[:reviewable_id], created_by: current_user)
+    user =
+      if is_api?
+        if @guardian.is_admin?
+          fetch_user_from_params
+        else
+          raise Discourse::InvalidAccess
+        end
+      else
+        current_user
+      end
+
+    reviewable =
+      Reviewable.find_by_flagger_or_queued_post_creator(
+        id: params[:reviewable_id],
+        user_id: user.id,
+      )
     raise Discourse::NotFound.new if reviewable.blank?
 
-    reviewable.perform(current_user, :delete)
+    reviewable.perform(current_user, :delete, { guardian: @guardian })
 
     render json: success_json
   end
@@ -169,7 +185,7 @@ class ReviewablesController < ApplicationController
     end
 
     editable = reviewable.editable_for(guardian)
-    raise Discourse::InvalidAccess.new unless editable.present?
+    raise Discourse::InvalidAccess.new if editable.blank?
 
     # Validate parameters are all editable
     edit_params = params[:reviewable] || {}
@@ -206,11 +222,8 @@ class ReviewablesController < ApplicationController
         return render_json_error(error)
       end
 
-      if reviewable.type == "ReviewableUser"
-        args.merge!(
-          reject_reason: params[:reject_reason],
-          send_email: params[:send_email] != "false",
-        )
+      if reviewable.type_class.respond_to?(:additional_args)
+        args.merge!(reviewable.type_class.additional_args(params) || {})
       end
 
       plugin_params =

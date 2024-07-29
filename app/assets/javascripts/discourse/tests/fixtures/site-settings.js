@@ -21,6 +21,7 @@ export default {
         preview: null,
         secret: false,
         type: "username",
+        keywords: ["blah blah"],
       },
       {
         setting: "logo",
@@ -78,8 +79,5 @@ export default {
         value: "",
       },
     ],
-    diags: {
-      last_message_processed: null,
-    },
   },
 };

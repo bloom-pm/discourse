@@ -1,12 +1,12 @@
 # frozen_string_literal: true
 
-RSpec.describe ChatAllowUploadsValidator do
+RSpec.describe Chat::AllowUploadsValidator do
   it "always returns true if setting the value to false" do
     validator = described_class.new
     expect(validator.valid_value?("f")).to eq(true)
   end
 
-  context "when secure media is enabled" do
+  context "when secure uploads is enabled" do
     before do
       SiteSetting.chat_allow_uploads = false
       enable_secure_uploads

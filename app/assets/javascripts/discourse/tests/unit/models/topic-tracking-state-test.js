@@ -1,18 +1,17 @@
-import { module, test } from "qunit";
-import DiscourseURL from "discourse/lib/url";
 import { getProperties } from "@ember/object";
-import Category from "discourse/models/category";
+import { getOwner } from "@ember/owner";
+import { setupTest } from "ember-qunit";
 import MessageBus from "message-bus-client";
+import { module, test } from "qunit";
+import sinon from "sinon";
+import { NotificationLevels } from "discourse/lib/notification-levels";
+import DiscourseURL from "discourse/lib/url";
+import Category from "discourse/models/category";
+import User from "discourse/models/user";
 import {
   fakeTime,
   publishToMessageBus,
 } from "discourse/tests/helpers/qunit-helpers";
-import { NotificationLevels } from "discourse/lib/notification-levels";
-import TopicTrackingState from "discourse/models/topic-tracking-state";
-import User from "discourse/models/user";
-import sinon from "sinon";
-import { getOwner } from "discourse-common/lib/get-owner";
-import { setupTest } from "ember-qunit";
 
 module("Unit | Model | topic-tracking-state", function (hooks) {
   setupTest(hooks);
@@ -27,7 +26,7 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
   });
 
   test("bulk loading states only calls onStateChange callback once", function (assert) {
-    const trackingState = TopicTrackingState.create();
+    const trackingState = this.store.createRecord("topic-tracking-state");
     let stateCallbackCalled = 0;
 
     trackingState.onStateChange(() => {
@@ -44,7 +43,7 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
   });
 
   test("tag counts", function (assert) {
-    const trackingState = TopicTrackingState.create();
+    const trackingState = this.store.createRecord("topic-tracking-state");
 
     trackingState.loadStates([
       {
@@ -118,7 +117,7 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
   });
 
   test("tag counts - with total", function (assert) {
-    const trackingState = TopicTrackingState.create();
+    const trackingState = this.store.createRecord("topic-tracking-state");
 
     trackingState.loadStates([
       {
@@ -202,7 +201,7 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
   });
 
   test("forEachTracked", function (assert) {
-    const trackingState = TopicTrackingState.create();
+    const trackingState = this.store.createRecord("topic-tracking-state");
 
     trackingState.loadStates([
       {
@@ -278,7 +277,7 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
   });
 
   test("sync - delayed new topics for backend list are removed", function (assert) {
-    const trackingState = TopicTrackingState.create();
+    const trackingState = this.store.createRecord("topic-tracking-state");
     trackingState.loadStates([{ last_read_post_number: null, topic_id: 111 }]);
 
     trackingState.updateSeen(111, 7);
@@ -301,7 +300,7 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
   });
 
   test("sync - delayed unread topics for backend list are marked seen", function (assert) {
-    const trackingState = TopicTrackingState.create();
+    const trackingState = this.store.createRecord("topic-tracking-state");
     trackingState.loadStates([{ last_read_post_number: null, topic_id: 111 }]);
 
     trackingState.updateSeen(111, 7);
@@ -331,9 +330,15 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
   });
 
   test("sync - remove topic from state for performance if it is seen and has no unread or new posts and there are too many tracked topics in memory", function (assert) {
-    const trackingState = TopicTrackingState.create();
+    const trackingState = this.store.createRecord("topic-tracking-state");
     trackingState.loadStates([{ topic_id: 111 }, { topic_id: 222 }]);
     trackingState.set("_trackedTopicLimit", 1);
+
+    let stateChangeCallbackCalledTimes = 0;
+
+    trackingState.onStateChange(() => {
+      stateChangeCallbackCalledTimes += 1;
+    });
 
     const list = {
       topics: [
@@ -344,13 +349,34 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
           unread_posts: 0,
           prevent_sync: false,
         }),
+        this.store.createRecord("topic", {
+          id: 333,
+          unseen: false,
+          seen: true,
+          unread_posts: 0,
+          prevent_sync: false,
+        }),
+        this.store.createRecord("topic", {
+          id: 444,
+          unseen: false,
+          seen: true,
+          unread_posts: 0,
+          prevent_sync: false,
+        }),
       ],
     };
 
     trackingState.sync(list, "unread");
+
     assert.notOk(
       trackingState.states.has("t111"),
       "expect state for topic 111 to be deleted"
+    );
+
+    assert.equal(
+      stateChangeCallbackCalledTimes,
+      1,
+      "callback is only called once"
     );
 
     trackingState.loadStates([{ topic_id: 111 }, { topic_id: 222 }]);
@@ -363,7 +389,7 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
   });
 
   test("sync - no changes to state", function (assert) {
-    const trackingState = TopicTrackingState.create();
+    const trackingState = this.store.createRecord("topic-tracking-state");
 
     trackingState.loadStates([
       { topic_id: 111, last_read_post_number: null },
@@ -397,7 +423,7 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
   });
 
   test("sync - updates state to match list topic for unseen and unread/new topics", function (assert) {
-    const trackingState = TopicTrackingState.create();
+    const trackingState = this.store.createRecord("topic-tracking-state");
 
     trackingState.loadStates([
       { topic_id: 111, last_read_post_number: 0 },
@@ -455,7 +481,7 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
   });
 
   test("sync - states missing from the topic list are updated based on the selected filter", function (assert) {
-    const trackingState = TopicTrackingState.create();
+    const trackingState = this.store.createRecord("topic-tracking-state");
     trackingState.loadStates([
       {
         topic_id: 111,
@@ -492,7 +518,9 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
   });
 
   test("establishChannels - /delete MessageBus channel payloads processed", async function (assert) {
-    const trackingState = TopicTrackingState.create({ messageBus: MessageBus });
+    const trackingState = this.store.createRecord("topic-tracking-state", {
+      messageBus: MessageBus,
+    });
     trackingState.establishChannels();
 
     trackingState.loadStates([
@@ -517,7 +545,9 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
   });
 
   test("establishChannels - /recover MessageBus channel payloads processed", async function (assert) {
-    const trackingState = TopicTrackingState.create({ messageBus: MessageBus });
+    const trackingState = this.store.createRecord("topic-tracking-state", {
+      messageBus: MessageBus,
+    });
     trackingState.establishChannels();
 
     trackingState.loadStates([
@@ -547,7 +577,9 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
     });
     sinon.stub(DiscourseURL, "redirectTo");
 
-    const trackingState = TopicTrackingState.create({ messageBus: MessageBus });
+    const trackingState = this.store.createRecord("topic-tracking-state", {
+      messageBus: MessageBus,
+    });
     trackingState.establishChannels();
     trackingState.loadStates([
       {
@@ -570,7 +602,7 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
   });
 
   test("subscribe to category", function (assert) {
-    const trackingState = TopicTrackingState.create();
+    const trackingState = this.store.createRecord("topic-tracking-state");
 
     trackingState.trackIncoming("c/feature/2/l/latest");
 
@@ -659,7 +691,7 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
     });
     sinon.stub(Category, "list").returns([foo, bar, baz]);
 
-    const trackingState = TopicTrackingState.create();
+    const trackingState = this.store.createRecord("topic-tracking-state");
     assert.deepEqual(Array.from(trackingState.getSubCategoryIds(1)), [1, 2, 3]);
     assert.deepEqual(Array.from(trackingState.getSubCategoryIds(2)), [2, 3]);
     assert.deepEqual(Array.from(trackingState.getSubCategoryIds(3)), [3]);
@@ -692,7 +724,9 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
       muted_category_ids: [4],
     });
 
-    const trackingState = TopicTrackingState.create({ currentUser });
+    const trackingState = this.store.createRecord("topic-tracking-state", {
+      currentUser,
+    });
 
     assert.strictEqual(trackingState.countNew({ categoryId: 1 }), 0);
     assert.strictEqual(trackingState.countNew({ categoryId: 2 }), 0);
@@ -773,7 +807,9 @@ module("Unit | Model | topic-tracking-state", function (hooks) {
       muted_category_ids: [],
     });
 
-    const trackingState = TopicTrackingState.create({ currentUser });
+    const trackingState = this.store.createRecord("topic-tracking-state", {
+      currentUser,
+    });
 
     trackingState.trackMutedOrUnmutedTopic({
       topic_id: 1,
@@ -823,7 +859,7 @@ module("Unit | Model | topic-tracking-state | /unread", function (hooks) {
     });
     User.resetCurrent(this.currentUser);
 
-    this.trackingState = TopicTrackingState.create({
+    this.trackingState = store.createRecord("topic-tracking-state", {
       currentUser: this.currentUser,
       messageBus: MessageBus,
       siteSettings,
@@ -890,6 +926,42 @@ module("Unit | Model | topic-tracking-state | /unread", function (hooks) {
       this.trackingState.incomingCount,
       1,
       "incoming count is increased"
+    );
+  });
+
+  test("adds unread incoming to the new topic list if new new view is enabled", async function (assert) {
+    this.currentUser.new_new_view_enabled = true;
+
+    this.trackingState.trackIncoming("new");
+    await publishToMessageBus("/unread", unreadTopicPayload);
+
+    assert.deepEqual(
+      this.trackingState.newIncoming,
+      [111],
+      "unread topic is incoming"
+    );
+    assert.strictEqual(
+      this.trackingState.incomingCount,
+      1,
+      "incoming count is increased"
+    );
+  });
+
+  test("doesn't add unread incoming to the new topic list if new new view is disabled", async function (assert) {
+    this.currentUser.new_new_view_enabled = false;
+
+    this.trackingState.trackIncoming("new");
+    await publishToMessageBus("/unread", unreadTopicPayload);
+
+    assert.deepEqual(
+      this.trackingState.newIncoming,
+      [],
+      "unread topic is not incoming"
+    );
+    assert.strictEqual(
+      this.trackingState.incomingCount,
+      0,
+      "incoming count isn't increased"
     );
   });
 
@@ -1040,7 +1112,7 @@ module("Unit | Model | topic-tracking-state | /new", function (hooks) {
     });
     User.resetCurrent(this.currentUser);
 
-    this.trackingState = TopicTrackingState.create({
+    this.trackingState = store.createRecord("topic-tracking-state", {
       currentUser: this.currentUser,
       messageBus: MessageBus,
       siteSettings,

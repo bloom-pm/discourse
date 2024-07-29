@@ -1,8 +1,8 @@
 # frozen_string_literal: true
 
 RSpec.describe BadgeGranter do
-  fab!(:badge) { Fabricate(:badge) }
-  fab!(:user) { Fabricate(:user) }
+  fab!(:badge)
+  fab!(:user)
 
   before { BadgeGranter.enable_queue }
 
@@ -22,14 +22,12 @@ RSpec.describe BadgeGranter do
       BadgeGranter.revoke_ungranted_titles!
       user.reload
       expect(user.title).to eq(badge.name)
-      expect(user.user_profile.badge_granted_title).to eq(true)
       expect(user.user_profile.granted_title_badge_id).to eq(badge.id)
 
       badge.update_column(:allow_title, false)
       BadgeGranter.revoke_ungranted_titles!
       user.reload
       expect(user.title).to be_blank
-      expect(user.user_profile.badge_granted_title).to eq(false)
       expect(user.user_profile.granted_title_badge_id).to be_nil
     end
 
@@ -40,14 +38,12 @@ RSpec.describe BadgeGranter do
       BadgeGranter.revoke_ungranted_titles!
       user.reload
       expect(user.title).to eq(badge.name)
-      expect(user.user_profile.badge_granted_title).to eq(true)
       expect(user.user_profile.granted_title_badge_id).to eq(badge.id)
 
       badge.update_column(:enabled, false)
       BadgeGranter.revoke_ungranted_titles!
       user.reload
       expect(user.title).to be_blank
-      expect(user.user_profile.badge_granted_title).to eq(false)
       expect(user.user_profile.granted_title_badge_id).to be_nil
     end
 
@@ -58,14 +54,12 @@ RSpec.describe BadgeGranter do
       BadgeGranter.revoke_ungranted_titles!
       user.reload
       expect(user.title).to eq(badge.name)
-      expect(user.user_profile.badge_granted_title).to eq(true)
       expect(user.user_profile.granted_title_badge_id).to eq(badge.id)
 
       BadgeGranter.revoke(user.user_badges.first)
       BadgeGranter.revoke_ungranted_titles!
       user.reload
       expect(user.title).to be_blank
-      expect(user.user_profile.badge_granted_title).to eq(false)
       expect(user.user_profile.granted_title_badge_id).to be_nil
     end
 
@@ -91,13 +85,11 @@ RSpec.describe BadgeGranter do
 
       user.reload
       expect(user.title).to eq(badge_name)
-      expect(user.user_profile.badge_granted_title).to eq(true)
       expect(user.user_profile.granted_title_badge_id).to eq(badge.id)
 
       BadgeGranter.revoke_ungranted_titles!
       user.reload
       expect(user.title).to eq(badge_name)
-      expect(user.user_profile.badge_granted_title).to eq(true)
       expect(user.user_profile.granted_title_badge_id).to eq(badge.id)
     end
   end
@@ -317,7 +309,7 @@ RSpec.describe BadgeGranter do
   end
 
   describe "revoke" do
-    fab!(:admin) { Fabricate(:admin) }
+    fab!(:admin)
     let!(:user_badge) { BadgeGranter.grant(badge, user) }
 
     it "revokes the badge and does necessary cleanup" do
@@ -338,6 +330,10 @@ RSpec.describe BadgeGranter do
       let(:customized_badge_name) { "Merit Badge" }
 
       before do
+        I18n.backend.store_translations(
+          :en,
+          { badges: { Badge.i18n_name(badge.name) => { name: "Badge 0" } } },
+        )
         TranslationOverride.upsert!(I18n.locale, Badge.i18n_key(badge.name), customized_badge_name)
       end
 
@@ -389,6 +385,10 @@ RSpec.describe BadgeGranter do
 
     it "removes custom badge titles" do
       custom_badge_title = "this is a badge title"
+      I18n.backend.store_translations(
+        :en,
+        { badges: { Badge.i18n_name(badge.name) => { name: "Badge 0" } } },
+      )
       TranslationOverride.create!(
         translation_key: badge.translation_key,
         value: custom_badge_title,
@@ -404,8 +404,8 @@ RSpec.describe BadgeGranter do
   end
 
   describe "update_badges" do
-    fab!(:user) { Fabricate(:user) }
-    fab!(:liker) { Fabricate(:user) }
+    fab!(:user) { Fabricate(:user, refresh_auto_groups: true) }
+    fab!(:liker) { Fabricate(:user, refresh_auto_groups: true) }
 
     it "grants autobiographer" do
       user.user_profile.bio_raw = "THIS IS MY bio it a long bio I like my bio"

@@ -1,33 +1,73 @@
-import discourseComputed, { observes } from "discourse-common/utils/decorators";
-import Category from "discourse/models/category";
+import { tracked } from "@glimmer/tracking";
+import { computed } from "@ember/object";
+import { isEmpty } from "@ember/utils";
+import { observes } from "@ember-decorators/object";
 import Group from "discourse/models/group";
 import RestModel from "discourse/models/rest";
 import Site from "discourse/models/site";
-import { isEmpty } from "@ember/utils";
+import discourseComputed from "discourse-common/utils/decorators";
 
-export default RestModel.extend({
-  content_type: 1, // json
-  last_delivery_status: 1, // inactive
-  wildcard_web_hook: false,
-  verify_certificate: true,
-  active: false,
-  web_hook_event_types: null,
-  groupsFilterInName: null,
+class WebHookExtras {
+  @tracked categories;
 
-  @discourseComputed("wildcard_web_hook")
-  webhookType: {
-    get(wildcard) {
-      return wildcard ? "wildcard" : "individual";
-    },
-    set(value) {
-      this.set("wildcard_web_hook", value === "wildcard");
-    },
-  },
+  constructor(args) {
+    this.categories = args.categories || [];
+    this.content_types = args.content_types || [];
+    this.default_event_types = args.default_event_types || [];
+    this.delivery_statuses = args.delivery_statuses || [];
+    this.grouped_event_types = args.grouped_event_types || [];
+  }
 
-  @discourseComputed("category_ids")
-  categories(categoryIds) {
-    return Category.findByIds(categoryIds);
-  },
+  addCategories(categories) {
+    this.categories = this.categories.concat(categories).uniqBy((c) => c.id);
+  }
+
+  get categoriesById() {
+    if (this.categories) {
+      return new Map(this.categories.map((c) => [c.id, c]));
+    }
+  }
+
+  findCategoryById(id) {
+    return this.categoriesById?.get(id);
+  }
+}
+
+export default class WebHook extends RestModel {
+  static ExtrasClass = WebHookExtras;
+  content_type = 1; // json
+  last_delivery_status = 1; // inactive
+  wildcard_web_hook = false;
+  verify_certificate = true;
+  active = false;
+  web_hook_event_types = null;
+  groupsFilterInName = null;
+
+  @computed("wildcard_web_hook")
+  get wildcard() {
+    return this.wildcard_web_hook ? "wildcard" : "individual";
+  }
+
+  set wildcard(value) {
+    this.set("wildcard_web_hook", value === "wildcard");
+  }
+
+  @computed("category_ids")
+  get categories() {
+    return (this.category_ids || []).map((id) =>
+      this.extras.findCategoryById(id)
+    );
+  }
+
+  set categories(value) {
+    this.extras ||= new WebHookExtras({});
+    this.extras.addCategories(value);
+
+    this.set(
+      "category_ids",
+      value.map((c) => c.id)
+    );
+  }
 
   @observes("group_ids")
   updateGroupsFilter() {
@@ -41,11 +81,11 @@ export default RestModel.extend({
         return groupNames;
       }, [])
     );
-  },
+  }
 
   groupFinder(term) {
     return Group.findAll({ term, ignore_automatic: false });
-  },
+  }
 
   @discourseComputed("wildcard_web_hook", "web_hook_event_types.[]")
   description(isWildcardWebHook, types) {
@@ -57,7 +97,7 @@ export default RestModel.extend({
     });
 
     return isWildcardWebHook ? "*" : desc;
-  },
+  }
 
   createProperties() {
     const types = this.web_hook_event_types;
@@ -92,9 +132,9 @@ export default RestModel.extend({
               return groupIds;
             }, []),
     };
-  },
+  }
 
   updateProperties() {
     return this.createProperties();
-  },
-});
+  }
+}

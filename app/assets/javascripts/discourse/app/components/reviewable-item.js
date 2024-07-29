@@ -1,19 +1,30 @@
-import Category from "discourse/models/category";
 import Component from "@ember/component";
-import I18n from "I18n";
-import { ajax } from "discourse/lib/ajax";
-import { classify, dasherize } from "@ember/string";
-import discourseComputed, { bind } from "discourse-common/utils/decorators";
-import optionalService from "discourse/lib/optional-service";
-import { popupAjaxError } from "discourse/lib/ajax-error";
 import { action, set } from "@ember/object";
-import showModal from "discourse/lib/show-modal";
-import { inject as service } from "@ember/service";
-import { getOwner } from "discourse-common/lib/get-owner";
+import { getOwner } from "@ember/owner";
+import { service } from "@ember/service";
+import { classify, dasherize } from "@ember/string";
+import ExplainReviewableModal from "discourse/components/modal/explain-reviewable";
+import RejectReasonReviewableModal from "discourse/components/modal/reject-reason-reviewable";
+import ReviseAndRejectPostReviewable from "discourse/components/modal/revise-and-reject-post-reviewable";
+import { ajax } from "discourse/lib/ajax";
+import { popupAjaxError } from "discourse/lib/ajax-error";
+import optionalService from "discourse/lib/optional-service";
+import Category from "discourse/models/category";
+import Composer from "discourse/models/composer";
+import Topic from "discourse/models/topic";
+import discourseComputed, { bind } from "discourse-common/utils/decorators";
+import I18n from "discourse-i18n";
 
 let _components = {};
 
 const pluginReviewableParams = {};
+
+// The mappings defined here are default core mappings, and cannot be overridden
+// by plugins.
+const defaultActionModalClassMap = {
+  revise_and_reject_post: ReviseAndRejectPostReviewable,
+};
+const actionModalClassMap = { ...defaultActionModalClassMap };
 
 export function addPluginReviewableParam(reviewableType, param) {
   pluginReviewableParams[reviewableType]
@@ -21,9 +32,22 @@ export function addPluginReviewableParam(reviewableType, param) {
     : (pluginReviewableParams[reviewableType] = [param]);
 }
 
+export function registerReviewableActionModal(actionName, modalClass) {
+  if (Object.keys(defaultActionModalClassMap).includes(actionName)) {
+    throw new Error(
+      `Cannot override default action modal class for ${actionName} (mapped to ${defaultActionModalClassMap[actionName].name})!`
+    );
+  }
+  actionModalClassMap[actionName] = modalClass;
+}
+
 export default Component.extend({
   adminTools: optionalService(),
   dialog: service(),
+  modal: service(),
+  siteSettings: service(),
+  currentUser: service(),
+  composer: service(),
   tagName: "",
   updating: null,
   editing: false,
@@ -47,6 +71,11 @@ export default Component.extend({
     }
 
     return classes;
+  },
+
+  @discourseComputed("reviewable.created_from_flag", "reviewable.status")
+  displayContextQuestion(createdFromFlag, status) {
+    return createdFromFlag && status === 0;
   },
 
   @discourseComputed(
@@ -121,7 +150,7 @@ export default Component.extend({
   },
 
   @bind
-  _performConfirmed(performableAction) {
+  _performConfirmed(performableAction, additionalData = {}) {
     let reviewable = this.reviewable;
 
     let performAction = () => {
@@ -131,6 +160,7 @@ export default Component.extend({
       const data = {
         send_email: reviewable.sendEmail,
         reject_reason: reviewable.rejectReason,
+        ...additionalData,
       };
 
       (pluginReviewableParams[reviewable.type] || []).forEach((param) => {
@@ -140,9 +170,10 @@ export default Component.extend({
       });
 
       return ajax(
-        `/review/${reviewable.id}/perform/${performableAction.id}?version=${version}`,
+        `/review/${reviewable.id}/perform/${performableAction.server_action}?version=${version}`,
         {
           type: "PUT",
+          dataType: "json",
           data,
         }
       )
@@ -163,8 +194,8 @@ export default Component.extend({
             );
           }
 
-          if (this.attrs.remove) {
-            this.attrs.remove(performResult.remove_reviewable_ids);
+          if (this.remove) {
+            this.remove(performResult.remove_reviewable_ids);
           } else {
             return this.store.find("reviewable", reviewable.id);
           }
@@ -198,6 +229,34 @@ export default Component.extend({
     this._penalize("showSilenceModal", reviewable, performAction);
   },
 
+  async clientEdit(reviewable, performAction) {
+    if (!this.currentUser) {
+      return this.dialog.alert(I18n.t("post.controls.edit_anonymous"));
+    }
+    const post = await this.store.find("post", reviewable.post_id);
+    const topic_json = await Topic.find(post.topic_id, {});
+
+    const topic = Topic.create(topic_json);
+    post.set("topic", topic);
+
+    if (!post.can_edit) {
+      return false;
+    }
+
+    const opts = {
+      post,
+      action: Composer.EDIT,
+      draftKey: post.get("topic.draft_key"),
+      draftSequence: post.get("topic.draft_sequence"),
+      skipDraftCheck: true,
+      skipJumpOnSave: true,
+    };
+
+    this.composer.open(opts);
+
+    return performAction();
+  },
+
   _penalize(adminToolMethod, reviewable, performAction) {
     let adminTools = this.adminTools;
     if (adminTools) {
@@ -214,10 +273,9 @@ export default Component.extend({
 
   @action
   explainReviewable(reviewable, event) {
-    event?.preventDefault();
-    showModal("explain-reviewable", {
-      title: "review.explain.title",
-      model: reviewable,
+    event.preventDefault();
+    this.modal.show(ExplainReviewableModal, {
+      model: { reviewable },
     });
   },
 
@@ -270,28 +328,25 @@ export default Component.extend({
       }
 
       const message = performableAction.get("confirm_message");
-      let requireRejectReason = performableAction.get("require_reject_reason");
-      let customModal = performableAction.get("custom_modal");
+      const requireRejectReason = performableAction.get(
+        "require_reject_reason"
+      );
+      const actionModalClass = requireRejectReason
+        ? RejectReasonReviewableModal
+        : actionModalClassMap[performableAction.server_action];
+
       if (message) {
         this.dialog.confirm({
           message,
           didConfirm: () => this._performConfirmed(performableAction),
         });
-      } else if (requireRejectReason) {
-        showModal("reject-reason-reviewable", {
-          title: "review.reject_reason.title",
-          model: this.reviewable,
-        }).setProperties({
-          performConfirmed: this._performConfirmed,
-          action: performableAction,
-        });
-      } else if (customModal) {
-        showModal(customModal, {
-          title: `review.${customModal}.title`,
-          model: this.reviewable,
-        }).setProperties({
-          performConfirmed: this._performConfirmed,
-          action: performableAction,
+      } else if (actionModalClass) {
+        this.modal.show(actionModalClass, {
+          model: {
+            reviewable: this.reviewable,
+            performConfirmed: this._performConfirmed,
+            action: performableAction,
+          },
         });
       } else {
         return this._performConfirmed(performableAction);

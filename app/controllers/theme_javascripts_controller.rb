@@ -8,6 +8,7 @@ class ThemeJavascriptsController < ApplicationController
     :handle_theme,
     :preload_json,
     :redirect_to_login_if_required,
+    :redirect_to_profile_if_required,
     :verify_authenticity_token,
     only: %i[show show_map show_tests],
   )
@@ -15,14 +16,14 @@ class ThemeJavascriptsController < ApplicationController
   before_action :is_asset_path, :no_cookies, :apply_cdn_headers, only: %i[show show_map show_tests]
 
   def show
-    raise Discourse::NotFound unless last_modified.present?
+    raise Discourse::NotFound if last_modified.blank?
     return render body: nil, status: 304 if not_modified?
 
     # Security: safe due to route constraint
     cache_file = "#{DISK_CACHE_PATH}/#{params[:digest]}.js"
 
     write_if_not_cached(cache_file) do
-      content, has_source_map = query.pluck_first(:content, "source_map IS NOT NULL")
+      content, has_source_map = query.pick(:content, "source_map IS NOT NULL")
       if has_source_map
         content +=
           "\n//# sourceMappingURL=#{params[:digest]}.map?__ws=#{Discourse.current_hostname}\n"
@@ -34,20 +35,20 @@ class ThemeJavascriptsController < ApplicationController
   end
 
   def show_map
-    raise Discourse::NotFound unless last_modified.present?
+    raise Discourse::NotFound if last_modified.blank?
     return render body: nil, status: 304 if not_modified?
 
     # Security: safe due to route constraint
     cache_file = "#{DISK_CACHE_PATH}/#{params[:digest]}.map"
 
-    write_if_not_cached(cache_file) { query.pluck_first(:source_map) }
+    write_if_not_cached(cache_file) { query.pick(:source_map) }
 
     serve_file(cache_file)
   end
 
   def show_tests
     digest = params[:digest]
-    raise Discourse::NotFound if !digest.match?(/^\h{40}$/)
+    raise Discourse::NotFound if !digest.match?(/\A\h{40}\z/)
 
     theme = Theme.find_by(id: params[:theme_id])
     raise Discourse::NotFound if theme.blank?
@@ -75,7 +76,7 @@ class ThemeJavascriptsController < ApplicationController
         if params[:action].to_s == "show_tests"
           File.exist?(@cache_file) ? File.ctime(@cache_file) : nil
         else
-          query.pluck_first(:updated_at)
+          query.pick(:updated_at)
         end
       end
   end

@@ -3,6 +3,7 @@
 class DiscourseConnect < DiscourseConnectBase
   class BlankExternalId < StandardError
   end
+
   class BannedExternalId < StandardError
   end
 
@@ -255,6 +256,7 @@ class DiscourseConnect < DiscourseConnectBase
           name: resolve_name,
           username: resolve_username,
           ip_address: ip_address,
+          registration_ip_address: ip_address,
         }
 
         if SiteSetting.allow_user_locale && locale && LocaleSiteSetting.valid_value?(locale)
@@ -267,7 +269,16 @@ class DiscourseConnect < DiscourseConnectBase
           ReviewableUser.set_approved_fields!(user, Discourse.system_user)
         end
 
-        user.save!
+        begin
+          user.save!
+        rescue ActiveRecord::RecordInvalid => e
+          if SiteSetting.verbose_discourse_connect_logging
+            Rails.logger.error(
+              "Verbose SSO log: User creation failed. External id: #{external_id}, New User (user_id: #{user.id}) Params: #{user_params} User Params: #{user.attributes} User Errors: #{user.errors.full_messages} Email: #{user.primary_email.attributes} Email Error: #{user.primary_email.errors.full_messages}",
+            )
+          end
+          raise e
+        end
 
         if SiteSetting.verbose_discourse_connect_logging
           Rails.logger.warn(
@@ -328,7 +339,7 @@ class DiscourseConnect < DiscourseConnectBase
   def change_external_attributes_and_override(sso_record, user)
     @email_changed = false
 
-    if SiteSetting.auth_overrides_email && user.email != Email.downcase(email)
+    if SiteSetting.auth_overrides_email && email.present? && user.email != Email.downcase(email)
       user.email = email
       user.active = false if require_activation
       @email_changed = true
@@ -342,7 +353,7 @@ class DiscourseConnect < DiscourseConnectBase
       user.name = name || User.suggest_name(username.blank? ? email : username)
     end
 
-    if locale_force_update && SiteSetting.allow_user_locale && locale &&
+    if locale_force_update && SiteSetting.allow_user_locale && locale.present? &&
          LocaleSiteSetting.valid_value?(locale)
       user.locale = locale
     end

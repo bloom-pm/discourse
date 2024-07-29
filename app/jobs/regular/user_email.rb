@@ -27,18 +27,20 @@ module Jobs
     end
 
     def execute(args)
-      raise Discourse::InvalidParameters.new(:user_id) unless args[:user_id].present?
-      raise Discourse::InvalidParameters.new(:type) unless args[:type].present?
+      raise Discourse::InvalidParameters.new(:user_id) if args[:user_id].blank?
+      raise Discourse::InvalidParameters.new(:type) if args[:type].blank?
 
       # This is for performance. Quit out fast without doing a bunch
       # of extra work when emails are disabled.
       return if quit_email_early?
 
+      args[:type] = args[:type].to_s
+
       send_user_email(args)
 
-      if args[:user_id].present? && args[:type].to_s == "digest"
+      if args[:type] == "digest"
         # Record every attempt at sending a digest email, even if it was skipped
-        UserStat.where(user_id: args[:user_id]).update_all(digest_attempted_at: Time.zone.now)
+        UserStat.where(user_id: args[:user_id]).update_all(digest_attempted_at: Time.current)
       end
     end
 
@@ -108,27 +110,45 @@ module Jobs
         return skip_message(SkippedEmailLog.reason_types[:user_email_anonymous_user])
       end
 
-      if user.suspended? && !%w[user_private_message account_suspended].include?(type.to_s)
-        return skip_message(SkippedEmailLog.reason_types[:user_email_user_suspended_not_pm])
+      if user.suspended?
+        if !type.in?(%w[user_private_message account_suspended])
+          return skip_message(SkippedEmailLog.reason_types[:user_email_user_suspended_not_pm])
+        elsif post&.topic&.group_pm?
+          return skip_message(SkippedEmailLog.reason_types[:user_email_user_suspended])
+        end
       end
 
-      if type.to_s == "digest"
-        return if user.staged
-        if user.last_emailed_at &&
-             user.last_emailed_at >
-               (
-                 user.user_option&.digest_after_minutes ||
-                   SiteSetting.default_email_digest_frequency.to_i
-               ).minutes.ago
-          return
+      if type == "digest"
+        # same checks as in the "enqueue_digest_emails" job
+        # in case something changed since the job was enqueued
+        return if SiteSetting.disable_digest_emails? || SiteSetting.private_email?
+
+        return if user.bot? || user.anonymous? || !user.active || user.suspended? || user.staged
+
+        return if !user.user_stat
+        return if user.user_stat.bounce_score >= SiteSetting.bounce_score_threshold
+
+        return if !user.user_option
+        return if !user.user_option.email_digests
+        return if user.user_option.mailing_list_mode
+
+        delay = user.user_option.digest_after_minutes || SiteSetting.default_email_digest_frequency
+        delay = delay.to_i
+
+        return if delay <= 0 # 0 means never send digest
+
+        if user.user_stat.digest_attempted_at
+          return if user.user_stat.digest_attempted_at > delay.minutes.ago
+        end
+
+        if user.last_seen_at
+          return if user.last_seen_at > delay.minutes.ago
         end
       end
 
       seen_recently =
-        (
-          user.last_seen_at.present? &&
-            user.last_seen_at > SiteSetting.email_time_window_mins.minutes.ago
-        )
+        user.last_seen_at && user.last_seen_at > SiteSetting.email_time_window_mins.minutes.ago
+
       if !args[:force_respect_seen_recently] &&
            (
              always_email_regular?(user, type) || always_email_private_message?(user, type) ||
@@ -158,16 +178,17 @@ module Jobs
           email_args[:notification_type] = email_args[:notification_type].to_s
         end
 
-        if !SiteSetting.disable_mailing_list_mode && user.user_option.mailing_list_mode? &&
-             user.user_option.mailing_list_mode_frequency > 0 && # don't catch notifications for users on daily mailing list mode
-             (!post.try(:topic).try(:private_message?)) &&
-             NOTIFICATIONS_SENT_BY_MAILING_LIST.include?(email_args[:notification_type])
-          # no need to log a reason when the mail was already sent via the mailing list job
-          return nil, nil
+        # don't catch notifications for users on daily mailing list mode
+        if user.user_option.mailing_list_mode && user.user_option.mailing_list_mode_frequency > 0
+          if !post&.topic&.private_message? &&
+               NOTIFICATIONS_SENT_BY_MAILING_LIST.include?(email_args[:notification_type])
+            # no need to log a reason when the mail was already sent via the mailing list job
+            return
+          end
         end
 
         unless always_email_regular?(user, type) || always_email_private_message?(user, type)
-          if (notification && notification.read?) || (post && post.seen?(user))
+          if notification&.read? || post&.seen?(user)
             return skip_message(SkippedEmailLog.reason_types[:user_email_notification_already_read])
           end
         end
@@ -184,26 +205,26 @@ module Jobs
       if email_token.present?
         email_args[:email_token] = email_token
 
-        if type.to_s == "confirm_new_email"
+        if type == "confirm_new_email"
           change_req = EmailChangeRequest.find_by_new_token(email_token)
 
           email_args[:requested_by_admin] = change_req.requested_by_admin? if change_req
         end
       end
 
-      email_args[:new_email] = args[:new_email] || user.email if type.to_s == "notify_old_email" ||
-        type.to_s == "notify_old_email_add"
+      email_args[:new_email] = args[:new_email] || user.email if type == "notify_old_email" ||
+        type == "notify_old_email_add"
 
       if args[:client_ip] && args[:user_agent]
         email_args[:client_ip] = args[:client_ip]
         email_args[:user_agent] = args[:user_agent]
       end
 
-      if EmailLog.reached_max_emails?(user, type.to_s)
+      if EmailLog.reached_max_emails?(user, type)
         return skip_message(SkippedEmailLog.reason_types[:exceeded_emails_limit])
       end
 
-      if !EmailLog::CRITICAL_EMAIL_TYPES.include?(type.to_s) &&
+      if !EmailLog::CRITICAL_EMAIL_TYPES.include?(type) &&
            user.user_stat.bounce_score >= SiteSetting.bounce_score_threshold
         return skip_message(SkippedEmailLog.reason_types[:exceeded_bounces_limit])
       end
@@ -266,12 +287,12 @@ module Jobs
     end
 
     def always_email_private_message?(user, type)
-      type.to_s == "user_private_message" &&
+      type == "user_private_message" &&
         user.user_option.email_messages_level == UserOption.email_level_types[:always]
     end
 
     def always_email_regular?(user, type)
-      type.to_s != "user_private_message" &&
+      type != "user_private_message" &&
         user.user_option.email_level == UserOption.email_level_types[:always]
     end
   end

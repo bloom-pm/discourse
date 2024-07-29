@@ -1,6 +1,6 @@
-import I18n from "I18n";
-import { createWidget } from "discourse/widgets/widget";
 import { longDate } from "discourse/lib/formatter";
+import { createWidget } from "discourse/widgets/widget";
+import I18n from "discourse-i18n";
 
 function mult(val) {
   return 60 * 50 * 1000 * val;
@@ -56,6 +56,7 @@ export default createWidget("post-edits-indicator", {
       translatedTitle: title,
       className,
       action: "onPostEditsIndicatorClick",
+      translatedAriaLabel: I18n.t("post.edit_history"),
       translatedLabel: attrs.version > 1 ? attrs.version - 1 : "",
     });
   },

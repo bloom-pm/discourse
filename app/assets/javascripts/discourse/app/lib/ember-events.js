@@ -1,4 +1,5 @@
 // eslint-disable-next-line ember/no-classic-components
+import { EventDispatcher } from "@ember/-internals/views";
 import Component from "@ember/component";
 import EmberObject from "@ember/object";
 import { actionModifier } from "./ember-action-modifier";
@@ -54,7 +55,7 @@ export function normalizeEmberEventHandling(app) {
  */
 function eliminateClassicEventDelegation() {
   // eslint-disable-next-line no-undef
-  Ember.EventDispatcher.reopen({
+  EventDispatcher.reopen({
     events: {},
   });
 }
@@ -131,7 +132,7 @@ function rewireClassicComponentEvents(app) {
      * @param {string | typeof INTERNAL} name
      * @param {unknown[]} args
      */
-    trigger(name, ...args) {
+    _trigger(name, ...args) {
       if (name === INTERNAL) {
         if (this.element) {
           return this._super.call(this, ...args);

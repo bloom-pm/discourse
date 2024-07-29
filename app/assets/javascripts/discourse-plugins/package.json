@@ -7,20 +7,21 @@
   "keywords": [
     "ember-addon"
   ],
-  "repository": "",
   "dependencies": {
+    "@babel/core": "^7.24.9",
+    "deprecation-silencer": "1.0.0",
     "discourse-widget-hbs": "1.0.0",
-    "ember-auto-import": "^2.5.0",
-    "ember-cli": "~3.28.5",
-    "ember-cli-babel": "^7.26.10",
-    "ember-cli-htmlbars": "^6.1.1",
-    "webpack": "^5.75.0"
+    "ember-cli-babel": "^8.2.0",
+    "ember-cli-htmlbars": "^6.3.0",
+    "ember-template-imports": "^4.1.1",
+    "ember-this-fallback": "^0.4.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.20.12"
+    "ember-cli": "~5.10.0",
+    "webpack": "^5.93.0"
   },
   "engines": {
-    "node": "16.* || >= 18",
+    "node": ">= 18",
     "npm": "please-use-yarn",
     "yarn": ">= 1.21.1"
   },

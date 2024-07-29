@@ -1,17 +1,22 @@
 import Controller, { inject as controller } from "@ember/controller";
+import { action, computed } from "@ember/object";
+import { service } from "@ember/service";
+import { setting } from "discourse/lib/computed";
+import discourseComputed from "discourse-common/utils/decorators";
 import AdminDashboard from "admin/models/admin-dashboard";
 import VersionCheck from "admin/models/version-check";
-import { computed } from "@ember/object";
-import discourseComputed from "discourse-common/utils/decorators";
-import { setting } from "discourse/lib/computed";
 
 const PROBLEMS_CHECK_MINUTES = 1;
 
-export default Controller.extend({
-  isLoading: false,
-  dashboardFetchedAt: null,
-  exceptionController: controller("exception"),
-  showVersionChecks: setting("version_checks"),
+export default class AdminDashboardController extends Controller {
+  @service router;
+  @service siteSettings;
+  @controller("exception") exceptionController;
+
+  isLoading = false;
+  dashboardFetchedAt = null;
+
+  @setting("version_checks") showVersionChecks;
 
   @discourseComputed(
     "lowPriorityProblems.length",
@@ -21,25 +26,34 @@ export default Controller.extend({
     const problemsLength =
       lowPriorityProblemsLength + highPriorityProblemsLength;
     return this.currentUser.admin && problemsLength > 0;
-  },
+  }
 
-  visibleTabs: computed("siteSettings.dashboard_visible_tabs", function () {
+  @computed("siteSettings.dashboard_visible_tabs")
+  get visibleTabs() {
     return (this.siteSettings.dashboard_visible_tabs || "")
       .split("|")
       .filter(Boolean);
-  }),
+  }
 
-  isModerationTabVisible: computed("visibleTabs", function () {
+  @computed("visibleTabs")
+  get isModerationTabVisible() {
     return this.visibleTabs.includes("moderation");
-  }),
+  }
 
-  isSecurityTabVisible: computed("visibleTabs", function () {
+  @computed("visibleTabs")
+  get isSecurityTabVisible() {
     return this.visibleTabs.includes("security");
-  }),
+  }
 
-  isReportsTabVisible: computed("visibleTabs", function () {
+  @computed("visibleTabs")
+  get isReportsTabVisible() {
     return this.visibleTabs.includes("reports");
-  }),
+  }
+
+  @computed("visibleTabs")
+  get isNewFeaturesTabVisible() {
+    return this.visibleTabs.includes("features");
+  }
 
   fetchProblems() {
     if (this.isLoadingProblems) {
@@ -53,7 +67,7 @@ export default Controller.extend({
     ) {
       this._loadProblems();
     }
-  },
+  }
 
   fetchDashboard() {
     const versionChecks = this.siteSettings.version_checks;
@@ -77,18 +91,19 @@ export default Controller.extend({
           if (versionChecks) {
             properties.versionCheck = VersionCheck.create(model.version_check);
           }
+          properties.hasUnseenFeatures = model.hasUnseenFeatures;
 
           this.setProperties(properties);
         })
         .catch((e) => {
           this.exceptionController.set("thrown", e.jqXHR);
-          this.replaceRoute("exception");
+          this.router.replaceWith("exception");
         })
         .finally(() => {
           this.set("isLoading", false);
         });
     }
-  },
+  }
 
   _loadProblems() {
     this.setProperties({
@@ -108,16 +123,15 @@ export default Controller.extend({
         );
       })
       .finally(() => this.set("loadingProblems", false));
-  },
+  }
 
   @discourseComputed("problemsFetchedAt")
   problemsTimestamp(problemsFetchedAt) {
     return moment(problemsFetchedAt).locale("en").format("LLL");
-  },
+  }
 
-  actions: {
-    refreshProblems() {
-      this._loadProblems();
-    },
-  },
-});
+  @action
+  refreshProblems() {
+    this._loadProblems();
+  }
+}

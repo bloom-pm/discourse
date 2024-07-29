@@ -1,11 +1,11 @@
+import { click, fillIn, visit } from "@ember/test-helpers";
+import { test } from "qunit";
 import {
   acceptance,
   exists,
   query,
 } from "discourse/tests/helpers/qunit-helpers";
-import { click, fillIn, visit } from "@ember/test-helpers";
-import I18n from "I18n";
-import { test } from "qunit";
+import I18n from "discourse-i18n";
 
 acceptance("Admin - Users List", function (needs) {
   needs.user();
@@ -68,7 +68,8 @@ acceptance("Admin - Users List", function (needs) {
     await click(".hide-emails");
 
     assert.strictEqual(
-      query(".users-list .user:nth-child(1) .email").innerText,
+      query(".users-list .user:nth-child(1) .email .directory-table__value")
+        .innerText,
       "",
       "hides the emails"
     );

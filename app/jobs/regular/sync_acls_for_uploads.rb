@@ -9,10 +9,8 @@ module Jobs
       return if !Discourse.store.external?
       return if !args.key?(:upload_ids)
 
-      # TODO (martin) Change the logging here to debug after acl_stale implemented.
-      #
-      # Note...these log messages are set to warn to ensure this is working
-      # as intended in initial production trials, this will be set to debug
+      # NOTE: These log messages are set to warn to ensure this is working
+      # as intended in initial production trials, this will need to be set to debug
       # after an acl_stale column is added to uploads.
       time =
         Benchmark.measure do
@@ -37,7 +35,7 @@ module Jobs
               end
             end
           Rails.logger.warn(
-            "Completed syncing ACL for upload ids in #{time.to_s}. IDs: #{args[:upload_ids].join(", ")}",
+            "Completed syncing ACL for upload ids in #{time}. IDs: #{args[:upload_ids].join(", ")}",
           )
         end
     end

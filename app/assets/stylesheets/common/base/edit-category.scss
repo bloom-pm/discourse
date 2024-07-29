@@ -44,6 +44,12 @@ div.edit-category {
     margin-bottom: 1em;
   }
 
+  .category-name-fields {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1em;
+  }
+
   .warning {
     background-color: var(--tertiary-low);
     padding: 0.5em 2.5em 0.5em 1em;
@@ -102,7 +108,8 @@ div.edit-category {
     }
   }
 
-  .edit-category-tab-settings {
+  .edit-category-tab-settings,
+  .edit-category-tab-tags {
     > section {
       margin-bottom: 1.5em;
     }
@@ -173,6 +180,13 @@ div.edit-category {
       }
 
       margin-bottom: 1em;
+    }
+  }
+
+  .edit-category-tab-topic-template {
+    .select-category-template__info {
+      margin-block: 0.25rem;
+      font-size: var(--font-down-1);
     }
   }
 }

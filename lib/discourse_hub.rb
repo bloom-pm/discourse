@@ -5,13 +5,26 @@ module DiscourseHub
 
   def self.version_check_payload
     default_payload = { installed_version: Discourse::VERSION::STRING }.merge!(
-      Discourse.git_branch == "unknown" ? {} : { branch: Discourse.git_branch },
+      Discourse.git_branch == "unknown" && !Rails.env.test? ? {} : { branch: Discourse.git_branch },
     )
     default_payload.merge!(get_payload)
   end
 
   def self.discourse_version_check
     get("/version_check", version_check_payload)
+  end
+
+  def self.discover_enrollment_payload
+    {
+      include_in_discourse_discover: SiteSetting.include_in_discourse_discover?,
+      forum_url: Discourse.base_url,
+      forum_title: SiteSetting.title,
+      locale: I18n.locale,
+    }
+  end
+
+  def self.discover_enrollment
+    post("/discover/enroll", discover_enrollment_payload)
   end
 
   def self.stats_fetched_at=(time_with_zone)

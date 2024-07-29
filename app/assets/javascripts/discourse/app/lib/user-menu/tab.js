@@ -1,4 +1,4 @@
-import I18n from "I18n";
+import I18n from "discourse-i18n";
 
 /**
  * abstract class representing a tab in the user menu
@@ -36,16 +36,12 @@ export default class UserMenuTab {
     } else {
       key = `user_menu.tabs.${id}`;
     }
-    // the lookup method returns undefined if the key doesn't exist.
-    // this ensures that don't use the "missing translation" string as the
-    // title for tabs that don't define title in the yml files.
-    if (I18n.lookup(key)) {
-      return I18n.t(key, { count });
-    }
+
+    return I18n.t(key, { count });
   }
 
   /**
-   * @returns {string} Dasherized version of the component name that should be rendered in the panel area when the tab is active.
+   * @returns {Component} Component class that should be rendered in the panel area when the tab is active.
    */
   get panelComponent() {
     throw new Error("not implemented");

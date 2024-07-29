@@ -23,13 +23,26 @@ module Hijack
 
       transfer_timings = MethodProfiler.transfer
 
-      io = hijack.call
+      scheduled = Concurrent::Promises.resolvable_event
+
+      begin
+        Scheduler::Defer.later(
+          "hijack #{params["controller"]} #{params["action"]} #{info}",
+          force: false,
+          current_user: current_user&.id,
+          &scheduled.method(:resolve)
+        )
+      rescue WorkQueue::WorkQueueFull
+        return render plain: "", status: 503
+      end
 
       # duplicate headers so other middleware does not mess with it
       # on the way down the stack
       original_headers = response.headers.dup
 
-      Scheduler::Defer.later("hijack #{params["controller"]} #{params["action"]} #{info}") do
+      io = hijack.call
+
+      scheduled.on_resolution! do
         MethodProfiler.start(transfer_timings)
         begin
           Thread.current[Logster::Logger::LOGSTER_ENV] = env
@@ -40,10 +53,10 @@ module Hijack
           # this trick avoids double render, also avoids any litter that the controller hooks
           # place on the response
           instance = controller_class.new
-          response = ActionDispatch::Response.new
-          instance.response = response
+          response = ActionDispatch::Response.new.tap { _1.request = request_copy }
+          instance.set_response!(response)
+          instance.set_request!(request_copy)
 
-          instance.request = request_copy
           original_headers&.each { |k, v| instance.response.headers[k] = v }
 
           view_start = Process.clock_gettime(Process::CLOCK_MONOTONIC)
@@ -148,6 +161,7 @@ module Hijack
           tempfiles&.each(&:close!)
         end
       end
+
       # not leaked out, we use 418 ... I am a teapot to denote that we are hijacked
       render plain: "", status: 418
     else

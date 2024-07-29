@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe CurrentUserSerializer do
-  fab!(:user) { Fabricate(:user) }
+  fab!(:user)
   subject(:serializer) { described_class.new(user, scope: guardian, root: false) }
 
   let(:guardian) { Guardian.new(user) }
@@ -65,7 +65,7 @@ RSpec.describe CurrentUserSerializer do
   end
 
   describe "#muted_tag" do
-    fab!(:tag) { Fabricate(:tag) }
+    fab!(:tag)
 
     let!(:tag_user) do
       TagUser.create!(
@@ -150,6 +150,27 @@ RSpec.describe CurrentUserSerializer do
     end
   end
 
+  describe "#can_ignore_users" do
+    let(:guardian) { Guardian.new(user) }
+    let(:payload) { serializer.as_json }
+
+    context "when user is a regular one" do
+      let(:user) { Fabricate(:user) }
+
+      it "return false for regular users" do
+        expect(payload[:can_ignore_users]).to eq(false)
+      end
+    end
+
+    context "when user is a staff member" do
+      let(:user) { Fabricate(:moderator) }
+
+      it "returns true" do
+        expect(payload[:can_ignore_users]).to eq(true)
+      end
+    end
+  end
+
   describe "#can_review" do
     let(:guardian) { Guardian.new(user) }
     let(:payload) { serializer.as_json }
@@ -184,7 +205,7 @@ RSpec.describe CurrentUserSerializer do
   end
 
   describe "#status" do
-    fab!(:user_status) { Fabricate(:user_status) }
+    fab!(:user_status)
     fab!(:user) { Fabricate(:user, user_status: user_status) }
     let(:serializer) { described_class.new(user, scope: Guardian.new(user), root: false) }
 
@@ -251,28 +272,6 @@ RSpec.describe CurrentUserSerializer do
     end
   end
 
-  describe "#redesigned_user_page_nav_enabled" do
-    fab!(:group) { Fabricate(:group) }
-    fab!(:group2) { Fabricate(:group) }
-
-    it "is false when enable_new_user_profile_nav_groups site setting has not been set" do
-      expect(serializer.as_json[:redesigned_user_page_nav_enabled]).to eq(false)
-    end
-
-    it "is false if user does not belong to any of the configured groups in the enable_new_user_profile_nav_groups site setting" do
-      SiteSetting.enable_new_user_profile_nav_groups = "#{group.id}|#{group2.id}"
-
-      expect(serializer.as_json[:redesigned_user_page_nav_enabled]).to eq(false)
-    end
-
-    it "is true if user belongs one of the configured groups in the enable_new_user_profile_nav_groups site setting" do
-      SiteSetting.enable_new_user_profile_nav_groups = "#{group.id}|#{group2.id}"
-      group.add(user)
-
-      expect(serializer.as_json[:redesigned_user_page_nav_enabled]).to eq(true)
-    end
-  end
-
   describe "#associated_account_ids" do
     before do
       UserAssociatedAccount.create(
@@ -305,12 +304,6 @@ RSpec.describe CurrentUserSerializer do
       )
     end
 
-    it "isn't included when navigation menu is legacy" do
-      SiteSetting.navigation_menu = "legacy"
-
-      expect(serializer.as_json[:new_personal_messages_notifications_count]).to be_nil
-    end
-
     it "is included when sidebar is enabled" do
       SiteSetting.navigation_menu = "sidebar"
 
@@ -319,4 +312,65 @@ RSpec.describe CurrentUserSerializer do
   end
 
   include_examples "User Sidebar Serializer Attributes", described_class
+
+  describe "#sidebar_sections" do
+    fab!(:group)
+    fab!(:sidebar_section) { Fabricate(:sidebar_section, user: user) }
+
+    it "eager loads sidebar_urls" do
+      custom_sidebar_section_link_1 =
+        Fabricate(:custom_sidebar_section_link, user: user, sidebar_section: sidebar_section)
+
+      # warmup
+      described_class.new(user, scope: Guardian.new(user), root: false).as_json
+
+      initial_count =
+        track_sql_queries do
+          serialized = described_class.new(user, scope: Guardian.new(user), root: false).as_json
+
+          expect(serialized[:sidebar_sections].count).to eq(2)
+
+          expect(serialized[:sidebar_sections].last[:links].map { |link| link.id }).to eq(
+            [custom_sidebar_section_link_1.linkable.id],
+          )
+        end.count
+
+      custom_sidebar_section_link_2 =
+        Fabricate(:custom_sidebar_section_link, user: user, sidebar_section: sidebar_section)
+
+      final_count =
+        track_sql_queries do
+          serialized = described_class.new(user, scope: Guardian.new(user), root: false).as_json
+
+          expect(serialized[:sidebar_sections].count).to eq(2)
+
+          expect(serialized[:sidebar_sections].last[:links].map { |link| link.id }).to eq(
+            [custom_sidebar_section_link_1.linkable.id, custom_sidebar_section_link_2.linkable.id],
+          )
+        end.count
+
+      expect(initial_count).to eq(final_count)
+    end
+  end
+
+  describe "#featured_topic" do
+    fab!(:featured_topic) { Fabricate(:topic) }
+
+    before { user.user_profile.update!(featured_topic_id: featured_topic.id) }
+
+    it "includes the featured topic" do
+      payload = serializer.as_json
+
+      expect(payload[:featured_topic]).to_not be_nil
+      expect(payload[:featured_topic][:id]).to eq(featured_topic.id)
+      expect(payload[:featured_topic][:title]).to eq(featured_topic.title)
+      expect(payload[:featured_topic].keys).to contain_exactly(
+        :id,
+        :title,
+        :fancy_title,
+        :slug,
+        :posts_count,
+      )
+    end
+  end
 end

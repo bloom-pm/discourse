@@ -15,9 +15,14 @@ class GroupSmtpMailer < ActionMailer::Base
       domain: from_group.email_username_domain,
       user_name: from_group.email_username,
       password: from_group.email_password,
-      authentication: GlobalSetting.smtp_authentication,
-      enable_starttls_auto: from_group.smtp_ssl,
+      # NOTE: Might be better at some point to store this authentication method in the database
+      # against the group.
+      authentication: SmtpProviderOverrides.authentication_override(from_group.smtp_server),
+      enable_starttls_auto: from_group.smtp_ssl_mode == Group.smtp_ssl_modes[:starttls],
+      enable_ssl: from_group.smtp_ssl_mode == Group.smtp_ssl_modes[:ssl_tls],
       return_response: true,
+      open_timeout: GlobalSetting.group_smtp_open_timeout,
+      read_timeout: GlobalSetting.group_smtp_read_timeout,
     }
 
     group_name = from_group.name_full_preferred
@@ -40,7 +45,7 @@ class GroupSmtpMailer < ActionMailer::Base
       template: "user_notifications.user_posted_pm",
       use_topic_title_subject: true,
       topic_title: op_incoming_email&.subject || post.topic.title,
-      add_re_to_subject: true,
+      add_re_to_subject: !post.is_first_post?,
       locale: SiteSetting.default_locale,
       delivery_method_options: delivery_options,
       from: from_group.smtp_from_address,

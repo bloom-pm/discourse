@@ -18,7 +18,7 @@ class CommonPasswords
   @mutex = Mutex.new
 
   def self.common_password?(password)
-    return false unless password.present?
+    return false if password.blank?
     password_list.include?(password)
   end
 
@@ -31,7 +31,7 @@ class CommonPasswords
   end
 
   def self.password_list
-    @mutex.synchronize { load_passwords unless redis.scard(LIST_KEY) > 0 }
+    @mutex.synchronize { load_passwords if redis.scard(LIST_KEY) <= 0 }
     RedisPasswordList.new
   end
 
@@ -41,7 +41,7 @@ class CommonPasswords
 
   def self.load_passwords
     passwords = File.readlines(PASSWORD_FILE)
-    redis.sadd LIST_KEY, passwords.map!(&:chomp)
+    redis.sadd?(LIST_KEY, passwords.map!(&:chomp))
   rescue Errno::ENOENT
     # tolerate this so we don't block signups
     Rails.logger.error "Common passwords file #{PASSWORD_FILE} is not found! Common password checking is skipped."

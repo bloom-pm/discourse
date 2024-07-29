@@ -1,20 +1,24 @@
 import Component from "@ember/component";
-import I18n from "I18n";
-import Permalink from "admin/models/permalink";
-import discourseComputed, { bind } from "discourse-common/utils/decorators";
-import { fmt } from "discourse/lib/computed";
-import { schedule } from "@ember/runloop";
 import { action } from "@ember/object";
-import { inject as service } from "@ember/service";
+import { schedule } from "@ember/runloop";
+import { service } from "@ember/service";
+import { tagName } from "@ember-decorators/component";
+import { fmt } from "discourse/lib/computed";
+import discourseComputed, { bind } from "discourse-common/utils/decorators";
+import I18n from "discourse-i18n";
+import Permalink from "admin/models/permalink";
 
-export default Component.extend({
-  tagName: "",
-  dialog: service(),
-  formSubmitted: false,
-  permalinkType: "topic_id",
-  permalinkTypePlaceholder: fmt("permalinkType", "admin.permalink.%@"),
-  action: null,
-  permalinkTypeValue: null,
+@tagName("")
+export default class PermalinkForm extends Component {
+  @service dialog;
+
+  formSubmitted = false;
+  permalinkType = "topic_id";
+
+  @fmt("permalinkType", "admin.permalink.%@") permalinkTypePlaceholder;
+
+  action = null;
+  permalinkTypeValue = null;
 
   @discourseComputed
   permalinkTypes() {
@@ -24,22 +28,23 @@ export default Component.extend({
       { id: "category_id", name: I18n.t("admin.permalink.category_id") },
       { id: "tag_name", name: I18n.t("admin.permalink.tag_name") },
       { id: "external_url", name: I18n.t("admin.permalink.external_url") },
+      { id: "user_id", name: I18n.t("admin.permalink.user_id") },
     ];
-  },
+  }
 
   @bind
   focusPermalink() {
     schedule("afterRender", () =>
       document.querySelector(".permalink-url")?.focus()
     );
-  },
+  }
 
   @action
   submitFormOnEnter(event) {
     if (event.key === "Enter") {
       this.onSubmit();
     }
-  },
+  }
 
   @action
   onSubmit() {
@@ -84,5 +89,5 @@ export default Component.extend({
           }
         );
     }
-  },
-});
+  }
+}

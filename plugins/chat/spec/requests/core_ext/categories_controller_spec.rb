@@ -4,9 +4,9 @@ RSpec.describe CategoriesController do
   describe "#destroy" do
     subject(:destroy_category) { delete "/categories/#{category.slug}.json" }
 
-    fab!(:admin) { Fabricate(:admin) }
+    fab!(:admin)
     fab!(:category) { Fabricate(:category, user: admin) }
-    fab!(:user) { Fabricate(:user) }
+    fab!(:user)
 
     context "when user is staff" do
       before { sign_in(admin) }
@@ -26,7 +26,7 @@ RSpec.describe CategoriesController do
           end
 
           it "deletes the associated channel" do
-            expect { destroy_category }.to change { CategoryChannel.count }.by(-1)
+            expect { destroy_category }.to change { Chat::CategoryChannel.count }.by(-1)
           end
         end
 

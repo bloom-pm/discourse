@@ -1,46 +1,48 @@
-import { authorizesOneOrMoreImageExtensions } from "discourse/lib/uploads";
+import Component from "@ember/component";
+import EmberObject, { computed } from "@ember/object";
 import { alias } from "@ember/object/computed";
+import { getOwner } from "@ember/owner";
+import { next, schedule, throttle } from "@ember/runloop";
 import { BasePlugin } from "@uppy/core";
+import $ from "jquery";
 import { resolveAllShortUrls } from "pretty-text/upload-short-url";
+import { ajax } from "discourse/lib/ajax";
+import {
+  fetchUnseenHashtagsInContext,
+  linkSeenHashtagsInContext,
+} from "discourse/lib/hashtag-decorator";
+import {
+  fetchUnseenMentions,
+  linkSeenMentions,
+} from "discourse/lib/link-mentions";
+import { loadOneboxes } from "discourse/lib/load-oneboxes";
+import putCursorAtEnd from "discourse/lib/put-cursor-at-end";
+import { authorizesOneOrMoreImageExtensions } from "discourse/lib/uploads";
+import userSearch from "discourse/lib/user-search";
+import {
+  destroyUserStatuses,
+  initUserStatusHtml,
+  renderUserStatusHtml,
+} from "discourse/lib/user-status-on-autocomplete";
 import {
   caretPosition,
   formatUsername,
   inCodeBlock,
-  tinyAvatar,
 } from "discourse/lib/utilities";
+import ComposerUploadUppy from "discourse/mixins/composer-upload-uppy";
+import Composer from "discourse/models/composer";
+import { isTesting } from "discourse-common/config/environment";
+import { tinyAvatar } from "discourse-common/lib/avatar-utils";
+import { iconHTML } from "discourse-common/lib/icon-library";
+import discourseLater from "discourse-common/lib/later";
+import { findRawTemplate } from "discourse-common/lib/raw-templates";
 import discourseComputed, {
   bind,
   debounce,
   observes,
   on,
 } from "discourse-common/utils/decorators";
-import {
-  fetchUnseenHashtags,
-  linkSeenHashtags,
-} from "discourse/lib/link-hashtags";
-import {
-  fetchUnseenHashtagsInContext,
-  linkSeenHashtagsInContext,
-} from "discourse/lib/hashtag-autocomplete";
-import {
-  fetchUnseenMentions,
-  linkSeenMentions,
-} from "discourse/lib/link-mentions";
-import { next, schedule, throttle } from "@ember/runloop";
-import discourseLater from "discourse-common/lib/later";
-import Component from "@ember/component";
-import Composer from "discourse/models/composer";
-import ComposerUploadUppy from "discourse/mixins/composer-upload-uppy";
-import EmberObject from "@ember/object";
-import I18n from "I18n";
-import { ajax } from "discourse/lib/ajax";
-import discourseDebounce from "discourse-common/lib/debounce";
-import { findRawTemplate } from "discourse-common/lib/raw-templates";
-import { iconHTML } from "discourse-common/lib/icon-library";
-import { isTesting } from "discourse-common/config/environment";
-import { loadOneboxes } from "discourse/lib/load-oneboxes";
-import putCursorAtEnd from "discourse/lib/put-cursor-at-end";
-import userSearch from "discourse/lib/user-search";
+import I18n from "discourse-i18n";
 
 // original string `![image|foo=bar|690x220, 50%|bar=baz](upload://1TjaobgKObzpU7xRMw2HuUc87vO.png "image title")`
 // group 1 `image|foo=bar`
@@ -98,6 +100,14 @@ export function addComposerUploadMarkdownResolver(resolver) {
 export function cleanUpComposerUploadMarkdownResolver() {
   uploadMarkdownResolvers = [];
 }
+
+let apiImageWrapperBtnEvents = [];
+export function addApiImageWrapperButtonClickEvent(fn) {
+  apiImageWrapperBtnEvents.push(fn);
+}
+
+const DEBOUNCE_FETCH_MS = 450;
+const DEBOUNCE_JIT_MS = 2000;
 
 export default Component.extend(ComposerUploadUppy, {
   classNameBindings: ["showToolbar:toolbar-visible", ":wmd-controls"],
@@ -197,21 +207,6 @@ export default Component.extend(ComposerUploadUppy, {
   },
 
   @bind
-  _userSearchTerm(term) {
-    const topicId = this.get("topic.id");
-    // maybe this is a brand new topic, so grab category from composer
-    const categoryId =
-      this.get("topic.category_id") || this.get("composer.categoryId");
-
-    return userSearch({
-      term,
-      topicId,
-      categoryId,
-      includeGroups: true,
-    });
-  },
-
-  @bind
   _afterMentionComplete(value) {
     this.composer.set("reply", value);
 
@@ -225,27 +220,44 @@ export default Component.extend(ComposerUploadUppy, {
 
   @on("didInsertElement")
   _composerEditorInit() {
-    const $input = $(this.element.querySelector(".d-editor-input"));
+    const input = this.element.querySelector(".d-editor-input");
+    const preview = this.element.querySelector(".d-editor-preview-wrapper");
 
     if (this.siteSettings.enable_mentions) {
-      $input.autocomplete({
+      $(input).autocomplete({
         template: findRawTemplate("user-selector-autocomplete"),
-        dataSource: this._userSearchTerm,
+        dataSource: (term) => {
+          destroyUserStatuses();
+          return userSearch({
+            term,
+            topicId: this.topic?.id,
+            categoryId: this.topic?.category_id || this.composer?.categoryId,
+            includeGroups: true,
+          }).then((result) => {
+            initUserStatusHtml(getOwner(this), result.users);
+            return result;
+          });
+        },
+        onRender: (options) => renderUserStatusHtml(options),
         key: "@",
         transformComplete: (v) => v.username || v.name,
         afterComplete: this._afterMentionComplete,
-        triggerRule: (textarea) =>
-          !inCodeBlock(textarea.value, caretPosition(textarea)),
+        triggerRule: async (textarea) =>
+          !(await inCodeBlock(textarea.value, caretPosition(textarea))),
+        onClose: destroyUserStatuses,
       });
     }
 
-    this.element
-      .querySelector(".d-editor-input")
-      ?.addEventListener("scroll", this._throttledSyncEditorAndPreviewScroll);
+    input?.addEventListener(
+      "scroll",
+      this._throttledSyncEditorAndPreviewScroll
+    );
+
+    this._registerImageAltTextButtonClick(preview);
 
     // Focus on the body unless we have a title
     if (!this.get("composer.canEditTitle")) {
-      putCursorAtEnd(this.element.querySelector(".d-editor-input"));
+      putCursorAtEnd(input);
     }
 
     if (this.allowUpload) {
@@ -253,7 +265,7 @@ export default Component.extend(ComposerUploadUppy, {
       this._bindMobileUploadButton();
     }
 
-    this.appEvents.trigger("composer:will-open");
+    this.appEvents.trigger(`${this.composerEventPrefix}:will-open`);
   },
 
   @discourseComputed(
@@ -283,7 +295,7 @@ export default Component.extend(ComposerUploadUppy, {
         count: minimumPostLength,
       });
       const tl = this.get("currentUser.trust_level");
-      if (tl === 0 || tl === 1) {
+      if ((tl === 0 || tl === 1) && !this._isNewTopic) {
         reason +=
           "<br/>" +
           I18n.t("composer.error.try_like", {
@@ -301,6 +313,15 @@ export default Component.extend(ComposerUploadUppy, {
         lastShownAt: lastValidatedAt,
       });
     }
+  },
+
+  @computed("composer.{creatingTopic,editingFirstPost,creatingSharedDraft}")
+  get _isNewTopic() {
+    return (
+      this.composer.creatingTopic ||
+      this.composer.editingFirstPost ||
+      this.composer.creatingSharedDraft
+    );
   },
 
   _resetShouldBuildScrollMap() {
@@ -471,6 +492,17 @@ export default Component.extend(ComposerUploadUppy, {
     $preview.scrollTop(desired + 50);
   },
 
+  _renderMentions(preview, unseen) {
+    unseen ||= linkSeenMentions(preview, this.siteSettings);
+    if (unseen.length > 0) {
+      this._renderUnseenMentions(preview, unseen);
+    } else {
+      this._warnMentionedGroups(preview);
+      this._warnCannotSeeMention(preview);
+    }
+  },
+
+  @debounce(DEBOUNCE_FETCH_MS)
   _renderUnseenMentions(preview, unseen) {
     fetchUnseenMentions({
       names: unseen,
@@ -484,29 +516,50 @@ export default Component.extend(ComposerUploadUppy, {
     });
   },
 
-  _renderUnseenHashtags(preview) {
-    let unseen;
-    const hashtagContext = this.site.hashtag_configurations["topic-composer"];
-    if (this.siteSettings.enable_experimental_hashtag_autocomplete) {
-      unseen = linkSeenHashtagsInContext(hashtagContext, preview);
-    } else {
-      unseen = linkSeenHashtags(preview);
-    }
-
+  _renderHashtags(preview, unseen) {
+    const context = this.site.hashtag_configurations["topic-composer"];
+    unseen ||= linkSeenHashtagsInContext(context, preview);
     if (unseen.length > 0) {
-      if (this.siteSettings.enable_experimental_hashtag_autocomplete) {
-        fetchUnseenHashtagsInContext(hashtagContext, unseen).then(() => {
-          linkSeenHashtagsInContext(hashtagContext, preview);
-        });
-      } else {
-        fetchUnseenHashtags(unseen).then(() => {
-          linkSeenHashtags(preview);
-        });
-      }
+      this._renderUnseenHashtags(preview, unseen, context);
     }
   },
 
-  @debounce(2000)
+  @debounce(DEBOUNCE_FETCH_MS)
+  _renderUnseenHashtags(preview, unseen, context) {
+    fetchUnseenHashtagsInContext(context, unseen).then(() =>
+      linkSeenHashtagsInContext(context, preview)
+    );
+  },
+
+  @debounce(DEBOUNCE_FETCH_MS)
+  _refreshOneboxes(preview) {
+    const post = this.get("composer.post");
+    // If we are editing a post, we'll refresh its contents once.
+    const refresh = post && !post.get("refreshedPost");
+
+    const loaded = loadOneboxes(
+      preview,
+      ajax,
+      this.get("composer.topic.id"),
+      this.get("composer.category.id"),
+      this.siteSettings.max_oneboxes_per_post,
+      refresh
+    );
+
+    if (refresh && loaded > 0) {
+      post.set("refreshedPost", true);
+    }
+  },
+
+  _expandShortUrls(preview) {
+    resolveAllShortUrls(ajax, this.siteSettings, preview);
+  },
+
+  _decorateCookedElement(preview) {
+    this.appEvents.trigger("decorate-non-stream-cooked-element", preview);
+  },
+
+  @debounce(DEBOUNCE_JIT_MS)
   _warnMentionedGroups(preview) {
     schedule("afterRender", () => {
       preview
@@ -532,7 +585,7 @@ export default Component.extend(ComposerUploadUppy, {
 
   // add a delay to allow for typing, so you don't open the warning right away
   // previously we would warn after @bob even if you were about to mention @bob2
-  @debounce(2000)
+  @debounce(DEBOUNCE_JIT_MS)
   _warnCannotSeeMention(preview) {
     if (this.composer.draftKey === Composer.NEW_PRIVATE_MESSAGE_KEY) {
       return;
@@ -602,7 +655,7 @@ export default Component.extend(ComposerUploadUppy, {
         );
 
         this.appEvents.trigger(
-          "composer:replace-text",
+          `${this.composerEventPrefix}:replace-text`,
           matchingPlaceholder[index],
           replacement,
           { regex: IMAGE_MARKDOWN_REGEX, index }
@@ -644,7 +697,11 @@ export default Component.extend(ComposerUploadUppy, {
       `![${input.value}|$2$3$4]($5)`
     );
 
-    this.appEvents.trigger("composer:replace-text", match, replacement);
+    this.appEvents.trigger(
+      `${this.composerEventPrefix}:replace-text`,
+      match,
+      replacement
+    );
 
     this.resetImageControls(buttonWrapper);
   },
@@ -727,46 +784,92 @@ export default Component.extend(ComposerUploadUppy, {
     const matchingPlaceholder =
       this.get("composer.reply").match(IMAGE_MARKDOWN_REGEX);
     this.appEvents.trigger(
-      "composer:replace-text",
+      `${this.composerEventPrefix}:replace-text`,
       matchingPlaceholder[index],
       "",
       { regex: IMAGE_MARKDOWN_REGEX, index }
     );
   },
 
+  @bind
+  _handleImageGridButtonClick(event) {
+    if (!event.target.classList.contains("wrap-image-grid-button")) {
+      return;
+    }
+
+    const index = parseInt(
+      event.target.closest(".button-wrapper").dataset.imageIndex,
+      10
+    );
+    const reply = this.get("composer.reply");
+    const matches = reply.match(IMAGE_MARKDOWN_REGEX);
+    const closingIndex =
+      index + parseInt(event.target.dataset.imageCount, 10) - 1;
+
+    const textArea = this.element.querySelector(".d-editor-input");
+    textArea.selectionStart = reply.indexOf(matches[index]);
+    textArea.selectionEnd =
+      reply.indexOf(matches[closingIndex]) + matches[closingIndex].length;
+
+    this.appEvents.trigger(
+      `${this.composerEventPrefix}:apply-surround`,
+      "[grid]",
+      "[/grid]",
+      "grid_surround",
+      { useBlockMode: true }
+    );
+  },
+
   _registerImageAltTextButtonClick(preview) {
+    preview.addEventListener("click", this._handleAltTextCancelButtonClick);
     preview.addEventListener("click", this._handleAltTextEditButtonClick);
     preview.addEventListener("click", this._handleAltTextOkButtonClick);
-    preview.addEventListener("click", this._handleAltTextCancelButtonClick);
     preview.addEventListener("click", this._handleImageDeleteButtonClick);
+    preview.addEventListener("click", this._handleImageGridButtonClick);
+    preview.addEventListener("click", this._handleImageScaleButtonClick);
     preview.addEventListener("keypress", this._handleAltTextInputKeypress);
+
+    apiImageWrapperBtnEvents.forEach((fn) =>
+      preview.addEventListener("click", fn)
+    );
   },
 
   @on("willDestroyElement")
   _composerClosed() {
-    this._unbindMobileUploadButton();
-    this.appEvents.trigger("composer:will-close");
+    const input = this.element.querySelector(".d-editor-input");
+    const preview = this.element.querySelector(".d-editor-preview-wrapper");
+
+    if (this.allowUpload) {
+      this._unbindUploadTarget();
+      this._unbindMobileUploadButton();
+    }
+
+    this.appEvents.trigger(`${this.composerEventPrefix}:will-close`);
+
     next(() => {
       // need to wait a bit for the "slide down" transition of the composer
       discourseLater(
-        () => this.appEvents.trigger("composer:closed"),
+        () => this.appEvents.trigger(`${this.composerEventPrefix}:closed`),
         isTesting() ? 0 : 400
       );
     });
 
-    this.element
-      .querySelector(".d-editor-input")
-      ?.removeEventListener(
-        "scroll",
-        this._throttledSyncEditorAndPreviewScroll
-      );
+    input?.removeEventListener(
+      "scroll",
+      this._throttledSyncEditorAndPreviewScroll
+    );
 
-    const preview = this.element.querySelector(".d-editor-preview-wrapper");
-    preview?.removeEventListener("click", this._handleImageScaleButtonClick);
+    preview?.removeEventListener("click", this._handleAltTextCancelButtonClick);
     preview?.removeEventListener("click", this._handleAltTextEditButtonClick);
     preview?.removeEventListener("click", this._handleAltTextOkButtonClick);
-    preview?.removeEventListener("click", this._handleAltTextCancelButtonClick);
+    preview?.removeEventListener("click", this._handleImageDeleteButtonClick);
+    preview?.removeEventListener("click", this._handleImageGridButtonClick);
+    preview?.removeEventListener("click", this._handleImageScaleButtonClick);
     preview?.removeEventListener("keypress", this._handleAltTextInputKeypress);
+
+    apiImageWrapperBtnEvents.forEach((fn) =>
+      preview?.removeEventListener("click", fn)
+    );
   },
 
   onExpandPopupMenuOptions(toolbarEvent) {
@@ -846,7 +949,7 @@ export default Component.extend(ComposerUploadUppy, {
         unshift: true,
       });
 
-      if (this.allowUpload && this.uploadIcon && !this.site.mobileView) {
+      if (this.allowUpload && this.uploadIcon && this.site.desktopView) {
         toolbar.addButton({
           id: "upload",
           group: "insertions",
@@ -866,71 +969,17 @@ export default Component.extend(ComposerUploadUppy, {
       });
     },
 
-    previewUpdated(preview) {
-      // cache jquery objects for functions still using jquery
-      const $preview = $(preview);
+    previewUpdated(preview, unseenMentions, unseenHashtags) {
+      this._renderMentions(preview, unseenMentions);
+      this._renderHashtags(preview, unseenHashtags);
+      this._refreshOneboxes(preview);
+      this._expandShortUrls(preview);
 
-      // Paint mentions
-      const unseenMentions = linkSeenMentions(preview, this.siteSettings);
-      if (unseenMentions.length) {
-        discourseDebounce(
-          this,
-          this._renderUnseenMentions,
-          preview,
-          unseenMentions,
-          450
-        );
+      if (!this.siteSettings.enable_diffhtml_preview) {
+        this._decorateCookedElement(preview);
       }
 
-      this._warnMentionedGroups(preview);
-      this._warnCannotSeeMention(preview);
-
-      // Paint category, tag, and other data source hashtags
-      let unseenHashtags;
-      const hashtagContext = this.site.hashtag_configurations["topic-composer"];
-      if (this.siteSettings.enable_experimental_hashtag_autocomplete) {
-        unseenHashtags = linkSeenHashtagsInContext(hashtagContext, preview);
-      } else {
-        unseenHashtags = linkSeenHashtags(preview);
-      }
-      if (unseenHashtags.length > 0) {
-        discourseDebounce(this, this._renderUnseenHashtags, preview, 450);
-      }
-
-      // Paint oneboxes
-      const paintFunc = () => {
-        const post = this.get("composer.post");
-        let refresh = false;
-
-        //If we are editing a post, we'll refresh its contents once.
-        if (post && !post.get("refreshedPost")) {
-          refresh = true;
-        }
-
-        const paintedCount = loadOneboxes(
-          preview,
-          ajax,
-          this.get("composer.topic.id"),
-          this.get("composer.category.id"),
-          this.siteSettings.max_oneboxes_per_post,
-          refresh
-        );
-
-        if (refresh && paintedCount > 0) {
-          post.set("refreshedPost", true);
-        }
-      };
-
-      discourseDebounce(this, paintFunc, 450);
-
-      // Short upload urls need resolution
-      resolveAllShortUrls(ajax, this.siteSettings, preview);
-
-      preview.addEventListener("click", this._handleImageScaleButtonClick);
-      this._registerImageAltTextButtonClick(preview);
-
-      this.trigger("previewRefreshed", preview);
-      this.afterRefresh($preview);
+      this.afterRefresh(preview);
     },
   },
 });

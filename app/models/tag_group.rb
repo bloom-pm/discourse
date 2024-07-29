@@ -22,7 +22,7 @@ class TagGroup < ActiveRecord::Base
 
   after_commit { DiscourseTagging.clear_cache! }
 
-  attr_accessor :permissions
+  attr_reader :permissions
 
   def tag_names=(tag_names_arg)
     DiscourseTagging.add_or_create_tags_by_name(self, tag_names_arg, unlimited: true)
@@ -55,7 +55,9 @@ class TagGroup < ActiveRecord::Base
   def self.resolve_permissions(permissions)
     permissions.map do |group, permission|
       group_id = Group.group_id_from_param(group)
-      permission = TagGroupPermission.permission_types[permission] unless permission.is_a?(Integer)
+      permission = TagGroupPermission.permission_types[permission.to_sym] unless permission.is_a?(
+        Integer,
+      )
       [group_id, permission]
     end
   end

@@ -1,18 +1,20 @@
+import { getOwner } from "@ember/owner";
+import { setupTest } from "ember-qunit";
+import { module, test } from "qunit";
 import {
   CREATE_TOPIC,
   EDIT,
   PRIVATE_MESSAGE,
   REPLY,
 } from "discourse/models/composer";
+import pretender, {
+  parsePostData,
+  response,
+} from "discourse/tests/helpers/create-pretender";
 import { currentUser } from "discourse/tests/helpers/qunit-helpers";
-import AppEvents from "discourse/services/app-events";
-import { module, test } from "qunit";
-import { getOwner } from "discourse-common/lib/get-owner";
-import { setupTest } from "ember-qunit";
 
 function createComposer(opts = {}) {
   opts.user ??= currentUser();
-  opts.appEvents = AppEvents.create();
   const store = getOwner(this).lookup("service:store");
   return store.createRecord("composer", opts);
 }
@@ -31,7 +33,7 @@ module("Unit | Model | composer", function (hooks) {
   });
 
   test("replyLength", function (assert) {
-    const replyLength = function (val, expectedLength) {
+    const replyLength = (val, expectedLength) => {
       const composer = createComposer.call(this, { reply: val });
       assert.strictEqual(composer.replyLength, expectedLength);
     };
@@ -67,7 +69,13 @@ module("Unit | Model | composer", function (hooks) {
   test("missingReplyCharacters", function (assert) {
     this.siteSettings.min_first_post_length = 40;
 
-    function missingReplyCharacters(val, isPM, isFirstPost, expected, message) {
+    const missingReplyCharacters = (
+      val,
+      isPM,
+      isFirstPost,
+      expected,
+      message
+    ) => {
       let action;
 
       if (isFirstPost) {
@@ -80,7 +88,7 @@ module("Unit | Model | composer", function (hooks) {
 
       const composer = createComposer.call(this, { reply: val, action });
       assert.strictEqual(composer.missingReplyCharacters, expected, message);
-    }
+    };
 
     missingReplyCharacters(
       "hi",
@@ -123,7 +131,7 @@ module("Unit | Model | composer", function (hooks) {
   });
 
   test("missingTitleCharacters", function (assert) {
-    const missingTitleCharacters = function (val, isPM, expected, message) {
+    const missingTitleCharacters = (val, isPM, expected, message) => {
       const composer = createComposer.call(this, {
         title: val,
         action: isPM ? PRIVATE_MESSAGE : REPLY,
@@ -146,7 +154,7 @@ module("Unit | Model | composer", function (hooks) {
   });
 
   test("replyDirty", function (assert) {
-    const composer = createComposer();
+    const composer = createComposer.call(this);
     assert.ok(!composer.replyDirty, "by default it's false");
 
     composer.setProperties({
@@ -163,7 +171,7 @@ module("Unit | Model | composer", function (hooks) {
   });
 
   test("appendText", function (assert) {
-    const composer = createComposer();
+    const composer = createComposer.call(this);
 
     assert.blank(composer.reply, "the reply is blank by default");
 
@@ -196,7 +204,7 @@ module("Unit | Model | composer", function (hooks) {
   });
 
   test("prependText", function (assert) {
-    const composer = createComposer();
+    const composer = createComposer.call(this);
 
     assert.blank(composer.reply, "the reply is blank by default");
 
@@ -221,7 +229,7 @@ module("Unit | Model | composer", function (hooks) {
   test("Title length for regular topics", function (assert) {
     this.siteSettings.min_topic_title_length = 5;
     this.siteSettings.max_topic_title_length = 10;
-    const composer = createComposer();
+    const composer = createComposer.call(this);
 
     composer.set("title", "asdf");
     assert.ok(!composer.titleLengthValid, "short titles are not valid");
@@ -259,7 +267,7 @@ module("Unit | Model | composer", function (hooks) {
   });
 
   test("editingFirstPost", function (assert) {
-    const composer = createComposer();
+    const composer = createComposer.call(this);
     assert.ok(!composer.editingFirstPost, "it's false by default");
 
     const store = getOwner(this).lookup("service:store");
@@ -317,10 +325,24 @@ module("Unit | Model | composer", function (hooks) {
     );
   });
 
+  test("initial category when creating PM and there is a default composer category", function (assert) {
+    this.siteSettings.default_composer_category = 2;
+    const composer = openComposer.call(this, {
+      action: PRIVATE_MESSAGE,
+      draftKey: "abcd",
+      draftSequence: 1,
+    });
+    assert.strictEqual(
+      composer.categoryId,
+      null,
+      "it doesn't save the category"
+    );
+  });
+
   test("open with a quote", function (assert) {
     const quote =
       '[quote="neil, post:5, topic:413"]\nSimmer down you two.\n[/quote]';
-    const newComposer = function () {
+    const newComposer = () => {
       return openComposer.call(this, {
         action: REPLY,
         draftKey: "abcd",
@@ -344,7 +366,7 @@ module("Unit | Model | composer", function (hooks) {
   test("Title length for static page topics as admin", function (assert) {
     this.siteSettings.min_topic_title_length = 5;
     this.siteSettings.max_topic_title_length = 10;
-    const composer = createComposer();
+    const composer = createComposer.call(this);
 
     const store = getOwner(this).lookup("service:store");
     const post = store.createRecord("post", {
@@ -425,5 +447,42 @@ module("Unit | Model | composer", function (hooks) {
       { name: "staff", type: "group" },
       { name: "foo@bar.com", type: "email" },
     ]);
+  });
+
+  test("can add meta_data", async function (assert) {
+    let saved = false;
+    pretender.post("/posts", function (request) {
+      const data = parsePostData(request.requestBody);
+
+      assert.equal(data.meta_data.some_custom_field, "some_value");
+      saved = true;
+
+      return response(200, {
+        success: true,
+        action: "create_post",
+        post: {
+          id: 12345,
+          topic_id: 280,
+          topic_slug: "internationalization-localization",
+        },
+      });
+    });
+    const composer = createComposer.call(this, {});
+
+    await composer.open({
+      action: CREATE_TOPIC,
+      title: "some topic title here",
+      categoryId: 1,
+      reply: "some reply here some reply here some reply here",
+      draftKey: "abcd",
+      draftSequence: 1,
+    });
+
+    assert.equal(composer.loading, false);
+
+    composer.metaData = { some_custom_field: "some_value" };
+    await composer.save({});
+
+    assert.equal(saved, true);
   });
 });

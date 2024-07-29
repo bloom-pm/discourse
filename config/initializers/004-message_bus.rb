@@ -31,7 +31,7 @@ def setup_message_bus_env(env)
       "Access-Control-Allow-Origin" => Discourse.base_url_no_prefix,
       "Access-Control-Allow-Methods" => "GET, POST",
       "Access-Control-Allow-Headers" =>
-        "X-SILENCE-LOGGER, X-Shared-Session-Key, Dont-Chunk, Discourse-Present",
+        "X-SILENCE-LOGGER, X-Shared-Session-Key, Dont-Chunk, Discourse-Present, Discourse-Deferred-Track-View",
       "Access-Control-Max-Age" => "7200",
     }
 
@@ -105,8 +105,6 @@ MessageBus.on_middleware_error do |env, e|
     [403, {}, ["Invalid Access"]]
   elsif RateLimiter::LimitExceeded === e
     [429, { "Retry-After" => e.available_in.to_s }, [e.description]]
-  elsif Errno::EPIPE === e
-    [422, {}, ["Closed by Client"]]
   end
 end
 
@@ -133,4 +131,8 @@ MessageBus.long_polling_interval = GlobalSetting.long_polling_interval || 25_000
 if Rails.env == "test" || $0 =~ /rake$/
   # disable keepalive in testing
   MessageBus.keepalive_interval = -1
+end
+
+if !Rails.env.test?
+  MessageBus.subscribe("/reload_post_action_types") { PostActionType.reload_types }
 end

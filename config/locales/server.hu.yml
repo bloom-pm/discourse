@@ -19,7 +19,7 @@ hu:
       calendar_ics: "%Y%m%dT%H%M%SZ"
   date:
     month_names:
-    - null
+    -
     - január
     - február
     - március
@@ -52,46 +52,88 @@ hu:
   remove_posts_deleted_by_author: "Szerző által törölve"
   redirect_warning: "Nem tudtuk megerősíteni, hogy a kiválasztott hivatkozás tényleg közzé lett-e téve a fórumban. Ha mindenképp folytatni szeretné, akkor kattintson a lenti hivatkozásra."
   on_another_topic: "Egy másik témában"
+  topic_category_changed: "%{from} -től %{to}-ig"
+  topic_tag_changed:
+    added_and_removed: "Hozzáadva %{added} és eltávolítva %{removed}"
+    added: "Hozzáadva %{added}"
+    removed: "Eltávolítva %{removed}"
   inline_oneboxer:
     topic_page_title_post_number: "#%{post_number}"
     topic_page_title_post_number_by_user: "#%{post_number} általa: %{username}"
+  components:
+    enabled_filter: "Engedélyezed"
+    disabled_filter: "Kikapcsolt"
+    updates_available_filter: "Frissítések érhetők el"
+  theme_settings:
+    errors:
+      json_value:
+        too_large: "túllépte a %{max_size} bájtos maximális méretet."
   themes:
     bad_color_scheme: "A téma nem frissíthető, érvénytelen színpaletta"
     other_error: "Hiba történt az oldal stílusának frissítésekor"
+    ember_selector_error: "Sajnáljuk, az #ember vagy az .ember-view CSS-szelektorok használata nem engedélyezett, mert ezek a nevek dinamikusan generálódnak futás közben és idővel változnak, ami végül a CSS meghibásodását eredményezi. Próbálkozzon másik választóval."
     import_error:
       generic: Hiba történt a téma importálása során
       upload: "Hiba a feltöltési tartalom létrehozásakor: %{name}. %{errors}"
       about_json: "Importálási hiba: az about.json nem létezik, vagy érvénytelen. Biztos, hogy ez egy Discourse téma?"
+      about_json_too_big: "Importálási hiba: az about.json nagyobb, mint a %{limit} korlát."
       about_json_values: "Az about.json érvénytelen értékeket tartalmaz: %{errors}"
       modifier_values: "Az about.json módosítók érvénytelen értékeket tartalmaznak: %{errors}"
+      asset_too_big: "A %{filename} nagyobb, mint a %{limit} korlát"
+      theme_too_big: "A téma nagyobb, mint a %{limit} korlát"
       git: "Nem sikerült klónozni a git tárolót, a hozzáférés meg lett tagadva vagy a tároló nem található"
       git_ref_not_found: "Nem sikerült a git-hivatkozást ellenőrizni: %{ref}"
       git_unsupported_scheme: "Nem sikerült klónozni a git repót: nem támogatott séma"
       unpack_failed: "A fájl kibontása sikertelen"
       file_too_big: "A kibontott fájl túl nagy."
       unknown_file_type: "A feltöltött fájl nem tűnik érvényes Discourse témának."
+      not_allowed_theme: "A(z) `%{repo}` nem szerepel a megengedett témák listáján (ellenőrizze az `allowed_theme_repos` globális beállítást)."
       ssh_key_gone: "Túl sokáig várt a téma telepítésével, és az SSH-kulcs lejárt. Kérjük, próbálja meg újra."
+      too_many_files: "A fájlok száma (%{count}) a témában meghaladta a maximálisan megengedett fájlszámot (%{limit})."
+      migrations:
+        invalid_filename: "Érvénytelen fájlnév a migrációs fájlhoz: %{filename}. A fájlneveknek 4 számjeggyel kell kezdődniük, amelyet egy kötőjel követ, majd egy név, amely csak alfanumerikus karaktereket és kötőjeleket tartalmaz."
+        name_too_long:
+          one: "A migrációs név túl hosszú. Nem haladhatja meg a %{count} karaktert."
+          other: "A migrációs név túl hosszú. Nem haladhatja meg a %{count} karaktert."
+        too_many_pending_migrations: "Túl sok függőben lévő migráció van ebben a témában. A témák nem vezethetnek be 100-nál több migrációt egyetlen frissítésben"
+        out_of_sequence: "A(z) '%{name}' migráció nem megfelelő. A téma legutóbbi áttelepítésének verziószáma %{current} volt, amely magasabb, mint az új migrációé"
+        syntax_error: "A(z) '%{name}' migráció futtatása nem sikerült, mert szintaktikai hibája van: %{error}"
+        exceeded_memory_limit: "A(z) '%{name}' migrálása meghiúsult, mert túllépte a memóriakorlátot"
+        timed_out: "A(z) '%{name}' migráció időtúllépést szenvedett"
+        no_exported_function: "A(z) '%{name}' áttelepítés nem exportál függvényt az áttelepítés végrehajtásához"
+        default_export_not_a_function: "A(z) '%{name}' áttelepítésnek van egy alapértelmezett exportálása, amely nem függvény. Az alapértelmezett exportálásnak az áttelepítést végrehajtó funkciónak kell lennie"
+        no_returned_value: "A(z) '%{name}' migráció nem adott vissza értéket (vagy null vagy undefined). Egy Map objektumot kell visszaadnia"
+        wrong_return_type: "A(z) '%{name}' migráció ismeretlen adattípust adott vissza. Map objektumot kell visszaadnia"
+        runtime_error: "A(z) '%{name}' migráció a következő futásidejű hibát észlelte: %{error}"
+        unknown_setting_returned_by_migration: "A(z) '%{name}' áttelepítés egy '%{setting_name}' beállítást adott vissza, amely nincs deklarálva a téma settings.yml fájljában"
     errors:
       component_no_user_selectable: "A téma összetevőit nem választhatja ki a felhasználó"
       component_no_default: "A témaösszetevő nem lehet alapértelmezett téma"
       component_no_color_scheme: "A témaösszevető nem tartalmazhat színpalettát"
       no_multilevels_components: "A gyermektémákat tartalmazó témák nem lehet maguk is gyermektémák"
+      optimized_link: Az optimalizált képhivatkozások átmenetiek, és nem szabad a téma forráskódjában szerepeltetni.
     settings_errors:
       invalid_yaml: "A megadott YAML érvénytelen."
-      data_type_not_a_number: "A `%{name}` típus beállítása nem támogatott. Támogatott típusok: `integer`, `bool`, `list`, `enum` és `upload`."
+      data_type_inclusion: "A(z) `%{name}` típus beállítása nem támogatott. Támogatott típusok: `integer`, `bool`, `list`, `enum` és `upload`."
       name_too_long: "Az egyik beállítás neve túl hosszú. A legnagyobb hossz 255"
-      default_value_missing: "A(z) „%{name}” beállításnak nincs alapértelmezett értéke."
+      default_value_missing: "A(z) `%{name}` beállításnak nincs alapértelmezett értéke."
       default_not_match_type: "A(z) „%{name}” beállítás alapértelmezett értékének típusa nem egyezik a beállítás típusával."
-      default_out_range: "A(z) „%{name}” alapértelmezett értéke a tartományon kívül esik."
+      default_value_not_valid: "A(z) `%{name}` alapértelmezett értéke nem érvényes. %{error_messages}"
       enum_value_not_valid: "A kiválasztott érték nem szerepel az enum lehetőségei között."
-      number_value_not_valid: "Az új érték nem esik az engedélyezett tartományon belülre."
-      number_value_not_valid_min_max: "%{min} és %{max} között kell lennie."
-      number_value_not_valid_min: "Nagyobb vagy egyenlőnek kell lennie, mint %{min}."
-      number_value_not_valid_max: "Kisebb vagy egyenlőnek kell lennie, mint %{max}."
-      string_value_not_valid: "Az új érték hossza nem esik az engedélyezett tartományon belülre."
+      number_value_not_valid_min_max: "Az értéknek %{min} és %{max} között kell lennie."
+      number_value_not_valid_min: "Az értéknek nagyobbnak vagy egyenlőnek kell lennie, mint %{min}."
+      number_value_not_valid_max: "Az értéknek kisebbnek vagy egyenlőnek kell lennie, mint %{max}."
       string_value_not_valid_min_max: "A karakterek számának %{min} és %{max} között kell lennie."
-      string_value_not_valid_min: "Legalább %{min} karakter hosszúnak kell lennie."
-      string_value_not_valid_max: "Legfeljebb %{max} karakter hosszúnak kell lennie."
+      string_value_not_valid_min:
+        one: "Az értéknek legalább %{count} karakter hosszúnak kell lennie."
+        other: "Az értéknek legalább %{count} karakter hosszúnak kell lennie."
+      string_value_not_valid_max:
+        one: "Az érték legfeljebb %{count} karakter hosszú lehet."
+        other: "Az érték legfeljebb %{count} karakter hosszú lehet."
+      objects:
+        humanize_required: "A JSON Pointer '%{property_json_pointer}' tulajdonságnak jelen kell lennie."
+        required: "megadása kötelező"
+        not_valid_integer_value: "egész számnak kell lennie"
     locale_errors:
       top_level_locale: "A felsőszintű kulcsnak a területibeállítás-fájlban egyeznie kell a területi beállítás nevével"
       invalid_yaml: "A fordítási YAML érvénytelen"
@@ -115,7 +157,6 @@ hu:
     format: ! "%{attribute} %{message}"
     format_with_full_message: "<b>%{attribute}</b>: %{message}"
     messages:
-      too_long_validation: "%{max} karakterre korlátozva; megadott karakterek száma: %{length}."
       invalid_boolean: "Érvénytelen logikai érték."
       taken: "már foglalt"
       accepted: elfogadottnak kell lennie
@@ -165,20 +206,18 @@ hu:
     embed:
       load_from_remote: "Hiba történt a bejegyzés betöltésekor."
     site_settings:
+      invalid_site_setting: "Nem létezik „%{name}” nevű beállítás"
       invalid_category_id: "Olyan kategóriát adott meg, amely nem létezik"
       default_categories_already_selected: "Nem választhat olyan kategóriát, amely már szerepel egy másik listában."
       default_tags_already_selected: "Más listában használt címke nem választható ki."
       s3_upload_bucket_is_required: "Nem lehet engedélyezni a feltöltést az S3-ba, amíg nincs megadva az „s3_upload_bucket”."
       enable_s3_uploads_is_required: "Az S3 leltár használatát csak akkor engedélyezheti, ha engedélyezte az S3 feltöltéseket."
-      secure_uploads_requirements: "A biztonságos feltöltés engedélyezése előtt engedélyezni kell az S3 feltöltést."
       share_quote_facebook_requirements: "Be kell állítania egy Facebook-alkalmazás azonosítót, hogy engedélyezhesse a megosztást Facebookon."
-      second_factor_cannot_enforce_with_socials: "A közösségi bejelentkezések engedélyezése mellett nem lehet 2FA-t érvényesíteni. Először le kell tiltania ezt a bejelentkezést: %{auth_provider_names}"
       second_factor_cannot_be_enforced_with_disabled_local_login: "A 2FA nem kényszeríthető, ha a helyi bejelentkezés le van tiltva."
       second_factor_cannot_be_enforced_with_discourse_connect_enabled: "A 2FA nem kényszeríthető, ha a DiscourseConnect engedélyezett."
       local_login_cannot_be_disabled_if_second_factor_enforced: "A helyi bejelentkezés nem tiltható le, ha a 2FA kényszerítve van. A helyi bejelentkezések letiltása előtt tiltsa le a kényszerített 2FA-t."
       cannot_enable_s3_uploads_when_s3_enabled_globally: "Nem engedélyezheti az S3 feltöltést, mivel az S3 feltöltés már globálisan engedélyezve van, és a helyszintű engedélyezés kritikus problémákat okozna a feltöltésekkel kapcsolatban."
       cors_origins_should_not_have_trailing_slash: "A CORS-eredethez nem szabad hozzáadni az utolsóként használt perjelet (/)."
-      slow_down_crawler_user_agent_must_be_at_least_3_characters: "A felhasználói ügynököknek legalább 3 karakteresnek kell lenniük, hogy elkerülje az emberi felhasználók téves korlátozását."
       slow_down_crawler_user_agent_cannot_be_popular_browsers: "A következő értékek egyikét sem adhatja hozzá a beállításhoz: %{values}."
       twitter_summary_large_image_no_svg: "A twitter:image metaadatokhoz használt Twitter összefoglaló képek nem lehetnek .svg képek."
     onebox:
@@ -190,6 +229,7 @@ hu:
     not_found_json: "A meghívási token érvénytelen. Lépjen kapcsolatba a stábbal."
     not_found_template_link: |
       <p>Ez a(z) <a href="%{base_url}">%{site_name}</a> meghívó már nem váltható be. Kérje meg az Ön meghívó személyt, hogy küldjön egy új meghívót.</p>
+    generic_error_response: "Probléma lépett fel a kéréssel kapcsolatban."
     confirm_email: "<p>Mindjárt készen is vagyunk! Elküldtünk egy megerősítő e-mailt a <b>%{email}</b> címre. Kérlek, kövesd a benne található instrukciókat, és aktiváld a fiókodat.</p><p>Ha pár percen belül nem érkezne meg, ne felejtsd el a <b>SPAM</b> és a <b>Promóciók</b> mappában is ellenőrizni!</p>"
     disabled_errors:
       invalid_access: "Nincs engedélye a kért erőforrás megtekintéséhez."
@@ -224,7 +264,6 @@ hu:
     more_replies:
       one: "és %{count} további válasz"
       other: "és %{count} további válasz"
-    loading: "Beszélgetés betöltése…"
     permalink: "Közvetlen hivatkozás"
     imported_from: "Ez egy kapcsolódó beszélgetési téma, az eredeti bejegyzés itt található: %{link}"
     in_reply_to: "▶ %{username}"
@@ -258,6 +297,7 @@ hu:
   create_pm_on_existing_topic: "Sajnáljuk, nem hozhatsz létre PM-et egy meglévő témakörben."
   just_posted_that: "túl hasonló ahhoz, amit legutóbb megosztott"
   invalid_characters: "érvénytelen karaktereket tartalmaz"
+  is_invalid: "nem tűnik egyértelműnek, ez egy teljes mondat?"
   next_page: "következő oldal →"
   prev_page: "← előző oldal"
   page_num: "%{num}. oldal"
@@ -288,6 +328,7 @@ hu:
   too_late_to_edit: "Ez a bejegyzés túl régen lett létrehozva. Már nem lehet szerkeszteni vagy törölni."
   edit_conflict: "Ezt a bejegyzést egy másik felhasználó szerkesztette, és a változtatásokat már nem lehet menteni."
   revert_version_same: "A jelenlegi verzió megegyezik azzal a verzióval amire vissza szeretne térni."
+  reverted_to_version: "visszaállítva #%{version} verzióra."
   excerpt_image: "kép"
   bookmarks:
     errors:
@@ -316,8 +357,6 @@ hu:
       trust_level_2: "bizalmi_szint_2"
       trust_level_3: "bizalmi_szint_3"
       trust_level_4: "bizalmi_szint_4"
-    request_accepted_pm:
-      title: "Felvettek a @%{group_name} csoportba."
   education:
     until_posts:
       one: "%{count} bejegyzés"
@@ -342,6 +381,7 @@ hu:
 
       Mindenki számára könnyebb elolvasni azokat a témákat, amelyekben kevesebb mélyreható válasz van, mint a sok apró, egyedi válasz.
     dominating_topic: Sokat írt ebben a témában! Fontolja meg, hogy lehetőséget ad másoknak arra, hogy itt válaszoljanak, és megbeszéljék egymással a dolgokat.
+    dont_feed_the_trolls: Ezt a bejegyzést már megjelölték moderátor figyelmébe. Biztos, hogy válaszolni akarsz rá? A negatív tartalomra adott válaszok inkább negatív viselkedésre ösztönöznek.
     too_many_replies: |
       ### Elérted a válaszkorlátot ebben a témában
 
@@ -365,6 +405,8 @@ hu:
         raw: "Törzs"
       user_profile:
         bio_raw: "Bemutatkozás"
+      user:
+        password: "Jelszó"
     errors:
       models:
         topic:
@@ -382,7 +424,8 @@ hu:
               same_as_email: "azonos az e-mail címével. Használjon biztonságosabb jelszót."
               same_as_current: "azonos a jelenlegi jelszavával."
             ip_address:
-              signup_not_allowed: "A regisztráció nem lehetséges ezzel a fiókkal."
+              blocked: "Új regisztrációk nem engedélyezettek az te IP-címedről."
+              max_new_accounts_per_registration_ip: "Új regisztráció az Ön IP-címéről nem engedélyezett (elérte a maximális korlátot). Vegye fel a kapcsolatot egy munkatársával."
         user_profile:
           attributes:
             featured_topic_id:
@@ -408,21 +451,6 @@ hu:
   meta_category_description: "Beszélgetés erről az oldalról, a szervezéséről, a működéséről és arról, hogyan tudnánk jobbá tenni."
   staff_category_name: "Stáb"
   staff_category_description: "Privát kategória a stáb számára. Ezeket a témákat csak az adminisztrátorok és moderátorok látják."
-  discourse_welcome_topic:
-    body: |2
-
-      A rögzített téma első bekezdése üdvözlő üzenetként fog megjelenni a kezdőlap összes új látogatója előtt. Ez fontos!
-
-      ** Szerkeszd át ezt ** a közösség rövid leírására:
-
-      - Kinek szól?
-      - Mit találhatnak itt?
-      - Miért kellene idejönniük?
-      - Hol tudnak többet olvasni (linkek, források stb.)?
-
-      <img src="%{base_path}/images/welcome/discourse-edit-post-animated.gif" width="508" height="106">
-
-      Érdemes bezárnod ezt a témát az admin :wrench: en keresztül (a jobb felső és az alsó részen), hogy a válaszok ne halmozódjanak fel egy bejelentésre.
   category:
     topic_prefix: "A(z) %{category} kategóriáról"
     replace_paragraph: "(Cseréld le ezt az első bekezdést az új kategória rövid leírására. Ez az útmutató a kategória kiválasztási területén jelenik meg, ezért próbálj 200 karakter alatt maradni.)"
@@ -435,6 +463,7 @@ hu:
       email_already_used_in_category: "A(z) „%{email}” címet már használja a(z) „%{category_name}” kategória."
       slug_contains_non_ascii_chars: "nem ASCII karaktereket tartalmaz"
       is_already_in_use: "már használatban van"
+      move_topic_to_category_disallowed: "Nem helyezheti át ezt a témát olyan kategóriába, ahol nincs engedélye új témák létrehozására."
     cannot_delete:
       has_subcategories: "A kategóriát nem lehet törölni, mert vannak alkategóriái."
       topic_exists_no_oldest: "A kategóriát nem lehet törölni, mert a benne lévő témák száma %{count}."
@@ -445,7 +474,6 @@ hu:
   post:
     image_placeholder:
       broken: "Ez a kép hibás"
-    hidden_bidi_character: "A kétirányú karakterek megváltoztathatják a szöveg megjelenítési sorrendjét. Ez felhasználható rosszindulatú kódok elrejtésére is."
     has_likes:
       one: "%{count} kedvelés"
       other: "%{count} kedvelés"
@@ -557,24 +585,13 @@ hu:
       iphone: "iPhone"
       ipod: "iPod"
       windows: "Windows számítógép"
+    os:
+      android: "Android"
+      chromeos: "Chrome OS"
   change_email:
-    confirmed: "Az e-mail címe frissítve lett."
-    please_continue: "Tovább a(z) %{site_name} oldalra"
     error: "Hiba történt az e-mail cím módosításakor. Lehet, hogy már használatban van?"
     doesnt_exist: "Ez az e-mail cím nincs társítva a fiókodhoz."
     confirm: "Megerősít"
-    authorizing_new:
-      title: "Erősítse meg az új e-mail címét"
-      description: "Kérjük, erősítsd meg, hogy szeretnéd az e-mail címedet a következőre módosítani:"
-      description_add: "Kérjük, erősítsd meg, hogy alternatív e-mail címet szeretnél hozzáadni:"
-    authorizing_old:
-      title: "E-mail cím módosítása"
-      description: "Kérjük, erősítsd meg az e-mail címed megváltoztatását"
-      description_add: "Kérjük, erősítsd meg, hogy alternatív e-mail címet szeretnél hozzáadni:"
-      old_email: "Régi e-mail: %{email}"
-      new_email: "Új e-mail: %{email}"
-      almost_done_title: "Új e-mail cím megerősítése"
-      almost_done_description: "Küldtünk egy e-mailt az új e-mail címedre, hogy megerősítsük a változást!"
   associated_accounts:
     connected: "(kapcsolódva)"
   activation:
@@ -602,6 +619,8 @@ hu:
       email_body: "%{link}\n\n%{message}"
     inappropriate:
       title: "Nem ideillő"
+    illegal:
+      email_body: "%{link}\n\n%{message}"
     notify_user:
       email_title: 'A bejegyzése itt: „%{title}”'
       email_body: "%{link}\n\n%{message}"
@@ -630,6 +649,8 @@ hu:
     notify_moderators:
       title: "Valami más"
       email_title: 'A(z) „%{title}” téma moderátori figyelmet igényel'
+      email_body: "%{link}\n\n%{message}"
+    illegal:
       email_body: "%{link}\n\n%{message}"
   ignored:
     hidden_content: "<p>Letiltott tartalom</p>"
@@ -723,6 +744,7 @@ hu:
     trust_level_growth:
       yaxis: "Nap"
     consolidated_page_views:
+      title: "Összevont oldalmegtekintések"
       xaxis:
         page_view_anon: "Névtelen felhasználók"
         page_view_logged_in: "Bejelentkezett felhasználók"
@@ -739,6 +761,8 @@ hu:
         user_api: "Felhasználói API"
       yaxis: "Nap"
       description: "API-kérelmek a normál API-kulcsokhoz és a felhasználói API-kulcsokhoz."
+    consolidated_page_views_browser_detection:
+      yaxis: "Nap"
     dau_by_mau:
       xaxis: "Nap"
     daily_engaged_users:
@@ -866,6 +890,10 @@ hu:
       yaxis: "Mobilról bejelentkezett oldalmegtekintések"
     page_view_anon_mobile_reqs:
       xaxis: "Nap"
+    page_view_anon_browser_reqs:
+      xaxis: "Nap"
+    page_view_logged_in_browser_reqs:
+      xaxis: "Nap"
     http_background_reqs:
       title: "Háttér"
       xaxis: "Nap"
@@ -903,6 +931,8 @@ hu:
       labels:
         user_agent: "Felhasználói ügynök"
         page_views: "Oldalmegtekintések"
+    web_hook_events_daily_aggregate:
+      xaxis: "Nap"
     suspicious_logins:
       labels:
         user: Felhasználó
@@ -943,13 +973,21 @@ hu:
       labels:
         user: Felhasználó
         qtt_like: Kapott kedvelések
+    topic_view_stats:
+      labels:
+        topic: Téma
+        logged_in_views: Bejelentkezve
+        anon_views: Névtelen
+        total_views: Összes
   dashboard:
-    rails_env_warning: "A kiszolgáló jelenleg %{env} módban fut."
-    host_names_warning: "A config/database.yml fájl az alapértelmezett „localhost” domaint használja. Állítsa be az oldala saját domain nevét."
-    memory_warning: "A kiszolgáló kevesebb mint 1 GB memóriával rendelkezik. Legalább 1 GB memória ajánlott."
+    problem:
+      rails_env: "A kiszolgáló jelenleg %{env} módban fut."
+      host_names: "A config/database.yml fájl az alapértelmezett „localhost” domaint használja. Állítsa be az oldala saját domain nevét."
+      ram: "A kiszolgáló kevesebb mint 1 GB memóriával rendelkezik. Legalább 1 GB memória ajánlott."
+      google_analytics_version: "A Discourse jelenleg a Google Analytics 3-at használja, amely 2023 júliusa után már nem kap támogatást. <a href='https://meta.discourse.org/t/260498'>Frissítsen most a Google Analytics 4-re</a> , hogy továbbra is értékes betekintést és elemzést kapjon webhelye teljesítményéről."
   site_settings:
     disabled: "kikapcsolva"
-    max_emojis_in_title: "A témacímekben lévő emodzsik legnagyobb száma"
+    default_locale: "A Discourse alapértelmezett nyelve. A rendszer által generált kategóriák és témák szövegét lecserélheted a <a href='%{base_path}/admin/customize/site_texts' target='_blank'>Személyre szabás / Szöveg</a>oldalon."
     search_tokenize_chinese: "A keresés kényszerítése, hogy tokenizálja a kínait, még a nem kínai oldalakon is"
     search_tokenize_japanese: "A keresés kényszerítése, hogy tokenizálja a japánt, még a nem japán oldalakon is"
     title: "Az oldal neve. Minden látogató számára látható, beleértve a névtelen felhasználókat is."
@@ -963,37 +1001,30 @@ hu:
     post_excerpt_maxlength: "A bejegyzés kivonatának / összefoglalójának maximális hossza."
     topic_excerpt_maxlength: "A témakör kivonatának / összefoglalójának maximális hossza a téma első bejegyzéséből generálva."
     blocked_onebox_domains: "Azok a domainek, amelyek soha nem kerülnek dobozba, például wikipedia.org\n(A * ? helyettesítő karakterek nem támogatottak)"
-    enforce_second_factor: "Kényszeríti a felhasználókat, hogy engedélyezzék a kétfaktoros hitelesítést. Válassza az 'all' lehetőséget, hogy érvényesítse az összes felhasználó számára. Válassza a „személyzet” lehetőséget, hogy csak a személyzet felhasználói számára érvényesítse."
-    review_every_post: "Minden bejegyzést jóvá kell hagyni. FIGYELEM! FORGALMAS OLDALAKON NEM AJÁNLOTT."
+    apple_touch_icon: "Az Apple érintőképernyős készülékekhez használt ikon. Az átlátszó háttér nem ajánlott. Automatikusan átméreteződik 180x180-ra. Ha üresen hagyja, a large_icon lesz használva."
     use_admin_ip_allowlist: "Az adminokk csak akkor tudnak bejelentkezni, ha a Screened IPs listában megadott IP-címmel vannak megadva (Admin > Naplók > Screened Ips)."
     slow_down_crawler_user_agents: 'A forgalmi korlátozás alá elő webes robotok felhasználói ügynökei, ahogy a „robotok sebességének lelassítása” beállításban meg van adva. Minden egyes értéknek legalább 3 karakteresnek kell lennie.'
-    content_security_policy: "Tartalom-biztonsági házirend engedélyezése"
     content_security_policy_collect_reports: "Engedélyezze a CSP-szabálysértési jelentések gyűjtését /csp_reports címen."
+    send_welcome_message: "A rövid gyorstalpalóról szóló üzenet elküldése minden új felhasználónak."
     remove_full_quote: "Automatikusan eltávolítja az idézetet, ha (a) a hozzászólás elején jelenik meg, (b) egy teljes hozzászólás, és (c) ha a közvetlenül az előző hozzászólásból származik. A részletekért lásd: <a href='https://meta.discourse.org/t/removal-of-full-quotes-from-direct-replies/106857' target='_blank'>Teljes idézetek eltávolítása a közvetlen válaszokból</a>"
     email_token_valid_hours: "Elfelejtett jelszó / fiókaktiválási tokenek (n) óráig érvényesek."
-    enable_badges: "A jelvény rendszer engedélyezése"
     normalize_emails: "Ellenőrizze, hogy a normalizált e-mail egyedi-e. A normalizált e-mail eltávolítja az összes pontot a felhasználónévből, és mindent, ami a + és a @ szimbólumok között található."
     hide_email_address_taken: "Ne tájékoztassa a felhasználókat arról, hogy létezik fiók egy adott e-mail címmel a regisztráció során vagy az elfelejtett jelszó folyamata során. Teljes e-mail cím megkövetelése az „elfelejtett jelszó” kérésekhez."
-    min_password_length: "Minimum jelszóhossz."
     block_common_passwords: "A 10 000 leggyakoribb jelszó tiltása."
-    discord_secret: "Discord titkos kulcs"
+    discourse_connect_url: "A DiscourseConnect végpont URL-je (tartalmaznia kell a http:// vagy https:// karaktereket, és nem tartalmazhat a végén perjelet)"
     maximum_backups: "A maximálisan megtartandó biztonsági másolatok száma. A régebbi biztonsági mentések automatikusan törlődnek"
-    rate_limit_new_user_create_topic: "Egy téma létrehozása után az új felhasználóknak (n) másodpercet kell várniuk, mielőtt új témát hozhatnak létre."
     suggested_topics: "A javasolt témák száma a téma alján láthatók."
     limit_suggested_to_category: "Csak a javasolt kategóriákból származó témakörök jelenhetnek meg a javasolt témakörökben."
     suggested_topics_max_days_old: "A javasolt olvasatlan témák nem lehetnek több, mint n naposak."
     suggested_topics_unread_max_days_old: "A javasolt olvasatlan témák nem lehetnek több mint n naposak."
     external_emoji_url: "Az emodzsi képek külső szolgáltatásának URL-je. A letiltáshoz hagyja üresen."
-    selectable_avatars: "A felhasználó által választható avatarok listája."
     recompress_original_jpg_quality: "A feltöltött képfájlok minősége (1 – legalacsonyabb, 99 – legjobb, 100 – letiltás)."
     image_preview_jpg_quality: "Az átméretezett képfájlok minősége (1 – legalacsonyabb, 99 – legjobb, 100 – letiltás)."
-    strip_image_metadata: "A kép metaadatainak eltávolítása."
     max_here_mentioned: "Az @itt által megemlített személyek maximális száma."
     min_trust_level_for_here_mention: "Az @itt megemlítés használatához szükséges minimális bizalmi szint."
     dark_mode_none: "Egyik sem"
     cold_age_days_low: "Ennyi nap beszélgetés után az utolsó tevékenység dátuma kissé elhomályosul."
     log_anonymizer_details: "Anonimizálás után meg kell-e őrizni a felhasználó adatait a naplóban."
-    reply_by_email_enabled: "E-mail válaszok engedélyezése."
     block_auto_generated_emails: "Az automatikusan generáltként azonosított bejövő e-mailek letiltása."
     sendgrid_verification_key: "Sendgrid ellenőrző kulcs, amelyet a webhook üzenetek ellenőrzésére használnak."
     mailjet_webhook_token: "A webhook hasznos terhelésének ellenőrzésére használt token. Ezt a webhook 't' lekérdezési paramétereként kell átadni, például: https://example.com/webhook/mailjet?t=supersecret"
@@ -1003,22 +1034,17 @@ hu:
     email_editable: "Engedélyezi a felhasználóknak, hogy a regisztráció után megváltoztassák az e-mail címüket."
     suppress_digest_email_after_days: "Letiltja az összefoglaló e-maileket azon felhasználók számára, akik nem láttak a webhelyen (n) napnál hosszabb ideig."
     digest_suppress_categories: "Letiltom ezeket a kategóriákat az összefoglaló e-mailekből."
-    embed_truncate: "Beágyazott bejegyzések rövidítése."
+    dont_feed_the_trolls_threshold: "A többi felhasználótól kapott jelzések száma a figyelmeztetés előtt."
     embed_post_limit: "A bejegyzések maximális száma a beágyazásban."
-    delete_drafts_older_than_n_days: "Törölje az (n) napnál régebbi piszkozatokat."
-    enable_emoji: "Emodzsi engedélyezése"
     enable_emoji_shortcuts: "A gyakori mosolyt jelző szövegek, mint a :) :p és :( emodzsikká lesznek alakítva"
-    emoji_set: "Hogy szeretné az emodzsiját?"
+    emoji_deny_list: "Ezek a hangulatjelek nem használhatók menükben vagy rövid kódokban."
     auto_close_topics_create_linked_topic: "Új összekapcsolt téma létrehozása, ha a téma a „témák automatikus lezárása bejegyzésszám alapján” beállítás miatt automatikusan lezárásra kerül."
     default_email_digest_frequency: "Alapértelmezés szerint a felhasználók milyen gyakran kapnak összefoglaló e-maileket."
     default_other_skip_new_user_tips: "A tippek és jelvények kihagyása az új felhasználók regisztrációjakor"
-    default_other_like_notification_frequency: "A felhasználók értesítése a kedvelésekről alapértelmezett esetben."
-    company_name: "Cégnév"
     use_email_for_username_and_name_suggestions: "Használja az e-mail címek első részét a felhasználónév- és névjavaslatokhoz. Vegye figyelembe, hogy ez megkönnyíti a nyilvánosság számára a teljes felhasználói e-mail címek kitalálását (mivel az emberek nagy része olyan gyakori szolgáltatásokat használ, mint a „gmail.com”)."
-    navigation_menu: "Határozza meg, melyik navigációs menüt használja. Az oldalsáv és a fejléc navigációja a felhasználók által testreszabható. A visszamenőleges kompatibilitás érdekében a régebbi opció is elérhető."
-    enable_new_notifications_menu: "Engedélyezi az új értesítési menü használatát a régi navigációs menüben."
-    enable_experimental_topic_timeline_groups: "KÍSÉRLETI: A kiválasztott csoportok felhasználóinak megjelenik az átdolgozott téma idővonala"
-    enable_experimental_hashtag_autocomplete: "KÍSÉRLETI: Használja az új #hashtag automatikus kiegészítési rendszert a kategóriákhoz és címkékhez, amelyek másképp jelenítik meg a kiválasztott elemet, és javítják a keresést"
+    experimental_new_new_view_groups: 'Kísérleti: Engedélyezzen egy új témalistát, amely egyesíti az olvasatlan és az új témákat, és az oldalsávban lévő "Minden" linket kapcsolja rá.'
+    enable_custom_sidebar_sections: "Kísérleti: Egyéni oldalsáv szekciók engedélyezése"
+    experimental_form_templates: "KÍSÉRLETI: Az űrlapsablonok szolgáltatás engedélyezése. <b>Az engedélyezés után</b> a sablonokat a <a href='%{base_path}/admin/customize/form-templates'>Testreszabás / Sablonok</a> menüpont alatt kezelheti."
     errors:
       invalid_email: "Érvénytelen e-mail cím."
       invalid_username: "Nincs ilyen nevű felhasználó."
@@ -1030,8 +1056,6 @@ hu:
       regex_mismatch: "Az érték nem felel meg az elvárt formátumnak."
       invalid_string: "Érvénytelen érték."
       invalid_string_min_max: "A karakterek számának %{min} és %{max} között kell lennie."
-      invalid_string_min: "Nem lehet rövidebb, mint %{min} karakter."
-      invalid_string_max: "Nem lehet hosszabb, mint %{max} karakter."
       invalid_domain_hostname: "Nem tartalmazhatja a * vagy a ? karaktereket."
       invalid_regex_with_message: "A(z) „%{regex}” regexben hiba van: %{message}"
       min_username_length_range: "Nem lehet a legnagyobb értéknél nagyobb legkisebb értéket beállítani."
@@ -1039,7 +1063,20 @@ hu:
       search_tokenize_chinese_enabled: "A beállítás engedélyezése előtt le kell tiltania a „search_tokenize_chinese” beállítást."
       search_tokenize_japanese_enabled: "A beállítás engedélyezése előtt le kell tiltania a „search_tokenize_japanese” beállítást."
       discourse_connect_cannot_be_enabled_if_second_factor_enforced: "A DiscourseConnect nem engedélyezhető, ha a 2FA kényszerítve van."
-      enable_new_notifications_menu_not_legacy_navigation_menu: "A beállítás engedélyezése előtt a `navigation_menu`-t `legacy` értékre kell állítani."
+      invalid_uncategorized_category_setting: 'A "Nem kategorizált" kategória nem választható ki, ha a "nem kategorizált témák engedélyezése" nincs engedélyezve.'
+      invalid_search_ranking_weights: "Az érték érvénytelen a search_ranking_weights webhely beállításánál. Példa: „{0.1,0.2,0.3,1.0}”. Vegye figyelembe, hogy az egyes súlyok maximális értéke 1,0."
+    keywords:
+      clean_up_inactive_users_after_days:
+      - ""
+      - "inaktív"
+      - ""
+      purge_unactivated_users_grace_period_days:
+      - ""
+      - "inaktív"
+      - ""
+      navigation_menu:
+      - "oldalsáv"
+      - ""
   search:
     within_post: "#%{post_number}, szerző: %{username}"
     types:
@@ -1071,7 +1108,12 @@ hu:
   login:
     invalid_second_factor_method: "A kiválasztott kéttényezős hitelesítés-módszer érvénytelen."
     not_enabled_second_factor_method: "A kiválasztott kéttényezős hitelesítés-módszer nincs engedélyezve a fiókjában."
+    security_key_description: "Ha előkészítette a fizikai biztonsági kulcsot, nyomja meg a lenti „Hitelesítés biztonsági kulccsal” gombot."
+    security_key_alternative: "Próbálkozás más módon"
+    security_key_authenticate: "Hitelesítés biztonsági kulccsal"
+    security_key_not_allowed_error: "A biztonsági hardverkulcsos hitelesítési folyamata során időtúllépés történt, vagy megszakították."
     security_key_no_matching_credential_error: "A megadott biztonsági kulcsban nem található megfelelő hitelesítő adat."
+    security_key_support_missing_error: "Jelenlegi eszköze vagy böngészője nem támogatja a biztonsági kulcsok használatát. Használjon más módszert."
     not_approved: "A fiókját még nem engedélyezték. Értesítve lesz, amint bejelentkezhet."
     incorrect_username_email_or_password: "Hibás felhasználónév, e-mail vagy jelszó"
     wait_approval: "Köszönjük, hogy regisztrált! Értesíteni fogjuk, amint elfogadták a kérelmét."
@@ -1088,7 +1130,6 @@ hu:
     new_registrations_disabled: "Az új fiókok létrehozása jelenleg nem engedélyezett."
     password_too_long: "A jelszavak legfeljebb 200 karakter hosszúak lehetnek."
     reserved_username: "Ez a felhasználónév nem engedélyezett."
-    missing_user_field: "Nem töltötte ki az összes felhasználói mezőt"
     click_to_continue: "Kattintson ide a folytatáshoz."
     already_logged_in: "Sajnálom! Ez a meghívás új felhasználóknak szól, akik még nem rendelkeznek meglévő fiókkal."
     second_factor_title: "Kéttényezős hitelesítés"
@@ -1096,20 +1137,14 @@ hu:
     invalid_security_key: "Érvénytelen biztonsági kulcs."
     missing_second_factor_name: "Kérjük, adjon meg egy nevet."
     missing_second_factor_code: "Kérjük, adjon meg egy kódot."
+    second_factor_toggle:
+      backup_code: "Helyette biztonsági kód használata"
   admin:
     email:
       sent_test: "elküldve."
-    user:
-      merge_user:
-        updating_username: "Felhasználónév frissítése..."
-        updating_site_settings: "A webhely beállításainak frissítése..."
-        updating_user_stats: "Felhasználói statisztikák frissítése..."
-        updating_user_ids: "Felhasználói azonosítók frissítése..."
   user:
     deactivated: "Deaktiváltuk a túl sok innen visszapattanó e-mail miatt: '%{email}'."
     username:
-      short: "nem lehet rövidebb, mint %{min} karakter"
-      long: "nem lehet hosszabb, mint %{max} karakter"
       too_long: "túl hosszú"
       characters: "csak számokat, betűket, kötőjeleket, pontokat és aláhúzásjeleket tartalmazhat"
       unique: "egyedinek kell lennie"
@@ -1121,9 +1156,6 @@ hu:
     email:
       invalid: "érvénytelen."
       blocked: "nem engedélyezett."
-    ip_address:
-      blocked: "Új regisztrációk nem engedélyezettek az te IP-címedről."
-      max_new_accounts_per_registration_ip: "Új regisztráció az Ön IP-címéről nem engedélyezett (elérte a maximális korlátot). Vegye fel a kapcsolatot egy munkatársával."
   unsubscribe_mailer:
     subject_template: "Erősítsd meg, hogy a továbbiakban nem szeretnél e-mailes frissítéseket kapni a %{site_title} oldalról."
     text_body_template: |
@@ -1404,15 +1436,6 @@ hu:
         Nyugodtan folytathatod a böngészést, de nem leszel képest válaszokat vagy témákat létrehozni, amíg egy [adminisztrátor](%{base_url}/about) nem ellenőrzi a legutóbbi hozzászólásaidat. Elnézésedet kérjük a kellemetlenségért.
 
         További útmutatásért olvasd el a [fórumunk szabályzatát](%{base_url}/guidelines)!
-    user_automatically_silenced:
-      text_body_template: |
-        Ez egy automatikus üzenet.
-
-        Az új felhasználó [%{username}](%{user_url}) automatikusan el lett némítva, mert több felhasználó megjelölte %{username} bejegyzését.
-
-        Kérjük, [nézd át a jelöléseket](%{base_url}/admin/flags). Ha %{username}-t helytelenül hallgatták el, kattints a Némítás feloldása gombra a [felhasználó adminisztrációs oldalán](%{user_url}).
-
-        Ez a küszöb az „új felhasználók némítása” beállításon keresztül változtatható meg.
     spam_post_blocked:
       text_body_template: |
         Ez egy automatikus üzenet.
@@ -1434,14 +1457,6 @@ hu:
     download_remote_images_disabled:
       subject_template: "A távoli képek letöltése le lett tiltva"
       text_body_template: "A `download_remote_images_to_local` beállítás le lett tiltva, mert az erre szánt `download_remote_image_threshold` tárhelykorlát elérésre került."
-    dashboard_problems:
-      subject_template: "Új tanácsok a webhely irányítópultján"
-      text_body_template: |
-        Van néhány új tanácsunk és javaslatunk a jelenlegi webhelybeállításaid alapján.
-
-        [Látogasd meg a webhely irányítópultját] (%{base_url}/ admin) ezek megtekintéséhez.
-
-        Ha semmi nem látható az irányítópulton, lehet, hogy egy másik munkatársunk már eljárt aktivizálta magát. A személyzeti műveletek listája megtalálható a [Staff Action Logs] (%{base_url}/ admin / logs / staff_action_logs) könyvtárban.
     new_user_of_the_month:
       text_body_template: |
         Elnyerted ** A hónap új felhasználója %{month_year}** díjat. :trophy:
@@ -1471,9 +1486,6 @@ hu:
   user_notifications:
     previous_discussion: "Régebbi válaszok"
     in_reply_to: "Válasz"
-    unsubscribe:
-      title: "Leiratkozás"
-      description: "Nem szeretné ezeket az e-maileket megkapni? Nem probléma! Kattintson ide és iratkozzon le azonnal:"
     reply_by_email: "[Látogasson el a témához](%{base_url}%{url}), vagy válaszoljon erre az e-mailre."
     only_reply_by_email: "Válaszolj erre az e-mailre a válaszadáshoz!"
     only_reply_by_email_pm: "Válaszolj erre az e-mailre, hogy válaszolj neki: %{participants}."
@@ -1692,7 +1704,6 @@ hu:
 
         Ha kérdésed van, [vedd fel a kapcsolatot barátságos munkatársainkkal] (%{base_url}/about).
     digest:
-      why: "Egy kis összefoglaló a(z) %{site_link} oldalról, hogy mik történtek a legutóbbi látogatása (%{last_seen_at}) óta."
       since_last_visit: "Utolsó látogatása óta"
       new_topics: "Új téma"
       unread_notifications: "Olvasatlan értesítés"
@@ -1700,14 +1711,12 @@ hu:
       liked_received: "Kapott kedvelés"
       new_users: "Új felhasználó"
       popular_topics: "Népszerű témák"
-      follow_topic: "Téma követése"
       join_the_discussion: "Tovább"
       popular_posts: "Népszerű bejegyzések"
       subject_template: "[%{email_prefix}] Összefoglaló"
       unsubscribe: "Ezt az összefoglalót %{site_link} tól küldjük, mert már egy ideje nem látunk. Az %{email_preferences_link} vagy a %{unsubscribe_link} oldalon tudod a beállításokat változtatni vagy leiratkozni."
       your_email_settings: "e-mail beállítások"
       click_here: "kattintson ide"
-      preheader: "Rövid összefoglaló a legutóbbi látogatásod óta, ami ekkor történt: %{last_seen_at}"
     forgot_password:
       title: "Elfelejtett jelszó"
       subject_template: "[%{email_prefix}] Jelszó visszaállítás"
@@ -1717,7 +1726,7 @@ hu:
         Ha nem te voltál, nyugodtan figyelmen kívül hagyhatod ezt az e-mailt.
 
         Kattints a következő linkre az új jelszó létrehozásához:
-        %{base_url}/u/ password-reset/%{email_token}
+        %{base_url}/u/password-reset/%{email_token}
     email_login:
       text_body_template: |
         Itt van a link a bejelentkezéshez a [%{site_name}](%{base_url}) címen.
@@ -1849,9 +1858,8 @@ hu:
     search_button: "Keresés"
   offline:
     title: "Nem lehet betölteni az alkalmazást"
-  deleted: "törölt"
-  image: "kép"
   upload:
+    unauthorized: "Sajnos a feltölteni kívánt fájl nem engedélyezett (engedélyezett kiterjesztések: %{authorized_extensions})."
     size_zero_failure: "Sajnáljuk, úgy tűnik, hogy valami hiba történt, a feltöltendő fájl 0 bájtos. Próbálja újra."
     images:
       size_not_found: "Sajnáljuk, de nem tudtuk megállapítani a kép méretét. Lehet, hogy a kép sérült?"
@@ -1900,6 +1908,7 @@ hu:
     rate_limit_error: "A bejegyzések naponta csak egyszer töltetők le. Kérünk, próbáld újra holnap."
   guidelines_topic:
     title: "GYIK/Irányelvek"
+    guidelines_title: "Irányelvek"
   tos_topic:
     title: "Szolgáltatási feltételek"
   privacy_topic:
@@ -2144,18 +2153,23 @@ hu:
       message: "<p>Aktiváló levelet küldtünk az <b>%{email}</b>címre, pár percen belül a postaládádban kell lennie. A fiók aktiválásához kövesd az e-mailben található utasításokat.</p><p>Ha nem érkezik meg, ellenőrizd a spam (és Gmail esetén a Promóciók) mappát is, és <a href='https://meta.discourse.org/t/troubleshooting-email-on-a-new-discourse-install/16326'>ellenőrizd, hogy jó e-mail címet adtál-e meg!</a>.</p>"
     resend_email:
       title: "Aktiváló e-mail újraküldése"
+  safe_mode:
+    description: "A biztonságos mód lehetővé teszi, hogy tesztelje webhelyét témák vagy kliensoldali plugin-beállítások betöltése nélkül. A szerveroldali plugin testreszabások továbbra is engedélyezve maradnak."
+    no_unofficial_plugins: "Nem hivatalos ügyféloldali plugin testreszabások letiltása"
+    no_plugins: "Az összes ügyféloldali plugin testreszabás letiltása"
   wizard:
     step:
       introduction:
         title: "Az Ön webhelyéről"
+        fields:
+          default_locale:
+            label: "Nyelv"
       privacy:
         fields:
           login_required:
             placeholder: "Privát"
           chat_enabled:
             placeholder: "Csevegés engedélyezése"
-          enable_sidebar:
-            placeholder: "Oldalsáv engedélyezése"
       styling:
         fields:
           color_scheme:
@@ -2177,8 +2191,12 @@ hu:
                 label: "Kategóriák funkciók szerint"
               categories_and_latest_topics:
                 label: "Kategóriák és legutóbbi témák"
+              categories_and_latest_topics_created_date:
+                label: "Kategóriák és legutóbbi témák (rendezése a téma létrehozási dátuma szerint)"
               categories_and_top_topics:
                 label: "Kategóriák és legfelső témák"
+              subcategories_with_featured_topics:
+                label: "Alkategóriák kiemelt témákkal"
       branding:
         title: "Webhely logó"
       corporate:
@@ -2189,7 +2207,11 @@ hu:
         title: "Stáb meghívása"
       finished:
         title: "A Discourse készen áll!"
-  joined: "Csatlakozott"
+  onebox:
+    discourse:
+      user_joined_community: "Csatlakozott %{date}"
+    github:
+      closed: "zárt"
   discourse_push_notifications:
     popup:
       mentioned: '%{username} megemlített téged "%{topic}" - %{site_title} témakörben'
@@ -2207,6 +2229,8 @@ hu:
     not_found: "nem található"
     unknown: "ismeretlen"
     user_merged: "%{username} össze lett vonva ebbe a fiókba"
+    api_key:
+      revoked: Visszavonva
   reviewables:
     priorities:
       low: "Alacsony"
@@ -2218,42 +2242,28 @@ hu:
       medium: "Közepes"
       high: "Magas"
     actions:
-      agree_and_keep:
-        title: "Bejegyzés megtartása"
+      agree:
+        title: "Igen"
       agree_and_suspend:
-        title: "Felhasználó felfüggesztése"
         description: "Egyetértés a megjelöléssel, és a felhasználó felfüggesztése"
       agree_and_silence:
-        title: "Felhasználó némítása"
         description: "Egyetértés a megjelöléssel, és a felhasználó némítása"
       agree_and_restore:
-        title: "Bejegyzés visszaállítása"
         description: "A bejegyzés visszaállítása, hogy minden felhasználó láthassa."
-      agree_and_hide:
-        title: "Bejegyzés elrejtése"
-        description: "Bejegyzés elrejtése, és automatikus üzenet küldése a létrehozójának, hogy módosítson rajta."
       delete_single:
         title: "Törlés"
-      delete:
-        title: "Törlés…"
-      delete_and_ignore:
-        title: "Bejegyzés törlése és letiltás"
-        description: "Bejegyzés törlése, és ha ez az első bejegyzés, akkor a téma törlése"
       delete_and_ignore_replies:
-        title: "Bejegyzés törlése a válaszokkal együtt, és letiltás"
-        description: "Bejegyzés törlése a válaszokkal együtt, és ha ez az első bejegyzés, akkor a téma törlése"
         confirm: "Biztos vagy benne, hogy törölni szeretnéd a hozzászólásra adott válaszokat is?"
-      delete_and_agree:
-        description: "Bejegyzés törlése, és ha ez az első bejegyzés, akkor a téma törlése"
       delete_and_agree_replies:
-        description: "Bejegyzés törlése a válaszokkal együtt, és ha ez az első bejegyzés, akkor a téma törlése"
         confirm: "Biztos vagy benne, hogy törölni szeretnéd a hozzászólásra adott válaszokat is?"
       disagree_and_restore:
         description: "A bejegyzés visszaállítása, hogy minden felhasználó láthassa."
       disagree:
-        title: "Elutasítás"
+        title: "Nem"
       ignore:
         title: "Letiltás"
+      ignore_and_do_nothing:
+        title: "Ne csinálj semmit"
       approve:
         title: "Jóváhagyás"
       approve_post:
@@ -2282,6 +2292,11 @@ hu:
     post_raw: "Beszélgetés folytatása innen: %{parent_url}.\n\nElőző beszélgetések:\n\n%{previous_topics}"
     small_action_post_raw: "Beszélgetés folytatása itt: %{new_title}."
   fallback_username: "felhasználó"
+  form_templates:
+    errors:
+      invalid_yaml: "nem érvényes YAML karakterlánc"
+      invalid_type: "érvénytelen sablontípust tartalmaz: %{type} (érvényes típusok: %{valid_types})"
+      missing_type: "hiányzik egy mezőtípus"
   activemodel:
     errors:
       <<: *errors

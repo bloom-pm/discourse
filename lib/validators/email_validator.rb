@@ -2,7 +2,10 @@
 
 class EmailValidator < ActiveModel::EachValidator
   def validate_each(record, attribute, value)
-    if !EmailAddressValidator.valid_value?(value)
+    if value.blank?
+      record.errors.add(attribute, I18n.t(:"user.email.blank"))
+      invalid = true
+    elsif !EmailAddressValidator.valid_value?(value)
       if Invite === record && attribute == :email
         record.errors.add(:base, I18n.t(:"invite.invalid_email", email: CGI.escapeHTML(value)))
       else
@@ -48,14 +51,5 @@ class EmailValidator < ActiveModel::EachValidator
   def self.is_developer?(value)
     Rails.configuration.respond_to?(:developer_emails) &&
       Rails.configuration.developer_emails.include?(value)
-  end
-
-  def self.email_regex
-    Discourse.deprecate(
-      "EmailValidator.email_regex is deprecated. Please use EmailAddressValidator instead.",
-      output_in_test: true,
-      drop_from: "2.9.0",
-    )
-    EmailAddressValidator.email_regex
   end
 end

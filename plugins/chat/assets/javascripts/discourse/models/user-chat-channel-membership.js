@@ -1,28 +1,34 @@
-import RestModel from "discourse/models/rest";
 import { tracked } from "@glimmer/tracking";
 import User from "discourse/models/user";
-export default class UserChatChannelMembership extends RestModel {
-  @tracked following = false;
-  @tracked muted = false;
-  @tracked unread_count = 0;
-  @tracked unread_mentions = 0;
-  @tracked desktop_notification_level = null;
-  @tracked mobile_notification_level = null;
-  @tracked last_read_message_id = null;
-}
 
-UserChatChannelMembership.reopenClass({
-  create(args) {
-    args = args || {};
-    this._initUser(args);
-    return this._super(args);
-  },
+export default class UserChatChannelMembership {
+  static create(args = {}) {
+    return new UserChatChannelMembership(args);
+  }
 
-  _initUser(args) {
-    if (!args.user || args.user instanceof User) {
-      return;
+  @tracked following;
+  @tracked muted;
+  @tracked desktopNotificationLevel;
+  @tracked mobileNotificationLevel;
+  @tracked lastReadMessageId;
+  @tracked lastViewedAt;
+  @tracked user;
+
+  constructor(args = {}) {
+    this.following = args.following;
+    this.muted = args.muted;
+    this.desktopNotificationLevel = args.desktop_notification_level;
+    this.mobileNotificationLevel = args.mobile_notification_level;
+    this.lastReadMessageId = args.last_read_message_id;
+    this.lastViewedAt = new Date(args.last_viewed_at);
+    this.user = this.#initUserModel(args.user);
+  }
+
+  #initUserModel(user) {
+    if (!user || user instanceof User) {
+      return user;
     }
 
-    args.user = User.create(args.user);
-  },
-});
+    return User.create(user);
+  }
+}

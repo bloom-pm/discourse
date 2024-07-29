@@ -3,10 +3,10 @@
 
 RSpec.describe "spam rules for users" do
   describe "auto-silence users based on flagging" do
-    fab!(:admin) { Fabricate(:admin) } # needed to send a system message
-    fab!(:moderator) { Fabricate(:moderator) }
-    fab!(:user1) { Fabricate(:user) }
-    fab!(:user2) { Fabricate(:user) }
+    fab!(:admin) # needed to send a system message
+    fab!(:moderator)
+    fab!(:user1) { Fabricate(:user, refresh_auto_groups: true) }
+    fab!(:user2) { Fabricate(:user, refresh_auto_groups: true) }
 
     before do
       SiteSetting.hide_post_sensitivity = Reviewable.sensitivities[:disabled]
@@ -124,7 +124,7 @@ RSpec.describe "spam rules for users" do
     end
 
     [[:user, trust_level: TrustLevel[2]], [:admin], [:moderator]].each do |spammer_args|
-      context "spammer is trusted #{spammer_args[0]}" do
+      context "if spammer is trusted #{spammer_args[0]}" do
         let!(:spammer) { Fabricate(*spammer_args) }
         let!(:spam_post) { Fabricate(:post, user: spammer) }
         let!(:private_messages_count) { spammer.private_topics_count }

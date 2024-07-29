@@ -1,3 +1,5 @@
+import { setupTest } from "ember-qunit";
+import { module, test } from "qunit";
 import getURL, {
   getAbsoluteURL,
   getURLWithCDN,
@@ -7,9 +9,10 @@ import getURL, {
   setupURL,
   withoutPrefix,
 } from "discourse-common/lib/get-url";
-import { module, test } from "qunit";
 
-module("Unit | Utility | get-url", function () {
+module("Unit | Utility | get-url", function (hooks) {
+  setupTest(hooks);
+
   test("isAbsoluteURL", function (assert) {
     setupURL(null, "https://example.com", "/forum");
     assert.ok(isAbsoluteURL("https://example.com/test/thing"));
@@ -171,5 +174,13 @@ module("Unit | Utility | get-url", function () {
     let expected = "https://awesome.cdn/site/forum/awesome.png";
 
     assert.strictEqual(getURLWithCDN(url), expected, "at correct path");
+  });
+
+  test("getURLWithCDN when URL includes protocol", function (assert) {
+    setupS3CDN("//awesome.cdn/site", "https://awesome.cdn/site");
+
+    let url = "https://awesome.cdn/site/awesome.png";
+
+    assert.strictEqual(getURLWithCDN(url), url, "at correct path");
   });
 });

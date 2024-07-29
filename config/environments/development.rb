@@ -9,8 +9,7 @@ Discourse::Application.configure do
   config.cache_classes = false
   config.file_watcher = ActiveSupport::EventedFileUpdateChecker
 
-  # Log error messages when you accidentally call methods on nil.
-  config.eager_load = false
+  config.eager_load = ENV["DISCOURSE_ZEITWERK_EAGER_LOAD"] == "1"
 
   # Use the schema_cache.yml file generated during db:migrate (via db:schema:cache:dump)
   config.active_record.use_schema_cache_dump = true
@@ -45,6 +44,8 @@ Discourse::Application.configure do
 
   config.log_level = ENV["DISCOURSE_DEV_LOG_LEVEL"] if ENV["DISCOURSE_DEV_LOG_LEVEL"]
 
+  config.active_record.logger = nil if ENV["RAILS_DISABLE_ACTIVERECORD_LOGS"] == "1" ||
+    ENV["ENABLE_LOGSTASH_LOGGER"] == "1"
   config.active_record.verbose_query_logs = true if ENV["RAILS_VERBOSE_QUERY_LOGS"] == "1"
 
   if defined?(BetterErrors)
@@ -91,8 +92,6 @@ Discourse::Application.configure do
       end
     end
 
-    ActiveRecord::Base.logger = nil if ENV["RAILS_DISABLE_ACTIVERECORD_LOGS"] == "1"
-
     if ENV["BULLET"]
       Bullet.enable = true
       Bullet.rails_logger = true
@@ -100,4 +99,11 @@ Discourse::Application.configure do
   end
 
   config.hosts << /\A(([a-z0-9-]+)\.)*localhost(\:\d+)?\Z/
+
+  config.generators.after_generate do |files|
+    parsable_files = files.filter { |file| file.end_with?(".rb") }
+    unless parsable_files.empty?
+      system("bundle exec rubocop -A --fail-level=E #{parsable_files.shelljoin}", exception: true)
+    end
+  end
 end

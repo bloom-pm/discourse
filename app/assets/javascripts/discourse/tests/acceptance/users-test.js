@@ -1,11 +1,15 @@
+import { click, triggerKeyEvent, visit } from "@ember/test-helpers";
+import { test } from "qunit";
+import directoryFixtures from "discourse/tests/fixtures/directory-fixtures";
+import pretender, { response } from "discourse/tests/helpers/create-pretender";
 import {
   acceptance,
   exists,
   query,
   queryAll,
 } from "discourse/tests/helpers/qunit-helpers";
-import { test } from "qunit";
-import { click, triggerKeyEvent, visit } from "@ember/test-helpers";
+import { cloneJSON } from "discourse-common/lib/object";
+import I18n from "discourse-i18n";
 
 acceptance("User Directory", function () {
   test("Visit Page", async function (assert) {
@@ -14,7 +18,10 @@ acceptance("User Directory", function () {
       document.body.classList.contains("users-page"),
       "has the body class"
     );
-    assert.ok(exists(".directory table tr"), "has a list of users");
+    assert.ok(
+      exists(".directory .directory-table .directory-table__row"),
+      "has a list of users"
+    );
   });
 
   test("Visit All Time", async function (assert) {
@@ -28,7 +35,28 @@ acceptance("User Directory", function () {
       document.body.classList.contains("users-page"),
       "has the body class"
     );
-    assert.ok(exists(".directory table tr"), "has a list of users");
+    assert.ok(
+      exists(".directory .directory-table .directory-table__row"),
+      "has a list of users"
+    );
+  });
+
+  test("Visit With Group Exclusion", async function (assert) {
+    let queryParams;
+
+    pretender.get("/directory_items", (request) => {
+      queryParams = request.queryParams;
+
+      return response(cloneJSON(directoryFixtures["directory_items"]));
+    });
+
+    await visit("/u?exclude_groups=trust_level_0");
+
+    assert.strictEqual(
+      queryParams.exclude_groups,
+      "trust_level_0",
+      "includes the right query param in the API call"
+    );
   });
 
   test("Visit With Group Filter", async function (assert) {
@@ -37,27 +65,27 @@ acceptance("User Directory", function () {
       document.body.classList.contains("users-page"),
       "has the body class"
     );
-    assert.ok(exists(".directory table tr"), "has a list of users");
+    assert.ok(
+      exists(".directory .directory-table .directory-table__row"),
+      "has a list of users"
+    );
   });
 
   test("Custom user fields are present", async function (assert) {
     await visit("/u");
 
-    const firstRow = query(".users-directory table tr");
-    const columnData = firstRow.querySelectorAll("td");
-    const favoriteColorTd = columnData[columnData.length - 1];
-
-    assert.strictEqual(
-      favoriteColorTd.querySelector("span").textContent,
-      "Blue"
+    const firstRowUserField = query(
+      ".directory .directory-table__body .directory-table__row:first-child .directory-table__value--user-field"
     );
+
+    assert.strictEqual(firstRowUserField.textContent, "Blue");
   });
 
   test("Can sort table via keyboard", async function (assert) {
     await visit("/u");
 
     const secondHeading =
-      ".users-directory table th:nth-child(2) .header-contents";
+      ".users-directory .directory-table__header div:nth-child(2) .header-contents";
 
     await triggerKeyEvent(secondHeading, "keypress", "Enter");
 
@@ -65,6 +93,46 @@ acceptance("User Directory", function () {
       query(`${secondHeading} .d-icon-chevron-up`),
       "list has been sorted"
     );
+  });
+
+  test("Visit with no users", async function (assert) {
+    pretender.get("/directory_items", () => {
+      return response({
+        directory_items: [],
+        meta: {
+          last_updated_at: "2024-05-13T18:42:32.000Z",
+          total_rows_directory_items: 0,
+        },
+      });
+    });
+    await visit("/u");
+
+    assert
+      .dom(".empty-state-body")
+      .hasText(
+        I18n.t("directory.no_results.body"),
+        "a JIT message is shown when there are no users"
+      );
+  });
+
+  test("Visit with no search results", async function (assert) {
+    pretender.get("/directory_items", () => {
+      return response({
+        directory_items: [],
+        meta: {
+          last_updated_at: "2024-05-13T18:42:32.000Z",
+          total_rows_directory_items: 0,
+        },
+      });
+    });
+    await visit("/u?name=somenamethatdoesnotexist");
+
+    assert
+      .dom(".empty-state-body")
+      .hasText(
+        I18n.t("directory.no_results_with_search"),
+        "a different JIT message is used when there are no results for the search term"
+      );
   });
 });
 
@@ -78,7 +146,7 @@ acceptance("User directory - Editing columns", function (needs) {
     const columns = queryAll(
       ".edit-directory-columns-container .edit-directory-column"
     );
-    assert.strictEqual(columns.length, 8);
+    assert.strictEqual(columns.length, 9);
 
     const checked = queryAll(
       ".edit-directory-columns-container .edit-directory-column input[type='checkbox']:checked"
@@ -88,7 +156,7 @@ acceptance("User directory - Editing columns", function (needs) {
     const unchecked = queryAll(
       ".edit-directory-columns-container .edit-directory-column input[type='checkbox']:not(:checked)"
     );
-    assert.strictEqual(unchecked.length, 1);
+    assert.strictEqual(unchecked.length, 2);
   });
 
   const fetchColumns = function () {
@@ -128,6 +196,7 @@ acceptance("User directory - Editing columns", function (needs) {
     await click(moveUserFieldColumnUpBtn);
     await click(moveUserFieldColumnUpBtn);
     await click(moveUserFieldColumnUpBtn);
+    await click(moveUserFieldColumnUpBtn);
 
     columns = fetchColumns();
     assert.strictEqual(
@@ -154,6 +223,7 @@ acceptance("User directory - Editing columns", function (needs) {
       "Topics Viewed",
       "Posts Read",
       "Days Visited",
+      "[en.an_extra_field]",
       "Favorite Color",
     ]);
   });

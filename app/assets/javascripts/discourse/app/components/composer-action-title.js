@@ -1,3 +1,6 @@
+import Component from "@ember/component";
+import { alias } from "@ember/object/computed";
+import { htmlSafe } from "@ember/template";
 import {
   CREATE_SHARED_DRAFT,
   CREATE_TOPIC,
@@ -6,12 +9,10 @@ import {
   PRIVATE_MESSAGE,
   REPLY,
 } from "discourse/models/composer";
-import Component from "@ember/component";
-import I18n from "I18n";
-import { alias } from "@ember/object/computed";
-import discourseComputed from "discourse-common/utils/decorators";
+import escape from "discourse-common/lib/escape";
 import { iconHTML } from "discourse-common/lib/icon-library";
-import { htmlSafe } from "@ember/template";
+import discourseComputed from "discourse-common/utils/decorators";
+import I18n from "discourse-i18n";
 
 const TITLES = {
   [PRIVATE_MESSAGE]: "topic.private_message",
@@ -29,7 +30,7 @@ export default Component.extend({
   // text customizations to use those.
   @discourseComputed("options", "action", "model.tags", "model.category")
   actionTitle(opts, action) {
-    let result = this.model.customizationFor("actionTitle");
+    const result = this.model.customizationFor("actionTitle");
     if (result) {
       return result;
     }
@@ -38,22 +39,23 @@ export default Component.extend({
       return I18n.t(TITLES[action]);
     }
 
-    switch (action) {
-      case REPLY:
-        if (opts.userAvatar && opts.userLink) {
-          return this._formatReplyToUserPost(opts.userAvatar, opts.userLink);
-        } else if (opts.topicLink) {
-          return this._formatReplyToTopic(opts.topicLink);
-        }
-      case EDIT:
-        if (opts.userAvatar && opts.userLink && opts.postLink) {
-          return this._formatEditUserPost(
-            opts.userAvatar,
-            opts.userLink,
-            opts.postLink,
-            opts.originalUser
-          );
-        }
+    if (action === REPLY) {
+      if (opts.userAvatar && opts.userLink) {
+        return this._formatReplyToUserPost(opts.userAvatar, opts.userLink);
+      } else if (opts.topicLink) {
+        return this._formatReplyToTopic(opts.topicLink);
+      }
+    }
+
+    if (action === EDIT) {
+      if (opts.userAvatar && opts.userLink && opts.postLink) {
+        return this._formatEditUserPost(
+          opts.userAvatar,
+          opts.userLink,
+          opts.postLink,
+          opts.originalUser
+        );
+      }
     }
   },
 
@@ -84,7 +86,9 @@ export default Component.extend({
   },
 
   _formatReplyToUserPost(avatar, link) {
-    const htmlLink = `<a class="user-link" href="${link.href}">${link.anchor}</a>`;
+    const htmlLink = `<a class="user-link" href="${link.href}">${escape(
+      link.anchor
+    )}</a>`;
     return htmlSafe(`${avatar}${htmlLink}`);
   },
 });

@@ -2,7 +2,10 @@
 
 class MetadataController < ApplicationController
   layout false
-  skip_before_action :preload_json, :check_xhr, :redirect_to_login_if_required
+  skip_before_action :preload_json,
+                     :check_xhr,
+                     :redirect_to_login_if_required,
+                     :redirect_to_profile_if_required
 
   def manifest
     expires_in 1.minutes
@@ -15,13 +18,13 @@ class MetadataController < ApplicationController
   end
 
   def app_association_android
-    raise Discourse::NotFound unless SiteSetting.app_association_android.present?
+    raise Discourse::NotFound if SiteSetting.app_association_android.blank?
     expires_in 1.minutes
     render plain: SiteSetting.app_association_android, content_type: "application/json"
   end
 
   def app_association_ios
-    raise Discourse::NotFound unless SiteSetting.app_association_ios.present?
+    raise Discourse::NotFound if SiteSetting.app_association_ios.blank?
     expires_in 1.minutes
     render plain: SiteSetting.app_association_ios, content_type: "application/json"
   end
@@ -47,7 +50,7 @@ class MetadataController < ApplicationController
           SiteSetting.title.truncate(12, separator: " ", omission: ""),
       description: SiteSetting.site_description,
       display: display,
-      start_url: Discourse.base_path.present? ? "#{Discourse.base_path}/" : ".",
+      start_url: Discourse.base_path.present? ? "#{Discourse.base_path}/" : "/",
       background_color: "##{ColorScheme.hex_for_name("secondary", scheme_id)}",
       theme_color: "##{ColorScheme.hex_for_name("header_background", scheme_id)}",
       icons: [],

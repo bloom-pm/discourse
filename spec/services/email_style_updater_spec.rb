@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe EmailStyleUpdater do
-  fab!(:admin) { Fabricate(:admin) }
+  fab!(:admin)
   let(:default_html) { File.read("#{Rails.root}/app/views/email/default_template.html") }
   let(:updater) { EmailStyleUpdater.new(admin) }
 
@@ -47,7 +47,7 @@ RSpec.describe EmailStyleUpdater do
         false,
       )
       expect(updater.errors).to_not be_empty
-      expect(updater.errors.first).to include("Invalid CSS after")
+      expect(updater.errors.first).to include('Error: expected "}".')
       expect_settings_to_be_unset
     end
   end

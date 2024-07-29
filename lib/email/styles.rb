@@ -84,9 +84,9 @@ module Email
 
           if img["src"]
             # ensure all urls are absolute
-            img["src"] = "#{Discourse.base_url}#{img["src"]}" if img["src"][%r{^/[^/]}]
+            img["src"] = "#{Discourse.base_url}#{img["src"]}" if img["src"][%r{\A/[^/]}]
             # ensure no schemaless urls
-            img["src"] = "#{uri.scheme}:#{img["src"]}" if img["src"][%r{^//}]
+            img["src"] = "#{uri.scheme}:#{img["src"]}" if img["src"][%r{\A//}]
           end
         end
 
@@ -110,7 +110,7 @@ module Email
         .css("a.attachment")
         .each do |a|
           # ensure all urls are absolute
-          a["href"] = "#{Discourse.base_url}#{a["href"]}" if a["href"] =~ %r{^/[^/]}
+          a["href"] = "#{Discourse.base_url}#{a["href"]}" if a["href"] =~ %r{\A/[^/]}
 
           # ensure no schemaless urls
           a["href"] = "#{uri.scheme}:#{a["href"]}" if a["href"] && a["href"].starts_with?("//")
@@ -202,7 +202,7 @@ module Email
               "#{src_uri.scheme || "https"}://#{src_uri.host}#{src_uri.path}#{src_uri.query.nil? ? "" : "?" + src_uri.query}#{src_uri.fragment.nil? ? "" : "#" + src_uri.fragment}"
             i.replace(
               Nokogiri::HTML5.fragment(
-                "<p><a href='#{src_uri.to_s}'>#{CGI.escapeHTML(display_src)}</a><p>",
+                "<p><a href='#{src_uri}'>#{CGI.escapeHTML(display_src)}</a><p>",
               ),
             )
           rescue URI::Error
@@ -216,7 +216,7 @@ module Email
       correct_first_body_margin
       correct_footer_style
       correct_footer_style_highlight_first
-      decorate_hashtags
+      strip_hashtag_link_icons
       reset_tables
 
       html_lang = SiteSetting.default_locale.sub("_", "-")
@@ -314,26 +314,36 @@ module Email
       @@plugin_callbacks.each { |block| block.call(@fragment, @opts) }
     end
 
-    def inline_secure_images(attachments, attachments_index)
-      stripped_media = @fragment.css("[data-stripped-secure-media], [data-stripped-secure-upload]")
-      upload_shas = {}
-      stripped_media.each do |div|
-        url = div["data-stripped-secure-media"] || div["data-stripped-secure-upload"]
-        filename = File.basename(url)
-        filename_bare = filename.gsub(File.extname(filename), "")
-        sha1 = filename_bare.partition("_").first
-        upload_shas[url] = sha1
-      end
-      uploads = Upload.select(:original_filename, :sha1).where(sha1: upload_shas.values)
+    def stripped_media
+      @stripped_media ||=
+        @fragment.css("[data-stripped-secure-media], [data-stripped-secure-upload]")
+    end
 
+    def stripped_upload_sha_map
+      @stripped_upload_sha_map ||=
+        begin
+          upload_shas = {}
+          stripped_media.each do |div|
+            url = div["data-stripped-secure-media"] || div["data-stripped-secure-upload"]
+            upload_shas[url] = Upload.sha1_from_long_url(url)
+          end
+          upload_shas
+        end
+    end
+
+    def stripped_secure_image_uploads
+      upload_shas = stripped_upload_sha_map
+      Upload.select(:original_filename, :sha1).where(sha1: upload_shas.values)
+    end
+
+    def inline_secure_images(attachments, attachments_index)
+      uploads = stripped_secure_image_uploads
+      upload_shas = stripped_upload_sha_map
       stripped_media.each do |div|
         upload =
           uploads.find do |upl|
             upl.sha1 ==
-              (
-                upload_shas[div["data-stripped-secure-media"]] ||
-                  upload_shas[div["data-stripped-secure-upload"]]
-              )
+              upload_shas[div["data-stripped-secure-media"] || div["data-stripped-secure-upload"]]
           end
         next if !upload
 
@@ -396,7 +406,7 @@ module Email
         end
     end
 
-    def decorate_hashtags
+    def strip_hashtag_link_icons
       @fragment
         .search(".hashtag-cooked")
         .each do |hashtag|
@@ -413,7 +423,7 @@ module Email
         .css("a")
         .each do |link|
           begin
-            link["href"] = "#{site_uri}#{link["href"]}" unless URI(link["href"].to_s).host.present?
+            link["href"] = "#{site_uri}#{link["href"]}" if URI(link["href"].to_s).host.blank?
           rescue URI::Error
             # leave it
           end
@@ -507,9 +517,11 @@ module Email
                   "style"
                 ] = "background-color: #{bg_color}; color: #{SiteSetting.email_accent_fg_color}; border-top: 4px solid #{bg_color}; border-right: 6px solid #{bg_color}; border-bottom: 4px solid #{bg_color}; border-left: 6px solid #{bg_color}; display: inline-block; font-weight: bold;"
               end
+              # rubocop:disable Lint/NonLocalExitFromIterator
               return
             end
           return
+          # rubocop:enable Lint/NonLocalExitFromIterator
         end
     end
 

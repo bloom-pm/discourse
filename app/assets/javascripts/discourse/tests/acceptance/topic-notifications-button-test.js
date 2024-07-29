@@ -1,7 +1,7 @@
+import { visit } from "@ember/test-helpers";
+import { test } from "qunit";
 import { acceptance } from "discourse/tests/helpers/qunit-helpers";
 import selectKit from "discourse/tests/helpers/select-kit-helper";
-import { test } from "qunit";
-import { visit } from "@ember/test-helpers";
 
 acceptance("Topic Notifications button", function (needs) {
   needs.user();
@@ -34,7 +34,7 @@ acceptance("Topic Notifications button", function (needs) {
     );
 
     const timelineNotificationOptions = selectKit(
-      ".topic-timeline .widget-component-connector .topic-notifications-options"
+      ".topic-timeline .topic-notifications-options"
     );
 
     assert.strictEqual(

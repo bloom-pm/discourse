@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "listen"
-require "thread"
 require "fileutils"
 require "autospec/reload_css"
 require "autospec/base_runner"
@@ -153,7 +152,7 @@ class Autospec::Manager
       filename, _ = failed_specs[0].split(":")
       if filename && File.exist?(filename) && !File.directory?(filename)
         spec = File.read(filename)
-        start, _ = spec.split(/\S*#focus\S*$/)
+        start, _ = spec.split(/\S*#focus\S*\z/)
         if start.length < spec.length
           line = start.scan(/\n/).length + 1
           puts "Found #focus tag on line #{line}!"
@@ -194,7 +193,7 @@ class Autospec::Manager
   def listen_for_changes
     puts "@@@@@@@@@@@@ listen_for_changes" if @debug
 
-    options = { ignore: %r{^lib/autospec} }
+    options = { ignore: %r{\Alib/autospec} }
 
     if @opts[:force_polling]
       options[:force_polling] = true
@@ -216,7 +215,7 @@ class Autospec::Manager
         # process_change can acquire a mutex and block
         # the acceptor
         Thread.new do
-          if file =~ /(es6|js)$/
+          if file =~ /(es6|js)\z/
             process_change([[file]])
           else
             process_change([[file, line]])
@@ -267,7 +266,9 @@ class Autospec::Manager
           if k.match(file)
             puts "@@@@@@@@@@@@ #{file} matched a reloader for #{runner}" if @debug
             runner.reload
+            # rubocop:disable Lint/NonLocalExitFromIterator
             return
+            # rubocop:enable Lint/NonLocalExitFromIterator
           end
         end
         # watchers
@@ -316,7 +317,7 @@ class Autospec::Manager
         if @queue.first && @queue.first[0] == "focus"
           focus = @queue.shift
           @queue.unshift([file, spec, runner])
-          unless spec.include?(":") && focus[1].include?(spec.split(":")[0])
+          if spec.exclude?(":") || focus[1].exclude?(spec.split(":")[0])
             @queue.unshift(focus) if focus[1].include?(spec) || file != spec
           end
         else

@@ -45,6 +45,25 @@
     position: relative;
     .navigation-toggle {
       flex: 0 1 auto;
+      border: 0;
+
+      .toggle-link {
+        font-size: var(--font-up-1-rem);
+        font-weight: bold;
+        color: var(--primary-high);
+        padding: 0;
+
+        &:hover,
+        &:focus {
+          background: none;
+        }
+
+        .d-icon {
+          color: inherit;
+          font-size: var(--font-down-2);
+          margin-left: 0.5em;
+        }
+      }
     }
     > li {
       margin-right: 0;
@@ -56,6 +75,7 @@
       line-height: var(--line-height-large);
       display: flex;
       align-items: center;
+      border-radius: var(--d-input-border-radius);
       .d-icon {
         margin-left: 5px;
         margin-right: 0;
@@ -162,11 +182,6 @@
   }
 
   .topic-item-stats {
-    .category,
-    .discourse-tags {
-      // disabling clicks because these targets are too small on mobile
-      pointer-events: none;
-    }
     position: relative;
     display: flex;
     align-items: baseline;
@@ -183,6 +198,42 @@
     a,
     a:visited {
       color: var(--primary-med-or-secondary-med);
+    }
+  }
+
+  .topic-item-stats {
+    span.relative-date {
+      vertical-align: text-top;
+    }
+  }
+
+  .topic-item-stats__category-tags {
+    margin-right: 0.5em;
+    max-width: 90%;
+    line-height: var(--line-height-medium);
+
+    .discourse-tags {
+      display: inline;
+    }
+
+    .badge-category__wrapper {
+      vertical-align: bottom;
+      margin-right: 0.5em;
+    }
+
+    .badge-wrapper,
+    .discourse-tag {
+      // disabling clicks because these targets are too small on mobile
+      pointer-events: none;
+    }
+
+    .discourse-tags .discourse-tag {
+      margin: 0;
+    }
+
+    .badge-wrapper {
+      max-width: 100%;
+      vertical-align: bottom;
     }
   }
 
@@ -337,10 +388,6 @@ tr.category-topic-link {
     }
   }
 
-  th .badge-category {
-    margin: 0;
-  }
-
   .category-topic-link {
     .num {
       white-space: nowrap;
@@ -396,7 +443,8 @@ tr.category-topic-link {
 // Misc. stuff
 // --------------------------------------------------
 
-.dropdown {
+.dropdown,
+.multiselect {
   position: relative;
 }
 .dropdown-toggle:active,
@@ -420,21 +468,20 @@ tr.category-topic-link {
   margin: 1.5em 0 1em;
 }
 
-button.dismiss-read {
-  margin-bottom: 10px;
-}
-
 // base defines extra padding for easier click/top of title field
 // this is a bit too much for mobile
 td .main-link {
   width: 78%;
   display: inline-block;
   a.title {
-    padding: 5px 10px 5px 0;
+    padding: 0.33em 0.67em 0.33em 0;
     word-wrap: break-word;
   }
 }
 .topic-list {
+  &-body {
+    border-width: 1px;
+  }
   .num.posts-map {
     font-size: var(--font-up-2);
     padding: 0;
@@ -497,7 +544,7 @@ td .main-link {
       }
       &.default {
         display: flex;
-        span:not(.bulk-select-topics) {
+        .bulk-select-topic-dropdown__count {
           display: none;
         }
       }
@@ -511,9 +558,12 @@ td .main-link {
 
 .bulk-select-topics {
   display: flex;
+  flex-wrap: wrap;
   padding-left: 0.85em;
-  .btn {
-    margin-right: 0.5em;
+  gap: 0.5em;
+  font-size: var(--font-down-1);
+  .select-kit-collection {
+    font-size: var(--font-up-1);
   }
 }
 
@@ -525,5 +575,35 @@ td .main-link {
     height: 45px;
     justify-content: center;
     align-items: center;
+  }
+}
+
+.topic-replies-toggle-wrapper {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+
+  .topics-replies-toggle {
+    flex-grow: 1;
+    background: none;
+    border: none;
+    padding: 0.75em;
+    position: relative;
+
+    &.active {
+      @include nav-active;
+      &:after {
+        height: 0.15em;
+        bottom: -0.15em;
+      }
+    }
+  }
+}
+
+#list-area .show-more .alert {
+  align-items: center;
+  gap: 0.5em;
+  &.loading {
+    color: var(--primary-medium);
   }
 }

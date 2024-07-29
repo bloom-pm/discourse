@@ -1,18 +1,18 @@
-import { findRawTemplate } from "discourse-common/lib/raw-templates";
-import discourseLater from "discourse-common/lib/later";
-import { INPUT_DELAY, isTesting } from "discourse-common/config/environment";
 import { cancel } from "@ember/runloop";
-import { CANCELLED_STATUS } from "discourse/lib/autocomplete";
+import { htmlSafe } from "@ember/template";
 import { ajax } from "discourse/lib/ajax";
-import discourseDebounce from "discourse-common/lib/debounce";
+import { CANCELLED_STATUS } from "discourse/lib/autocomplete";
+import { getHashtagTypeClasses as getHashtagTypeClassesNew } from "discourse/lib/hashtag-type-registry";
+import { emojiUnescape } from "discourse/lib/text";
 import {
   caretPosition,
   escapeExpression,
   inCodeBlock,
 } from "discourse/lib/utilities";
-import { search as searchCategoryTag } from "discourse/lib/category-tag-search";
-import { emojiUnescape } from "discourse/lib/text";
-import { htmlSafe } from "@ember/template";
+import { INPUT_DELAY, isTesting } from "discourse-common/config/environment";
+import discourseDebounce from "discourse-common/lib/debounce";
+import discourseLater from "discourse-common/lib/later";
+import { findRawTemplate } from "discourse-common/lib/raw-templates";
 
 /**
  * Sets up a textarea using the jQuery autocomplete plugin, specifically
@@ -41,78 +41,19 @@ export function setupHashtagAutocomplete(
   siteSettings,
   autocompleteOptions = {}
 ) {
-  if (siteSettings.enable_experimental_hashtag_autocomplete) {
-    _setupExperimental(
-      contextualHashtagConfiguration,
-      $textArea,
-      siteSettings,
-      autocompleteOptions
-    );
-  } else {
-    _setup($textArea, siteSettings, autocompleteOptions.afterComplete);
-  }
+  _setup(
+    contextualHashtagConfiguration,
+    $textArea,
+    siteSettings,
+    autocompleteOptions
+  );
 }
 
-export function hashtagTriggerRule(textarea) {
-  if (inCodeBlock(textarea.value, caretPosition(textarea))) {
-    return false;
-  }
-
-  return true;
+export async function hashtagTriggerRule(textarea) {
+  return !(await inCodeBlock(textarea.value, caretPosition(textarea)));
 }
 
-const checkedHashtags = new Set();
-let seenHashtags = {};
-
-// NOTE: For future maintainers, the hashtag lookup here does not take
-// into account mixed contexts -- for instance, a chat quote inside a post
-// or a post quote inside a chat message, so this may
-// not provide an accurate priority lookup for hashtags without a ::type suffix in those
-// cases.
-export function fetchUnseenHashtagsInContext(
-  contextualHashtagConfiguration,
-  slugs
-) {
-  return ajax("/hashtags", {
-    data: { slugs, order: contextualHashtagConfiguration },
-  }).then((response) => {
-    Object.keys(response).forEach((type) => {
-      seenHashtags[type] = seenHashtags[type] || {};
-      response[type].forEach((item) => {
-        seenHashtags[type][item.ref] = seenHashtags[type][item.ref] || item;
-      });
-    });
-    slugs.forEach(checkedHashtags.add, checkedHashtags);
-  });
-}
-
-export function linkSeenHashtagsInContext(
-  contextualHashtagConfiguration,
-  elem
-) {
-  const hashtagSpans = [...(elem?.querySelectorAll("span.hashtag-raw") || [])];
-  if (hashtagSpans.length === 0) {
-    return [];
-  }
-  const slugs = [
-    ...hashtagSpans.map((span) => span.innerText.replace("#", "")),
-  ];
-
-  hashtagSpans.forEach((hashtagSpan, index) => {
-    _findAndReplaceSeenHashtagPlaceholder(
-      slugs[index],
-      contextualHashtagConfiguration,
-      hashtagSpan
-    );
-  });
-
-  return slugs
-    .map((slug) => slug.toLowerCase())
-    .uniq()
-    .filter((slug) => !checkedHashtags.has(slug));
-}
-
-function _setupExperimental(
+function _setup(
   contextualHashtagConfiguration,
   $textArea,
   siteSettings,
@@ -132,23 +73,8 @@ function _setupExperimental(
       }
       return _searchGeneric(term, siteSettings, contextualHashtagConfiguration);
     },
-    triggerRule: (textarea, opts) => hashtagTriggerRule(textarea, opts),
-  });
-}
-
-function _setup($textArea, siteSettings, afterComplete) {
-  $textArea.autocomplete({
-    template: findRawTemplate("category-tag-autocomplete"),
-    key: "#",
-    afterComplete,
-    transformComplete: (obj) => obj.text,
-    dataSource: (term) => {
-      if (term.match(/\s/)) {
-        return null;
-      }
-      return searchCategoryTag(term, siteSettings);
-    },
-    triggerRule: (textarea, opts) => hashtagTriggerRule(textarea, opts),
+    triggerRule: async (textarea, opts) =>
+      await hashtagTriggerRule(textarea, opts),
   });
 }
 
@@ -185,10 +111,6 @@ function _searchGeneric(term, siteSettings, contextualHashtagConfiguration) {
           resolve(CANCELLED_STATUS);
         }, 5000);
 
-    if (!siteSettings.enable_experimental_hashtag_autocomplete && term === "") {
-      return resolve(CANCELLED_STATUS);
-    }
-
     const debouncedSearch = (q, ctx, resultFunc) => {
       discourseDebounce(this, _searchRequest, q, ctx, resultFunc, INPUT_DELAY);
     };
@@ -205,37 +127,23 @@ function _searchRequest(term, contextualHashtagConfiguration, resultFunc) {
     data: { term, order: contextualHashtagConfiguration },
   });
   currentSearch
-    .then((r) => {
-      r.results?.forEach((result) => {
+    .then((response) => {
+      response.results?.forEach((result) => {
         // Convert :emoji: in the result text to HTML safely.
         result.text = htmlSafe(emojiUnescape(escapeExpression(result.text)));
+
+        const hashtagType = getHashtagTypeClassesNew()[result.type];
+        result.icon = hashtagType.generateIconHTML({
+          preloaded: true,
+          colors: result.colors,
+          icon: result.icon,
+          id: result.id,
+        });
       });
-      resultFunc(r.results || CANCELLED_STATUS);
+      resultFunc(response.results || CANCELLED_STATUS);
     })
     .finally(() => {
       currentSearch = null;
     });
   return currentSearch;
-}
-
-function _findAndReplaceSeenHashtagPlaceholder(
-  slugRef,
-  contextualHashtagConfiguration,
-  hashtagSpan
-) {
-  contextualHashtagConfiguration.forEach((type) => {
-    // replace raw span for the hashtag with a cooked one
-    const matchingSeenHashtag = seenHashtags[type]?.[slugRef];
-    if (matchingSeenHashtag) {
-      // NOTE: When changing the HTML structure here, you must also change
-      // it in the hashtag-autocomplete markdown rule, and vice-versa.
-      const link = document.createElement("a");
-      link.classList.add("hashtag-cooked");
-      link.href = matchingSeenHashtag.relative_url;
-      link.dataset.type = type;
-      link.dataset.slug = matchingSeenHashtag.slug;
-      link.innerHTML = `<svg class="fa d-icon d-icon-${matchingSeenHashtag.icon} svg-icon svg-node"><use href="#${matchingSeenHashtag.icon}"></use></svg><span>${matchingSeenHashtag.text}</span>`;
-      hashtagSpan.replaceWith(link);
-    }
-  });
 }

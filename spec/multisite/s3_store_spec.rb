@@ -8,8 +8,14 @@ RSpec.describe "Multisite s3 uploads", type: :multisite do
   let(:upload_sha1) { Digest::SHA1.hexdigest(File.read(uploaded_file)) }
   let(:upload_path) { Discourse.store.upload_path }
 
-  def build_upload
-    Fabricate.build(:upload, sha1: upload_sha1, id: 1, original_filename: original_filename)
+  def build_upload(secure: false)
+    Fabricate.build(
+      :upload,
+      sha1: upload_sha1,
+      id: 1,
+      original_filename: original_filename,
+      secure: secure,
+    )
   end
 
   describe "uploading to s3" do
@@ -196,7 +202,7 @@ RSpec.describe "Multisite s3 uploads", type: :multisite do
     end
   end
 
-  describe "secure uploadss" do
+  describe "secure uploads" do
     let(:store) { FileStore::S3Store.new }
     let(:client) { Aws::S3::Client.new(stub_responses: true) }
     let(:resource) { Aws::S3::Resource.new(client: client) }
@@ -266,35 +272,67 @@ RSpec.describe "Multisite s3 uploads", type: :multisite do
     describe "#update_upload_ACL" do
       it "updates correct file for default and second multisite db" do
         test_multisite_connection("default") do
-          upload = build_upload
-          upload.update!(original_filename: "small.pdf", extension: "pdf", secure: true)
+          upload = build_upload(secure: true)
+          upload.update!(original_filename: "small.pdf", extension: "pdf")
 
           s3_helper.expects(:s3_bucket).returns(s3_bucket).at_least_once
-          s3_bucket
-            .expects(:object)
-            .with("#{upload_path}/original/1X/#{upload.sha1}.pdf")
-            .returns(s3_object)
-          s3_object.expects(:acl).returns(s3_object)
-          s3_object.expects(:put).with(acl: "private").returns(s3_object)
+          expect_upload_acl_update(upload, upload_path)
 
           expect(store.update_upload_ACL(upload)).to be_truthy
         end
 
         test_multisite_connection("second") do
           upload_path = Discourse.store.upload_path
-          upload = build_upload
-          upload.update!(original_filename: "small.pdf", extension: "pdf", secure: true)
+          upload = build_upload(secure: true)
+          upload.update!(original_filename: "small.pdf", extension: "pdf")
 
           s3_helper.expects(:s3_bucket).returns(s3_bucket).at_least_once
-          s3_bucket
-            .expects(:object)
-            .with("#{upload_path}/original/1X/#{upload.sha1}.pdf")
-            .returns(s3_object)
-          s3_object.expects(:acl).returns(s3_object)
-          s3_object.expects(:put).with(acl: "private").returns(s3_object)
+          expect_upload_acl_update(upload, upload_path)
 
           expect(store.update_upload_ACL(upload)).to be_truthy
         end
+      end
+
+      describe "optimized images" do
+        it "updates correct file for default and second multisite DB" do
+          test_multisite_connection("default") do
+            upload = build_upload(secure: true)
+            upload_path = Discourse.store.upload_path
+            optimized_image = Fabricate(:optimized_image, upload: upload)
+            s3_helper.expects(:s3_bucket).returns(s3_bucket).at_least_once
+            expect_upload_acl_update(upload, upload_path)
+            expect_optimized_image_acl_update(optimized_image, upload_path)
+
+            expect(store.update_upload_ACL(upload)).to be_truthy
+          end
+
+          test_multisite_connection("second") do
+            upload = build_upload(secure: true)
+            upload_path = Discourse.store.upload_path
+            optimized_image = Fabricate(:optimized_image, upload: upload)
+            s3_helper.expects(:s3_bucket).returns(s3_bucket).at_least_once
+            expect_upload_acl_update(upload, upload_path)
+            expect_optimized_image_acl_update(optimized_image, upload_path)
+
+            expect(store.update_upload_ACL(upload)).to be_truthy
+          end
+        end
+      end
+
+      def expect_upload_acl_update(upload, upload_path)
+        s3_bucket
+          .expects(:object)
+          .with("#{upload_path}/original/1X/#{upload.sha1}.#{upload.extension}")
+          .returns(s3_object)
+        s3_object.expects(:acl).returns(s3_object)
+        s3_object.expects(:put).with(acl: "private").returns(s3_object)
+      end
+
+      def expect_optimized_image_acl_update(optimized_image, upload_path)
+        path = Discourse.store.get_path_for_optimized_image(optimized_image)
+        s3_bucket.expects(:object).with("#{upload_path}/#{path}").returns(s3_object)
+        s3_object.expects(:acl).returns(s3_object)
+        s3_object.expects(:put).with(acl: "private").returns(s3_object)
       end
     end
   end
@@ -346,7 +384,7 @@ RSpec.describe "Multisite s3 uploads", type: :multisite do
     end
   end
 
-  describe "#signed_url_for_temporary_upload" do
+  describe "#signed_request_for_temporary_upload" do
     before { setup_s3 }
 
     let(:store) { FileStore::S3Store.new }
@@ -354,19 +392,26 @@ RSpec.describe "Multisite s3 uploads", type: :multisite do
     context "for a bucket with no folder path" do
       before { SiteSetting.s3_upload_bucket = "s3-upload-bucket" }
 
-      it "returns a presigned url with the correct params and the key for the temporary file" do
-        url = store.signed_url_for_temporary_upload("test.png")
+      it "returns a presigned url and headers with the correct params and the key for the temporary file" do
+        url, signed_headers = store.signed_request_for_temporary_upload("test.png")
         key = store.s3_helper.path_from_url(url)
+        expect(signed_headers).to eq("x-amz-acl" => "private")
         expect(url).to match(/Amz-Expires/)
         expect(key).to match(
           /temp\/uploads\/default\/test_[0-9]\/[a-zA-z0-9]{0,32}\/[a-zA-z0-9]{0,32}.png/,
         )
       end
 
-      it "presigned url contans the metadata when provided" do
-        url =
-          store.signed_url_for_temporary_upload("test.png", metadata: { "test-meta": "testing" })
-        expect(url).to include("&x-amz-meta-test-meta=testing")
+      it "presigned url headers contains the metadata when provided" do
+        url, signed_headers =
+          store.signed_request_for_temporary_upload(
+            "test.png",
+            metadata: {
+              "test-meta": "testing",
+            },
+          )
+        expect(signed_headers).to eq("x-amz-acl" => "private", "x-amz-meta-test-meta" => "testing")
+        expect(url).not_to include("&x-amz-meta-test-meta=testing")
       end
     end
 
@@ -374,7 +419,7 @@ RSpec.describe "Multisite s3 uploads", type: :multisite do
       before { SiteSetting.s3_upload_bucket = "s3-upload-bucket/site" }
 
       it "returns a presigned url with the correct params and the key for the temporary file" do
-        url = store.signed_url_for_temporary_upload("test.png")
+        url, _signed_headers = store.signed_request_for_temporary_upload("test.png")
         key = store.s3_helper.path_from_url(url)
         expect(url).to match(/Amz-Expires/)
         expect(key).to match(
@@ -388,7 +433,7 @@ RSpec.describe "Multisite s3 uploads", type: :multisite do
 
       it "returns a presigned url with the correct params and the key for the temporary file" do
         test_multisite_connection("second") do
-          url = store.signed_url_for_temporary_upload("test.png")
+          url, _signed_headers = store.signed_request_for_temporary_upload("test.png")
           key = store.s3_helper.path_from_url(url)
           expect(url).to match(/Amz-Expires/)
           expect(key).to match(

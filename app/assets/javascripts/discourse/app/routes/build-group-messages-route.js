@@ -1,11 +1,11 @@
-import I18n from "I18n";
 import UserTopicListRoute from "discourse/routes/user-topic-list";
+import I18n from "discourse-i18n";
 
 export default (type) => {
-  return UserTopicListRoute.extend({
+  return class BuildGroupMessagesRoute extends UserTopicListRoute {
     titleToken() {
       return I18n.t(`user.messages.${type}`);
-    },
+    }
 
     model() {
       const groupName = this.modelFor("group").get("name");
@@ -22,10 +22,10 @@ export default (type) => {
         model.set("emptyState", this.emptyState());
         return model;
       });
-    },
+    }
 
     setupController() {
-      this._super.apply(this, arguments);
+      super.setupController(...arguments);
 
       const groupName = this.modelFor("group").get("name");
       let channel = `/private-messages/group/${groupName}`;
@@ -39,27 +39,26 @@ export default (type) => {
         showPosters: true,
       });
 
-      const currentUser = this.currentUser;
-      this.searchService.set("searchContext", {
+      this.searchService.searchContext = {
         type: "private_messages",
-        id: currentUser.get("username_lower"),
-        user: currentUser,
-      });
-    },
+        id: this.currentUser.get("username_lower"),
+        user: this.currentUser,
+      };
+    }
 
     emptyState() {
       return {
         title: I18n.t("no_group_messages_title"),
         body: "",
       };
-    },
+    }
 
     _isArchive() {
       return type === "archive";
-    },
+    }
 
     deactivate() {
-      this.searchService.set("searchContext", null);
-    },
-  });
+      this.searchService.searchContext = null;
+    }
+  };
 };

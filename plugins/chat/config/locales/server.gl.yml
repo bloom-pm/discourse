@@ -21,12 +21,11 @@ gl:
           description: "De acordo con esta denuncia e silenciar o usuario."
         disagree:
           title: "Discrepar"
-        ignore:
-          title: "Ignorar"
     channel:
-      statuses:
-        closed: "Pechado"
-        open: "Abrir"
+      dm_title:
+        single_user: "%{username}"
+    mention_warning:
+      dismiss: "desbotar"
   discourse_push_notifications:
     popup:
       chat_mention:

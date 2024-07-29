@@ -1,11 +1,11 @@
+import { getOwner } from "@ember/owner";
+import { render } from "@ember/test-helpers";
+import { hbs } from "ember-cli-htmlbars";
 import { module, test } from "qunit";
 import { setupRenderingTest } from "discourse/tests/helpers/component-test";
-import { render } from "@ember/test-helpers";
-import I18n from "I18n";
 import { query } from "discourse/tests/helpers/qunit-helpers";
-import { hbs } from "ember-cli-htmlbars";
 import selectKit from "discourse/tests/helpers/select-kit-helper";
-import { getOwner } from "discourse-common/lib/get-owner";
+import I18n from "discourse-i18n";
 
 function buildTopic(opts) {
   return this.store.createRecord("topic", {
@@ -85,7 +85,7 @@ module(
     });
 
     test("notification reason text - user mailing list mode", async function (assert) {
-      this.currentUser.set("mailing_list_mode", true);
+      this.currentUser.set("user_option.mailing_list_mode", true);
       this.set("topic", buildTopic.call(this, { level: 2 }));
 
       await render(hbs`

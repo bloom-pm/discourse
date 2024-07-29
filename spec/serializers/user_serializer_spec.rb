@@ -64,10 +64,10 @@ RSpec.describe UserSerializer do
   context "with a user" do
     let(:admin_user) { Fabricate(:admin) }
     let(:scope) { Guardian.new }
-    fab!(:user) { Fabricate(:user) }
+    fab!(:user)
     let(:serializer) { UserSerializer.new(user, scope: scope, root: false) }
     let(:json) { serializer.as_json }
-    fab!(:upload) { Fabricate(:upload) }
+    fab!(:upload)
     fab!(:upload2) { Fabricate(:upload) }
 
     context "when the scope user is admin" do
@@ -339,10 +339,25 @@ RSpec.describe UserSerializer do
         end
       end
     end
+
+    describe "with a custom notification schedule" do
+      let(:schedule) do
+        UserNotificationSchedule.create({ user: user }.merge(UserNotificationSchedule::DEFAULT))
+      end
+      let(:scope) { Guardian.new(user) }
+
+      it "includes the serialized schedule" do
+        expect(json[:user_notification_schedule][:enabled]).to eq(schedule[:enabled])
+        expect(json[:user_notification_schedule][:day_0_start_time]).to eq(
+          schedule[:day_0_start_time],
+        )
+        expect(json[:user_notification_schedule][:day_6_end_time]).to eq(schedule[:day_6_end_time])
+      end
+    end
   end
 
   context "with custom_fields" do
-    fab!(:user) { Fabricate(:user) }
+    fab!(:user)
     let(:json) { UserSerializer.new(user, scope: Guardian.new, root: false).as_json }
 
     before do
@@ -378,7 +393,7 @@ RSpec.describe UserSerializer do
   end
 
   context "with user fields" do
-    fab!(:user) { Fabricate(:user) }
+    fab!(:user)
 
     let! :fields do
       [
@@ -408,7 +423,7 @@ RSpec.describe UserSerializer do
   end
 
   context "with user_api_keys" do
-    fab!(:user) { Fabricate(:user) }
+    fab!(:user)
 
     it "sorts keys by last used time" do
       freeze_time
@@ -440,6 +455,34 @@ RSpec.describe UserSerializer do
     end
   end
 
+  context "with user_passkeys" do
+    fab!(:user)
+    fab!(:passkey0) do
+      Fabricate(:passkey_with_random_credential, user: user, created_at: 5.hours.ago)
+    end
+    fab!(:passkey1) do
+      Fabricate(:passkey_with_random_credential, user: user, created_at: 2.hours.ago)
+    end
+
+    it "does not include them if feature is disabled" do
+      SiteSetting.enable_passkeys = false
+      json = UserSerializer.new(user, scope: Guardian.new(user), root: false).as_json
+
+      expect(json[:user_passkeys]).to eq(nil)
+    end
+
+    it "includes passkeys if feature is enabled" do
+      SiteSetting.enable_passkeys = true
+
+      json = UserSerializer.new(user, scope: Guardian.new(user), root: false).as_json
+
+      expect(json[:user_passkeys][0][:id]).to eq(passkey0.id)
+      expect(json[:user_passkeys][0][:name]).to eq(passkey0.name)
+      expect(json[:user_passkeys][0][:last_used]).to eq(passkey0.last_used)
+      expect(json[:user_passkeys][1][:id]).to eq(passkey1.id)
+    end
+  end
+
   context "for user sidebar attributes" do
     include_examples "User Sidebar Serializer Attributes", described_class
 
@@ -449,8 +492,29 @@ RSpec.describe UserSerializer do
 
       expect(serializer.as_json[:sidebar_category_ids]).to eq(nil)
       expect(serializer.as_json[:sidebar_tags]).to eq(nil)
-      expect(serializer.as_json[:sidebar_list_destination]).to eq(nil)
       expect(serializer.as_json[:display_sidebar_tags]).to eq(nil)
+    end
+  end
+
+  context "with groups" do
+    fab!(:group) do
+      Fabricate(
+        :group,
+        visibility_level: Group.visibility_levels[:public],
+        members_visibility_level: Group.visibility_levels[:owners],
+      )
+    end
+    let(:serializer) { UserSerializer.new(user, scope: Guardian.new, root: false) }
+
+    before do
+      group.add(user)
+      group.save!
+    end
+
+    it "should show group even when members list is not visible" do
+      json = serializer.as_json
+      expect(json[:groups].length).to eq(1)
+      expect(json[:groups].first[:id]).to eq(group.id)
     end
   end
 end

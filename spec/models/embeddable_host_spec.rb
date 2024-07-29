@@ -88,8 +88,8 @@ RSpec.describe EmbeddableHost do
       expect(EmbeddableHost.url_allowed?("http://discourse.org")).to eq(true)
     end
 
-    it "always allow forum own URL" do
-      expect(EmbeddableHost.url_allowed?(Discourse.base_url)).to eq(true)
+    it "does not allow forum own URL" do
+      expect(EmbeddableHost.url_allowed?(Discourse.base_url)).to eq(false)
     end
   end
 
@@ -152,7 +152,7 @@ RSpec.describe EmbeddableHost do
   end
 
   describe ".record_for_url" do
-    fab!(:embeddable_host) { Fabricate(:embeddable_host) }
+    fab!(:embeddable_host)
 
     it "returns the right record if given URL matches host" do
       expect(EmbeddableHost.record_for_url("https://#{embeddable_host.host}")).to eq(

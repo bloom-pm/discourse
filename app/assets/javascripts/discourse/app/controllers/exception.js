@@ -1,31 +1,27 @@
-import { alias, equal, gte, none } from "@ember/object/computed";
-import discourseComputed, { on } from "discourse-common/utils/decorators";
-import DiscourseURL from "discourse/lib/url";
+import { cached } from "@glimmer/tracking";
 import Controller from "@ember/controller";
-import I18n from "I18n";
+import { action } from "@ember/object";
+import { alias, equal, gte, none } from "@ember/object/computed";
 import { schedule } from "@ember/runloop";
+import DiscourseURL from "discourse/lib/url";
+import discourseComputed, { on } from "discourse-common/utils/decorators";
+import I18n from "discourse-i18n";
 
-const ButtonBackBright = {
-    classes: "btn-primary",
-    action: "back",
-    key: "errors.buttons.back",
-  },
-  ButtonBackDim = {
-    classes: "",
-    action: "back",
-    key: "errors.buttons.back",
-  },
-  ButtonTryAgain = {
-    classes: "btn-primary",
-    action: "tryLoading",
-    key: "errors.buttons.again",
-    icon: "sync",
-  },
-  ButtonLoadPage = {
-    classes: "btn-primary",
-    action: "tryLoading",
-    key: "errors.buttons.fixed",
-  };
+/**
+ * You can throw an instance of this error during a route's beforeModel/model/afterModel hooks.
+ * It will be caught by the top-level ApplicationController, and cause this Exception controller/template
+ * to be rendered without changing the URL.
+ */
+export class RouteException {
+  status;
+  reason;
+
+  constructor({ status, reason, desc }) {
+    this.status = status;
+    this.reason = reason;
+    this.desc = desc;
+  }
+}
 
 // The controller for the nice error page
 export default Controller.extend({
@@ -68,7 +64,9 @@ export default Controller.extend({
 
   @discourseComputed("isNetwork", "thrown.status", "thrown")
   reason(isNetwork, thrownStatus, thrown) {
-    if (isNetwork) {
+    if (thrown.reason) {
+      return thrown.reason;
+    } else if (isNetwork) {
       return I18n.t("errors.reasons.network");
     } else if (thrownStatus >= 500) {
       return I18n.t("errors.reasons.server");
@@ -94,7 +92,9 @@ export default Controller.extend({
     "thrown"
   )
   desc(networkFixed, isNetwork, thrownStatus, thrownStatusText, thrown) {
-    if (networkFixed) {
+    if (thrown.desc) {
+      return thrown.desc;
+    } else if (networkFixed) {
       return I18n.t("errors.desc.network_fixed");
     } else if (isNetwork) {
       return I18n.t("errors.desc.network");
@@ -114,42 +114,68 @@ export default Controller.extend({
     }
   },
 
+  @cached
+  get buttons() {
+    return {
+      ButtonBackBright: {
+        classes: "btn-primary",
+        action: this.back,
+        key: "errors.buttons.back",
+      },
+      ButtonBackDim: {
+        classes: "",
+        action: this.back,
+        key: "errors.buttons.back",
+      },
+      ButtonTryAgain: {
+        classes: "btn-primary",
+        action: this.tryLoading,
+        key: "errors.buttons.again",
+        icon: "sync",
+      },
+      ButtonLoadPage: {
+        classes: "btn-primary",
+        action: this.tryLoading,
+        key: "errors.buttons.fixed",
+      },
+    };
+  },
+
   @discourseComputed("networkFixed", "isNetwork", "lastTransition")
   enabledButtons(networkFixed, isNetwork, lastTransition) {
     if (networkFixed) {
-      return [ButtonLoadPage];
+      return [this.buttons.ButtonLoadPage];
     } else if (isNetwork) {
-      return [ButtonBackDim, ButtonTryAgain];
+      return [this.buttons.ButtonBackDim, this.buttons.ButtonTryAgain];
     } else if (!lastTransition) {
-      return [ButtonBackBright];
+      return [this.buttons.ButtonBackBright];
     } else {
-      return [ButtonBackBright, ButtonTryAgain];
+      return [this.buttons.ButtonBackBright, this.buttons.ButtonTryAgain];
     }
   },
 
-  actions: {
-    back() {
-      // Strip off subfolder
-      const currentURL = DiscourseURL.router.location.getURL();
-      if (this.lastTransition && currentURL !== "/exception") {
-        this.lastTransition.abort();
-        this.setProperties({ lastTransition: null, thrown: null });
-        // Can't use routeTo because it handles navigation to the same page
-        DiscourseURL.handleURL(currentURL);
-      } else {
-        window.history.back();
-      }
-    },
+  @action
+  back() {
+    // Strip off subfolder
+    const currentURL = DiscourseURL.router.location.getURL();
+    if (this.lastTransition?.method === "replace") {
+      this.setProperties({ lastTransition: null, thrown: null });
+      // Can't use routeTo because it handles navigation to the same page
+      DiscourseURL.handleURL(currentURL);
+    } else {
+      window.history.back();
+    }
+  },
 
-    tryLoading() {
-      this.set("loading", true);
+  @action
+  tryLoading() {
+    this.set("loading", true);
 
-      schedule("afterRender", () => {
-        const transition = this.lastTransition;
-        this.setProperties({ lastTransition: null, thrown: null });
-        transition.retry();
-        this.set("loading", false);
-      });
-    },
+    schedule("afterRender", () => {
+      const transition = this.lastTransition;
+      this.setProperties({ lastTransition: null, thrown: null });
+      transition.retry();
+      this.set("loading", false);
+    });
   },
 });

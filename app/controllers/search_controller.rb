@@ -29,8 +29,6 @@ class SearchController < ApplicationController
     # check for a malformed page parameter
     raise Discourse::InvalidParameters if page && (!page.is_a?(String) || page.to_i.to_s != page)
 
-    rate_limit_errors = rate_limit_search
-
     discourse_expires_in 1.minute
 
     search_args = {
@@ -48,17 +46,14 @@ class SearchController < ApplicationController
 
     search_args[:search_type] = :full_page
     search_args[:ip_address] = request.remote_ip
+    search_args[:user_agent] = request.user_agent
     search_args[:user_id] = current_user.id if current_user.present?
 
-    if rate_limit_errors
-      result =
-        Search::GroupedSearchResults.new(
-          type_filter: search_args[:type_filter],
-          term: @search_term,
-          search_context: context,
-        )
-
-      result.error = I18n.t("rate_limiter.slow_down")
+    if rate_limit_search
+      return(
+        render json: failed_json.merge(message: I18n.t("rate_limiter.slow_down")),
+               status: :too_many_requests
+      )
     elsif site_overloaded?
       result =
         Search::GroupedSearchResults.new(
@@ -89,8 +84,6 @@ class SearchController < ApplicationController
       raise Discourse::InvalidParameters.new("string contains null byte")
     end
 
-    rate_limit_errors = rate_limit_search
-
     discourse_expires_in 1.minute
 
     search_args = { guardian: guardian }
@@ -107,20 +100,17 @@ class SearchController < ApplicationController
 
     search_args[:search_type] = :header
     search_args[:ip_address] = request.remote_ip
+    search_args[:user_agent] = request.user_agent
     search_args[:user_id] = current_user.id if current_user.present?
     search_args[:restrict_to_archetype] = params[:restrict_to_archetype] if params[
       :restrict_to_archetype
     ].present?
 
-    if rate_limit_errors
-      result =
-        Search::GroupedSearchResults.new(
-          type_filter: search_args[:type_filter],
-          term: params[:term],
-          search_context: context,
-        )
-
-      result.error = I18n.t("rate_limiter.slow_down")
+    if rate_limit_search
+      return(
+        render json: failed_json.merge(message: I18n.t("rate_limiter.slow_down")),
+               status: :too_many_requests
+      )
     elsif site_overloaded?
       result =
         GroupedSearchResults.new(
@@ -188,14 +178,26 @@ class SearchController < ApplicationController
       else
         RateLimiter.new(
           nil,
-          "search-min-#{request.remote_ip}",
-          SiteSetting.rate_limit_search_anon_user,
+          "search-min-#{request.remote_ip}-per-sec",
+          SiteSetting.rate_limit_search_anon_user_per_second,
+          1.second,
+        ).performed!
+        RateLimiter.new(
+          nil,
+          "search-min-#{request.remote_ip}-per-min",
+          SiteSetting.rate_limit_search_anon_user_per_minute,
           1.minute,
         ).performed!
         RateLimiter.new(
           nil,
-          "search-min-anon-global",
-          SiteSetting.rate_limit_search_anon_global,
+          "search-min-anon-global-per-sec",
+          SiteSetting.rate_limit_search_anon_global_per_second,
+          1.second,
+        ).performed!
+        RateLimiter.new(
+          nil,
+          "search-min-anon-global-per-min",
+          SiteSetting.rate_limit_search_anon_global_per_minute,
           1.minute,
         ).performed!
       end
@@ -215,12 +217,12 @@ class SearchController < ApplicationController
     search_context = params[:search_context]
     unless search_context
       if (context = params[:context]) && (id = params[:context_id])
-        search_context = { type: context, id: id }
+        search_context = { type: context, id: id, name: id }
       end
     end
 
     if search_context.present?
-      unless SearchController.valid_context_types.include?(search_context[:type])
+      if SearchController.valid_context_types.exclude?(search_context[:type])
         raise Discourse::InvalidParameters.new(:search_context)
       end
       raise Discourse::InvalidParameters.new(:search_context) if search_context[:id].blank?
@@ -234,7 +236,9 @@ class SearchController < ApplicationController
       elsif "topic" == search_context[:type]
         context_obj = Topic.find_by(id: search_context[:id].to_i)
       elsif "tag" == search_context[:type]
-        context_obj = Tag.where_name(search_context[:name]).first
+        if !DiscourseTagging.hidden_tag_names(guardian).include?(search_context[:id])
+          context_obj = Tag.where_name(search_context[:id]).first
+        end
       end
 
       type_filter = nil

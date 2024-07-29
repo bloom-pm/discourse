@@ -164,6 +164,14 @@ RSpec.describe UrlHelper do
         "https://test.com/original/3X/b/5/575bcc2886bf7a39684b57ca90be85f7d399bbc7.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AK8888999977/20200130/us-west-1/s3/aws4_request&X-Amz-Date=20200130T064355Z&X-Amz-Expires=15&X-Amz-SignedHeaders=host&X-Amz-Security-Token=blahblah+blahblah/blah//////////wEQA==&X-Amz-Signature=test"
       expect(UrlHelper.normalized_encode(presigned_url)).not_to eq(encoded_presigned_url)
     end
+
+    it "raises error if too long" do
+      long_url = "https://#{"a" * 2_000}.com"
+      expect do UrlHelper.normalized_encode(long_url) end.to raise_error(
+        ArgumentError,
+        "URL starting with #{long_url[0..100]} is too long",
+      )
+    end
   end
 
   describe "#local_cdn_url" do
@@ -261,6 +269,55 @@ RSpec.describe UrlHelper do
     it "does not raise for invalid mailtos" do
       url = "mailto:eviltrout%2540example.com"
       expect(described_class.rails_route_from_url(url)).to eq(nil)
+    end
+  end
+
+  describe ".is_valid_url?" do
+    it "should return true for a valid HTTP URL" do
+      expect(described_class.is_valid_url?("http://www.example.com")).to eq(true)
+    end
+
+    it "should return true for a valid HTTPS URL" do
+      expect(described_class.is_valid_url?("https://www.example.com")).to eq(true)
+    end
+
+    it "should return true for a valid FTP URL" do
+      expect(described_class.is_valid_url?("ftp://example.com")).to eq(true)
+    end
+
+    it "should return true for a valid mailto URL" do
+      expect(described_class.is_valid_url?("mailto:someone@discourse.org")).to eq(true)
+    end
+
+    it "should return true for a valid LDAP URL" do
+      expect(described_class.is_valid_url?("ldap://ldap.example.com/dc=example;dc=com?quer")).to eq(
+        true,
+      )
+    end
+
+    it "should return true for a path" do
+      expect(described_class.is_valid_url?("/some/path")).to eq(true)
+    end
+
+    it "should return true for a path with query params" do
+      expect(described_class.is_valid_url?("/some/path?query=param")).to eq(true)
+    end
+
+    it "should return true for anchor links" do
+      expect(described_class.is_valid_url?("#anchor")).to eq(true)
+      expect(described_class.is_valid_url?("#")).to eq(true)
+    end
+
+    it "should return false for invalid urls" do
+      expect(described_class.is_valid_url?("")).to eq(false)
+      expect(described_class.is_valid_url?("http//www.example.com")).to eq(false)
+      expect(described_class.is_valid_url?("http:/www.example.com")).to eq(false)
+      expect(described_class.is_valid_url?("https:///www.example.com")).to eq(false)
+      expect(described_class.is_valid_url?("mailtoooo:someone@discourse.org")).to eq(false)
+      expect(described_class.is_valid_url?("ftp://")).to eq(false)
+      expect(described_class.is_valid_url?("http://")).to eq(false)
+      expect(described_class.is_valid_url?("https://")).to eq(false)
+      expect(described_class.is_valid_url?("ldap://")).to eq(false)
     end
   end
 end

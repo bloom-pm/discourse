@@ -3,13 +3,13 @@
 require "topic_view"
 
 RSpec.describe TopicView do
-  fab!(:user) { Fabricate(:user) }
-  fab!(:moderator) { Fabricate(:moderator) }
-  fab!(:admin) { Fabricate(:admin) }
-  fab!(:topic) { Fabricate(:topic) }
-  fab!(:evil_trout) { Fabricate(:evil_trout) }
+  fab!(:user) { Fabricate(:user, refresh_auto_groups: true) }
+  fab!(:moderator)
+  fab!(:admin)
+  fab!(:topic)
+  fab!(:evil_trout)
   fab!(:first_poster) { topic.user }
-  fab!(:anonymous) { Fabricate(:anonymous) }
+  fab!(:anonymous)
 
   let(:topic_view) { TopicView.new(topic.id, evil_trout) }
 
@@ -72,6 +72,8 @@ RSpec.describe TopicView do
     fab!(:p0) { Fabricate(:post, topic: topic) }
     fab!(:p1) { Fabricate(:post, topic: topic, wiki: true) }
 
+    after { TopicView.custom_filters.clear }
+
     it "allows to register custom filters" do
       tv = TopicView.new(topic.id, evil_trout, { filter: "wiki" })
       expect(tv.filter_posts({ filter: "wiki" })).to eq([p0, p1])
@@ -83,8 +85,6 @@ RSpec.describe TopicView do
 
       tv = TopicView.new(topic.id, evil_trout, { filter: "whatever" })
       expect(tv.filter_posts).to eq([p0, p1])
-    ensure
-      TopicView.instance_variable_set(:@custom_filters, {})
     end
   end
 
@@ -235,7 +235,7 @@ RSpec.describe TopicView do
     end
 
     context "when log_check_personal_message is enabled" do
-      fab!(:group) { Fabricate(:group) }
+      fab!(:group)
       fab!(:private_message) { Fabricate(:private_message_topic, allowed_groups: [group]) }
 
       before do
@@ -285,7 +285,7 @@ RSpec.describe TopicView do
           1,
         )
 
-        freeze_time (2.hours.from_now)
+        freeze_time(2.hours.from_now)
 
         TopicView.new(private_message.id, evil_trout)
         expect(UserHistory.where(action: UserHistory.actions[:check_personal_message]).count).to eq(
@@ -312,7 +312,7 @@ RSpec.describe TopicView do
     end
 
     describe "#get_canonical_path" do
-      fab!(:topic) { Fabricate(:topic) }
+      fab!(:topic)
       let(:path) { "/1234" }
 
       before do
@@ -750,8 +750,8 @@ RSpec.describe TopicView do
   end
 
   describe "page_title" do
-    fab!(:tag1) { Fabricate(:tag) }
-    fab!(:tag2) { Fabricate(:tag, topic_count: 2) }
+    fab!(:tag1) { Fabricate(:tag, staff_topic_count: 0, public_topic_count: 0) }
+    fab!(:tag2) { Fabricate(:tag, staff_topic_count: 2, public_topic_count: 2) }
     fab!(:op_post) { Fabricate(:post, topic: topic) }
     fab!(:post1) { Fabricate(:post, topic: topic) }
     fab!(:whisper) { Fabricate(:post, topic: topic, post_type: Post.types[:whisper]) }
@@ -797,6 +797,18 @@ RSpec.describe TopicView do
       end
     end
 
+    context "when a page number is specified" do
+      it "does not include the page number for first page" do
+        title = TopicView.new(topic.id, admin, page: 1).page_title
+        expect(title).to eq("#{topic.title}")
+      end
+
+      it "includes page number for subsequent pages" do
+        title = TopicView.new(topic.id, admin, page: 2).page_title
+        expect(title).to eq("#{topic.title} - #{I18n.t("page_num", num: 2)}")
+      end
+    end
+
     context "with uncategorized topic" do
       context "when topic_page_title_includes_category is false" do
         before { SiteSetting.topic_page_title_includes_category = false }
@@ -824,6 +836,25 @@ RSpec.describe TopicView do
             it { is_expected.to start_with(topic.title) }
             it { is_expected.not_to include(tag1.name) }
             it { is_expected.not_to include(tag2.name) }
+          end
+
+          context "with restricted tags" do
+            let(:tag_group) { Fabricate.build(:tag_group) }
+            let(:tag_group_permission) do
+              Fabricate.build(:tag_group_permission, tag_group: tag_group)
+            end
+
+            before do
+              SiteSetting.tagging_enabled = true
+              # avoid triggering a `before_create` callback in `TagGroup` which
+              # messes with permissions
+              tag_group.tag_group_permissions << tag_group_permission
+              tag_group.save!
+              tag_group_permission.tag_group.tags << tag2
+            end
+
+            it { is_expected.not_to include(tag2.name) }
+            it { is_expected.to include(tag1.name) }
           end
         end
       end
@@ -985,9 +1016,14 @@ RSpec.describe TopicView do
 
   describe "#reviewable_counts" do
     it "exclude posts queued because the category needs approval" do
-      category = Fabricate.build(:category, user: admin)
-      category.custom_fields[Category::REQUIRE_TOPIC_APPROVAL] = true
-      category.save!
+      category =
+        Fabricate.create(
+          :category,
+          user: admin,
+          category_setting_attributes: {
+            require_topic_approval: true,
+          },
+        )
       manager =
         NewPostManager.new(
           user,
@@ -1062,27 +1098,43 @@ RSpec.describe TopicView do
       let(:queue_enabled) { false }
 
       context "when category is moderated" do
-        before { category.custom_fields[Category::REQUIRE_REPLY_APPROVAL] = true }
+        before do
+          category.require_reply_approval = true
+          category.save!
+        end
 
         it { expect(topic_view.queued_posts_enabled?).to be(true) }
       end
 
       context "when category is not moderated" do
-        it { expect(topic_view.queued_posts_enabled?).to be(nil) }
+        it { expect(topic_view.queued_posts_enabled?).to be(false) }
       end
     end
   end
 
-  describe "#tags" do
-    subject(:topic_view_tags) { topic_view.tags }
+  describe "with topic_view_suggested_topics_options modifier" do
+    let!(:topic1) { Fabricate(:topic) }
+    let!(:topic2) { Fabricate(:topic) }
 
-    let(:topic_view) { described_class.new(topic, user) }
-    let(:topic) { Fabricate.build(:topic, tags: tags) }
-    let(:tags) { Fabricate.build_times(2, :tag) }
-    let(:user) { Fabricate(:user) }
+    after { DiscoursePluginRegistry.clear_modifiers! }
 
-    it "returns the tags names" do
-      expect(topic_view_tags).to match tags.map(&:name)
+    it "allows disabling of random suggested" do
+      topic_view = TopicView.new(topic1)
+
+      Plugin::Instance
+        .new
+        .register_modifier(
+          :topic_view_suggested_topics_options,
+        ) do |suggested_options, inner_topic_view|
+          expect(inner_topic_view).to eq(topic_view)
+          suggested_options.merge(include_random: false)
+        end
+
+      expect(topic_view.suggested_topics.topics.count).to eq(0)
+
+      DiscoursePluginRegistry.clear_modifiers!
+
+      expect(TopicView.new(topic1).suggested_topics.topics.count).to be > 0
     end
   end
 end

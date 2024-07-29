@@ -65,8 +65,12 @@ class ComposerController < ApplicationController
                 .count
 
             if notified_count > 0
-              group_reasons[group.name] = :some_not_allowed
-              serialized_group[:notified_count] = notified_count
+              if notified_count == group.user_count
+                group_reasons.delete(group.name)
+              else
+                group_reasons[group.name] = :some_not_allowed
+                serialized_group[:notified_count] = notified_count
+              end
             end
           end
 
@@ -102,7 +106,7 @@ class ComposerController < ApplicationController
         :not_allowed
       end
 
-    # Regular users can see only basic information why the users cannot see the topic.
+    # Non-staff users can see only basic information why the users cannot see the topic.
     reason = nil if !guardian.is_staff? && reason != :private && reason != :category
 
     reason

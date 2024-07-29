@@ -1,20 +1,21 @@
+import Component from "@ember/component";
 import EmberObject, { action, set } from "@ember/object";
 import { alias, and, gt, gte, not, or } from "@ember/object/computed";
-import discourseComputed, { observes } from "discourse-common/utils/decorators";
+import { dasherize } from "@ember/string";
+import { isEmpty } from "@ember/utils";
 import { propertyNotEqual, setting } from "discourse/lib/computed";
+import { durationTiny } from "discourse/lib/formatter";
+import { wantsNewWindow } from "discourse/lib/intercept-click";
+import { prioritizeNameInUx } from "discourse/lib/settings";
+import { emojiUnescape } from "discourse/lib/text";
+import { escapeExpression } from "discourse/lib/utilities";
 import CanCheckEmails from "discourse/mixins/can-check-emails";
 import CardContentsBase from "discourse/mixins/card-contents-base";
 import CleansUp from "discourse/mixins/cleans-up";
-import Component from "@ember/component";
-import I18n from "I18n";
 import User from "discourse/models/user";
-import { durationTiny } from "discourse/lib/formatter";
 import { getURLWithCDN } from "discourse-common/lib/get-url";
-import { isEmpty } from "@ember/utils";
-import { prioritizeNameInUx } from "discourse/lib/settings";
-import { dasherize } from "@ember/string";
-import { emojiUnescape } from "discourse/lib/text";
-import { escapeExpression, modKeysPressed } from "discourse/lib/utilities";
+import discourseComputed, { observes } from "discourse-common/utils/decorators";
+import I18n from "discourse-i18n";
 
 export default Component.extend(CardContentsBase, CanCheckEmails, CleansUp, {
   elementId: "user-card",
@@ -30,6 +31,7 @@ export default Component.extend(CardContentsBase, CanCheckEmails, CleansUp, {
     "usernameClass",
     "primaryGroup",
   ],
+  attributeBindings: ["labelledBy:aria-labelledby"],
   allowBackgrounds: setting("allow_profile_backgrounds"),
   showBadges: setting("enable_badges"),
 
@@ -45,6 +47,11 @@ export default Component.extend(CardContentsBase, CanCheckEmails, CleansUp, {
   showMoreBadges: gt("moreBadgesCount", 0),
   showDelete: and("viewingAdmin", "showName", "user.canBeDeleted"),
   linkWebsite: not("user.isBasic"),
+
+  @discourseComputed("user")
+  labelledBy(user) {
+    return user ? "discourse-user-card-title" : null;
+  },
 
   @discourseComputed("user")
   hasLocaleOrWebsite(user) {
@@ -163,14 +170,13 @@ export default Component.extend(CardContentsBase, CanCheckEmails, CleansUp, {
       return;
     }
 
-    const thisElem = this.element;
-    if (!thisElem) {
+    if (!this.element) {
       return;
     }
 
     const url = this.get("user.card_background_upload_url");
     const bg = isEmpty(url) ? "" : `url(${getURLWithCDN(url)})`;
-    thisElem.style.backgroundImage = bg;
+    this.element.style.backgroundImage = bg;
   },
 
   @discourseComputed("user.primary_group_name")
@@ -178,8 +184,12 @@ export default Component.extend(CardContentsBase, CanCheckEmails, CleansUp, {
     return `group-${primaryGroup}`;
   },
 
-  _showCallback(username, $target) {
-    this._positionCard($target);
+  @discourseComputed("user.profile_hidden", "user.inactive")
+  contentHidden(profileHidden, inactive) {
+    return profileHidden || inactive;
+  },
+
+  async _showCallback(username) {
     this.setProperties({ visible: true, loading: true });
 
     const args = {
@@ -187,26 +197,28 @@ export default Component.extend(CardContentsBase, CanCheckEmails, CleansUp, {
       include_post_count_for: this.get("topic.id"),
     };
 
-    return User.findByUsername(username, args)
-      .then((user) => {
-        if (user.topic_post_count) {
-          this.set(
-            "topicPostCount",
-            user.topic_post_count[args.include_post_count_for]
-          );
-        }
-        this.setProperties({ user });
-        this.user.trackStatus();
-        return user;
-      })
-      .catch(() => this._close())
-      .finally(() => this.set("loading", null));
+    try {
+      const user = await User.findByUsername(username, args);
+
+      if (user.topic_post_count) {
+        this.set(
+          "topicPostCount",
+          user.topic_post_count[args.include_post_count_for]
+        );
+      }
+      this.setProperties({ user });
+      this.user.statusManager.trackStatus();
+
+      return user;
+    } catch {
+      this._close();
+    } finally {
+      this.set("loading", null);
+    }
   },
 
   _close() {
-    if (this.user) {
-      this.user.stopTrackingStatus();
-    }
+    this.user?.statusManager.stopTrackingStatus();
 
     this.setProperties({
       user: null,
@@ -221,14 +233,15 @@ export default Component.extend(CardContentsBase, CanCheckEmails, CleansUp, {
   },
 
   @action
-  handleShowUser(user, event) {
-    if (event && modKeysPressed(event).length > 0) {
-      return false;
+  handleShowUser(event) {
+    if (wantsNewWindow(event)) {
+      return;
     }
-    event?.preventDefault();
+
+    event.preventDefault();
     // Invokes `showUser` argument. Convert to `this.args.showUser` when
     // refactoring this to a glimmer component.
-    this.showUser(user);
+    this.showUser(this.user);
     this._close();
   },
 
@@ -243,9 +256,8 @@ export default Component.extend(CardContentsBase, CanCheckEmails, CleansUp, {
     },
 
     cancelFilter() {
-      const postStream = this.postStream;
-      postStream.cancelFilter();
-      postStream.refresh();
+      this.postStream.cancelFilter();
+      this.postStream.refresh();
       this._close();
     },
 
@@ -257,10 +269,6 @@ export default Component.extend(CardContentsBase, CanCheckEmails, CleansUp, {
     deleteUser() {
       this.user.delete();
       this._close();
-    },
-
-    showUser(user) {
-      this.handleShowUser(user);
     },
 
     checkEmail(user) {

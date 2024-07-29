@@ -1,6 +1,6 @@
-import DropdownSelectBoxComponent from "select-kit/components/dropdown-select-box";
-import I18n from "I18n";
 import { computed } from "@ember/object";
+import I18n from "discourse-i18n";
+import DropdownSelectBoxComponent from "select-kit/components/dropdown-select-box";
 
 export default DropdownSelectBoxComponent.extend({
   pluginApiIdentifiers: ["bulk-group-member-dropdown"],
@@ -39,22 +39,24 @@ export default DropdownSelectBoxComponent.extend({
       });
     }
 
-    if (this.bulkSelection.some((m) => !m.primary)) {
-      items.push({
-        id: "setPrimary",
-        name: I18n.t("groups.members.make_all_primary"),
-        description: I18n.t("groups.members.make_all_primary_description"),
-        icon: "id-card",
-      });
-    }
+    if (this.currentUser.staff) {
+      if (this.bulkSelection.some((m) => !m.primary)) {
+        items.push({
+          id: "setPrimary",
+          name: I18n.t("groups.members.make_all_primary"),
+          description: I18n.t("groups.members.make_all_primary_description"),
+          icon: "id-card",
+        });
+      }
 
-    if (this.bulkSelection.some((m) => m.primary)) {
-      items.push({
-        id: "unsetPrimary",
-        name: I18n.t("groups.members.remove_all_primary"),
-        description: I18n.t("groups.members.remove_all_primary_description"),
-        icon: "id-card",
-      });
+      if (this.bulkSelection.some((m) => m.primary)) {
+        items.push({
+          id: "unsetPrimary",
+          name: I18n.t("groups.members.remove_all_primary"),
+          description: I18n.t("groups.members.remove_all_primary_description"),
+          icon: "id-card",
+        });
+      }
     }
 
     return items;

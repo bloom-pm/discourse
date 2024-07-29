@@ -1,46 +1,32 @@
 import Component from "@ember/component";
 import { action } from "@ember/object";
-import { next, schedule } from "@ember/runloop";
-import { openBookmarkModal } from "discourse/controllers/bookmark";
+import { dependentKeyCompat } from "@ember/object/compat";
+import { service } from "@ember/service";
+import { Promise } from "rsvp";
+import BookmarkModal from "discourse/components/modal/bookmark";
 import { ajax } from "discourse/lib/ajax";
+import { BookmarkFormData } from "discourse/lib/bookmark-form-data";
 import {
   openLinkInNewTab,
   shouldOpenInNewTab,
 } from "discourse/lib/click-track";
-import Scrolling from "discourse/mixins/scrolling";
-import I18n from "I18n";
-import { Promise } from "rsvp";
-import { inject as service } from "@ember/service";
+import I18n from "discourse-i18n";
 
-export default Component.extend(Scrolling, {
+export default Component.extend({
   dialog: service(),
+  modal: service(),
   classNames: ["bookmark-list-wrapper"],
 
-  didInsertElement() {
-    this._super(...arguments);
-    this.bindScrolling();
-    this.scrollToLastPosition();
+  get canDoBulkActions() {
+    return this.bulkSelectHelper?.selected.length;
   },
 
-  willDestroyElement() {
-    this._super(...arguments);
-    this.unbindScrolling();
+  get selected() {
+    return this.bulkSelectHelper?.selected;
   },
 
-  scrollToLastPosition() {
-    const scrollTo = this.session.bookmarkListScrollPosition;
-    if (scrollTo >= 0) {
-      schedule("afterRender", () => {
-        if (this.element && !this.isDestroying && !this.isDestroyed) {
-          next(() => window.scrollTo(0, scrollTo));
-        }
-      });
-    }
-  },
-
-  scrolled() {
-    this._super(...arguments);
-    this.session.set("bookmarkListScrollPosition", window.scrollY);
+  get selectedCount() {
+    return this.selected?.length || 0;
   },
 
   @action
@@ -84,17 +70,20 @@ export default Component.extend(Scrolling, {
 
   @action
   editBookmark(bookmark) {
-    openBookmarkModal(bookmark, {
-      onAfterSave: (savedData) => {
-        this.appEvents.trigger(
-          "bookmarks:changed",
-          savedData,
-          bookmark.attachedTo()
-        );
-        this.reload();
-      },
-      onAfterDelete: () => {
-        this.reload();
+    this.modal.show(BookmarkModal, {
+      model: {
+        bookmark: new BookmarkFormData(bookmark),
+        afterSave: (savedData) => {
+          this.appEvents.trigger(
+            "bookmarks:changed",
+            savedData,
+            bookmark.attachedTo()
+          );
+          this.reload();
+        },
+        afterDelete: () => {
+          this.reload();
+        },
       },
     });
   },
@@ -114,7 +103,82 @@ export default Component.extend(Scrolling, {
     bookmark.togglePin().then(this.reload);
   },
 
+  @action
+  toggleBulkSelect() {
+    this.bulkSelectHelper?.toggleBulkSelect();
+    this.rerender();
+  },
+
+  @action
+  selectAll() {
+    this.bulkSelectHelper.autoAddBookmarksToBulkSelect = true;
+    document
+      .querySelectorAll("input.bulk-select:not(:checked)")
+      .forEach((el) => el.click());
+  },
+
+  @action
+  clearAll() {
+    this.bulkSelectHelper.autoAddBookmarksToBulkSelect = false;
+    document
+      .querySelectorAll("input.bulk-select:checked")
+      .forEach((el) => el.click());
+  },
+
+  @dependentKeyCompat // for the classNameBindings
+  get bulkSelectEnabled() {
+    return this.bulkSelectHelper?.bulkSelectEnabled;
+  },
+
   _removeBookmarkFromList(bookmark) {
     this.content.removeObject(bookmark);
+  },
+
+  _toggleSelection(target, bookmark, isSelectingRange) {
+    const selected = this.selected;
+
+    if (target.checked) {
+      selected.addObject(bookmark);
+
+      if (isSelectingRange) {
+        const bulkSelects = Array.from(
+            document.querySelectorAll("input.bulk-select")
+          ),
+          from = bulkSelects.indexOf(target),
+          to = bulkSelects.findIndex((el) => el.id === this.lastChecked.id),
+          start = Math.min(from, to),
+          end = Math.max(from, to);
+
+        bulkSelects
+          .slice(start, end)
+          .filter((el) => el.checked !== true)
+          .forEach((checkbox) => {
+            checkbox.click();
+          });
+      }
+      this.set("lastChecked", target);
+    } else {
+      selected.removeObject(bookmark);
+      this.set("lastChecked", null);
+    }
+  },
+
+  click(e) {
+    const onClick = (sel, callback) => {
+      let target = e.target.closest(sel);
+
+      if (target) {
+        callback(target);
+      }
+    };
+
+    onClick("input.bulk-select", () => {
+      const target = e.target;
+      const bookmarkId = target.dataset.id;
+      const bookmark = this.content.find(
+        (item) => item.id.toString() === bookmarkId
+      );
+      this._toggleSelection(target, bookmark, this.lastChecked && e.shiftKey);
+    });
   },
 });

@@ -31,9 +31,6 @@ class UploadCreator
     use
   ].each(&:freeze)
 
-  include ActiveSupport::Deprecation::DeprecatedConstantAccessor
-  deprecate_constant "WHITELISTED_SVG_ELEMENTS", "UploadCreator::ALLOWED_SVG_ELEMENTS"
-
   # Available options
   #  - type (string)
   #  - origin (string)
@@ -74,6 +71,7 @@ class UploadCreator
     is_image = FileHelper.is_supported_image?(@filename)
     is_image ||= @image_info && FileHelper.is_supported_image?("test.#{@image_info.type}")
     is_image = false if @opts[:for_theme]
+    is_thumbnail = SiteSetting.video_thumbnails_enabled && @opts[:type] == "thumbnail"
 
     # If this is present then it means we are creating an upload record from
     # an external_upload_stub and the file is > ExternalUploadManager::DOWNLOAD_LIMIT,
@@ -82,7 +80,7 @@ class UploadCreator
     # in S3
     #
     # FIXME: I've added a bunch of external_upload_too_big checks littered
-    # throughout the UploadCreator code. It would be better to have two seperate
+    # throughout the UploadCreator code. It would be better to have two separate
     # classes with shared methods, rather than doing all these checks all over the
     # place. Needs a refactor.
     external_upload_too_big = @opts[:external_upload_too_big]
@@ -119,13 +117,17 @@ class UploadCreator
       # compute the sha of the file and generate a unique hash
       # which is only used for secure uploads
       sha1 = Upload.generate_digest(@file) if !external_upload_too_big
-      unique_hash = generate_fake_sha1_hash if SiteSetting.secure_uploads || external_upload_too_big
+      unique_hash = generate_fake_sha1_hash if SiteSetting.secure_uploads ||
+        external_upload_too_big || is_thumbnail
 
       # we do not check for duplicate uploads if secure uploads is
       # enabled because we use a unique access hash to differentiate
       # between uploads instead of the sha1, and to get around various
       # access/permission issues for uploads
-      if !SiteSetting.secure_uploads && !external_upload_too_big
+      # We do not check for duplicate uploads for video thumbnails because
+      # their filename needs to match with their corresponding video. This also
+      # enables rebuilding the html on a topic to regenerate a thumbnail.
+      if !SiteSetting.secure_uploads && !external_upload_too_big && !is_thumbnail
         # do we already have that upload?
         @upload = Upload.find_by(sha1: sha1)
 
@@ -163,7 +165,14 @@ class UploadCreator
       @upload.user_id = user_id
       @upload.original_filename = fixed_original_filename || @filename
       @upload.filesize = filesize
-      @upload.sha1 = (SiteSetting.secure_uploads? || external_upload_too_big) ? unique_hash : sha1
+      @upload.sha1 =
+        (
+          if (SiteSetting.secure_uploads? || external_upload_too_big || is_thumbnail)
+            unique_hash
+          else
+            sha1
+          end
+        )
       @upload.original_sha1 = SiteSetting.secure_uploads? ? sha1 : nil
       @upload.url = ""
       @upload.origin = @opts[:origin][0...1000] if @opts[:origin]
@@ -292,12 +301,12 @@ class UploadCreator
       @upload.errors.add(:base, I18n.t("upload.empty"))
     elsif pixels == 0 && @image_info.type.to_s != "svg"
       @upload.errors.add(:base, I18n.t("upload.images.size_not_found"))
-    elsif max_image_pixels > 0 && pixels >= max_image_pixels * 2
+    elsif max_image_pixels > 0 && pixels >= max_image_pixels
       @upload.errors.add(
         :base,
         I18n.t(
           "upload.images.larger_than_x_megapixels",
-          max_image_megapixels: SiteSetting.max_image_megapixels * 2,
+          max_image_megapixels: SiteSetting.max_image_megapixels,
         ),
       )
     end
@@ -386,7 +395,7 @@ class UploadCreator
   end
 
   def convert_heif_to_jpeg?
-    File.extname(@filename).downcase.match?(/\.hei(f|c)$/)
+    File.extname(@filename).downcase.match?(/\.hei(f|c)\z/)
   end
 
   def convert_heif!
@@ -409,7 +418,7 @@ class UploadCreator
 
   MAX_CONVERT_FORMAT_SECONDS = 20
   def execute_convert(from, to, opts = {})
-    command = ["convert", from, "-auto-orient", "-background", "white", "-interlace", "none"]
+    command = ["magick", from, "-auto-orient", "-background", "white", "-interlace", "none"]
     command << "-flatten" unless opts[:flatten] == false
     command << "-debug" << "all" if opts[:debug]
     command << "-quality" << opts[:quality].to_s if opts[:quality]
@@ -497,6 +506,7 @@ class UploadCreator
         if use_el.attr("href")
           use_el.remove_attribute("href") unless use_el.attr("href").starts_with?("#")
         end
+        use_el.remove_attribute("xlink:href")
       end
     File.write(@file.path, doc.to_s)
     @file.rewind
@@ -516,7 +526,7 @@ class UploadCreator
     path = OptimizedImage.prepend_decoder!(path, nil, filename: "image.#{@image_info.type}")
 
     Discourse::Utils.execute_command(
-      "convert",
+      "magick",
       path,
       "-auto-orient",
       path,
@@ -593,7 +603,7 @@ class UploadCreator
   def should_optimize?
     # GIF is too slow (plus, we'll soon be converting them to MP4)
     # Optimizing SVG is useless
-    return false if @file.path =~ /\.(gif|svg)$/i
+    return false if @file.path =~ /\.(gif|svg)\z/i
     # Safeguard for large PNGs
     return pixels < 2_000_000 if @file.path =~ /\.png/i
     # Everything else is fine!
@@ -649,11 +659,11 @@ class UploadCreator
         if is_animated != nil
           # FastImage will return nil if it cannot determine if animated
           is_animated
-        elsif type == "gif" || type == "webp"
+        elsif %w[gif webp avif].include?(type)
           # Only GIFs, WEBPs and a few other unsupported image types can be animated
           OptimizedImage.ensure_safe_paths!(@file.path)
 
-          command = ["identify", "-format", "%n\\n", @file.path]
+          command = ["identify", "-ping", "-format", "%n\\n", @file.path]
           frames =
             begin
               Discourse::Utils.execute_command(*command, timeout: Upload::MAX_IDENTIFY_SECONDS).to_i

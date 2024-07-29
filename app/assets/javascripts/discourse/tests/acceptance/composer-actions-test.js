@@ -1,3 +1,9 @@
+import { click, fillIn, visit } from "@ember/test-helpers";
+import { test } from "qunit";
+import sinon from "sinon";
+import Draft from "discourse/models/draft";
+import { toggleCheckDraftPopup } from "discourse/services/composer";
+import userFixtures from "discourse/tests/fixtures/user-fixtures";
 import {
   acceptance,
   count,
@@ -6,15 +12,9 @@ import {
   selectText,
   updateCurrentUser,
 } from "discourse/tests/helpers/qunit-helpers";
-import { click, fillIn, visit } from "@ember/test-helpers";
-import Draft from "discourse/models/draft";
-import I18n from "I18n";
 import selectKit from "discourse/tests/helpers/select-kit-helper";
-import sinon from "sinon";
-import { test } from "qunit";
-import { toggleCheckDraftPopup } from "discourse/controllers/composer";
-import userFixtures from "discourse/tests/fixtures/user-fixtures";
 import { cloneJSON } from "discourse-common/lib/object";
+import I18n from "discourse-i18n";
 
 acceptance("Composer Actions", function (needs) {
   needs.user({
@@ -151,6 +151,18 @@ acceptance("Composer Actions", function (needs) {
     await composerActions.expand();
     await composerActions.selectRowByValue("reply_as_new_topic");
     assert.ok(!exists(".dialog-body"));
+  });
+
+  test("reply_as_new_topic without a permission to create topic", async function (assert) {
+    updateCurrentUser({ can_create_topic: false });
+    await visit("/t/internationalization-localization/280");
+    await click(".create.reply");
+    const composerActions = selectKit(".composer-actions");
+    await composerActions.expand();
+    assert.ok(
+      !exists(".composer-actions svg.d-icon-plus"),
+      "reply as new topic icon is not visible"
+    );
   });
 
   test("reply_as_new_group_message", async function (assert) {
@@ -518,11 +530,11 @@ acceptance("Prioritize Full Name", function (needs) {
 
   test("Reply to post use full name", async function (assert) {
     await visit("/t/short-topic-with-two-posts/54079");
-    await click("article#post_2 button.reply");
+    await click("article#post_3 button.reply");
 
     assert.strictEqual(
-      query(".action-title .user-link").innerText.trim(),
-      "james, john, the third"
+      query(".action-title .user-link").innerHTML.trim(),
+      "&lt;h1&gt;Tim Stone&lt;/h1&gt;"
     );
   });
 

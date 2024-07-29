@@ -1,8 +1,10 @@
-import { computed, defineProperty } from "@ember/object";
 import Component from "@ember/component";
+import { computed, defineProperty } from "@ember/object";
+import {
+  buildArgsWithDeprecations,
+  deprecatedArgumentValue,
+} from "discourse/lib/plugin-connectors";
 import { afterRender } from "discourse-common/utils/decorators";
-import { buildArgsWithDeprecations } from "discourse/lib/plugin-connectors";
-import deprecated from "discourse-common/lib/deprecated";
 
 let _decorators = {};
 
@@ -20,9 +22,6 @@ export default Component.extend({
   init() {
     this._super(...arguments);
 
-    const connector = this.connector;
-    this.set("layoutName", connector.templateName);
-
     const args = this.args || {};
     Object.keys(args).forEach((key) => {
       defineProperty(
@@ -33,32 +32,42 @@ export default Component.extend({
     });
 
     const deprecatedArgs = this.deprecatedArgs || {};
+    const connectorInfo = {
+      outletName: this.connector?.outletName,
+      connectorName: this.connector?.connectorName,
+      classModuleName: this.connector?.classModuleName,
+      templateModule: this.connector?.templateModule,
+      layoutName: this.layoutName,
+    };
+
     Object.keys(deprecatedArgs).forEach((key) => {
       defineProperty(
         this,
         key,
         computed("deprecatedArgs", () => {
-          deprecated(
-            `The ${key} property is deprecated, but is being used in ${this.layoutName}`,
-            {
-              id: "discourse.plugin-connector.deprecated-arg",
-            }
-          );
-
-          return (this.deprecatedArgs || {})[key];
+          return deprecatedArgumentValue(deprecatedArgs[key], {
+            ...connectorInfo,
+            argumentName: key,
+          });
         })
       );
     });
 
-    const connectorClass = this.get("connector.connectorClass");
-    this.set("actions", connectorClass.actions);
+    const connectorClass = this.connector.connectorClass;
+    this.set("actions", connectorClass?.actions);
 
-    for (const [name, action] of Object.entries(this.actions)) {
-      this.set(name, action.bind(this));
+    if (this.actions) {
+      for (const [name, action] of Object.entries(this.actions)) {
+        this.set(name, action.bind(this));
+      }
     }
 
-    const merged = buildArgsWithDeprecations(args, deprecatedArgs);
-    connectorClass.setupComponent.call(this, merged, this);
+    const merged = buildArgsWithDeprecations(
+      args,
+      deprecatedArgs,
+      connectorInfo
+    );
+    connectorClass?.setupComponent?.call(this, merged, this);
   },
 
   didReceiveAttrs() {
@@ -77,13 +86,13 @@ export default Component.extend({
   willDestroyElement() {
     this._super(...arguments);
 
-    const connectorClass = this.get("connector.connectorClass");
-    connectorClass.teardownComponent.call(this, this);
+    const connectorClass = this.connector.connectorClass;
+    connectorClass?.teardownComponent?.call(this, this);
   },
 
   send(name, ...args) {
-    const connectorClass = this.get("connector.connectorClass");
-    const action = connectorClass.actions[name];
+    const connectorClass = this.connector.connectorClass;
+    const action = connectorClass?.actions?.[name];
     return action ? action.call(this, ...args) : this._super(name, ...args);
   },
 });

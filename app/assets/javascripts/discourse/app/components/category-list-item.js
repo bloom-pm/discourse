@@ -26,4 +26,19 @@ export default Component.extend({
       (!isMutedCategory && listType === LIST_TYPE.MUTED)
     );
   },
+
+  @discourseComputed("topicTrackingState.messageCount")
+  unreadTopicsCount() {
+    return this.category.unreadTopicsCount;
+  },
+
+  @discourseComputed("topicTrackingState.messageCount")
+  newTopicsCount() {
+    return this.category.newTopicsCount;
+  },
+
+  @discourseComputed("category.path")
+  slugPath(categoryPath) {
+    return categoryPath.substring("/c/".length);
+  },
 });

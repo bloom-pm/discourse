@@ -1,7 +1,7 @@
-import { allLevels, buttonDetails } from "discourse/lib/notification-levels";
 import { computed, setProperties } from "@ember/object";
+import { allLevels, buttonDetails } from "discourse/lib/notification-levels";
+import I18n from "discourse-i18n";
 import DropdownSelectBoxComponent from "select-kit/components/dropdown-select-box";
-import I18n from "I18n";
 
 export default DropdownSelectBoxComponent.extend({
   pluginApiIdentifiers: ["notifications-button"],
@@ -16,16 +16,23 @@ export default DropdownSelectBoxComponent.extend({
     i18nPostfix: "",
   },
 
-  modifyComponentForRow() {
+  getTitle(key) {
+    const { i18nPrefix, i18nPostfix } = this.selectKit.options;
+    return I18n.t(`${i18nPrefix}.${key}${i18nPostfix}.title`);
+  },
+
+  modifyComponentForRow(_, content) {
+    if (content) {
+      setProperties(content, {
+        title: this.getTitle(content.key),
+      });
+    }
     return "notifications-button/notifications-button-row";
   },
 
   modifySelection(content) {
     content = content || {};
-    const { i18nPrefix, i18nPostfix } = this.selectKit.options;
-    const title = I18n.t(
-      `${i18nPrefix}.${this.buttonForValue.key}${i18nPostfix}.title`
-    );
+    const title = this.getTitle(this.buttonForValue.key);
     setProperties(content, {
       title,
       label: title,

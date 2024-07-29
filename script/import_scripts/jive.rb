@@ -188,7 +188,7 @@ class ImportScripts::Jive < ImportScripts::Base
     rows = []
 
     csv_parse("communities") do |row|
-      next unless CATEGORY_IDS.include?(row.communityid.to_i)
+      next if CATEGORY_IDS.exclude?(row.communityid.to_i)
       rows << { id: row.communityid, name: "#{row.name} (#{row.communityid})" }
     end
 
@@ -196,6 +196,8 @@ class ImportScripts::Jive < ImportScripts::Base
   end
 
   def normalize_raw!(raw)
+    return "<missing>" if raw.blank?
+
     raw = raw.dup
     raw = raw[5..-6]
 
@@ -225,11 +227,7 @@ class ImportScripts::Jive < ImportScripts::Base
         next
       end
 
-      unless topic[:post_id]
-        mapped[:category] = category_id_from_imported_category_id(topic[:category_id])
-        mapped[:title] = post[:title]
-        topic[:post_id] = post[:id]
-      else
+      if topic[:post_id]
         parent = topic_lookup_from_imported_post_id(topic[:post_id])
         next unless parent
 
@@ -242,6 +240,10 @@ class ImportScripts::Jive < ImportScripts::Base
             mapped[:reply_to_post_number] = reply_to_post_number
           end
         end
+      else
+        mapped[:category] = category_id_from_imported_category_id(topic[:category_id])
+        mapped[:title] = post[:title]
+        topic[:post_id] = post[:id]
       end
 
       next if topic[:deleted] || post[:deleted]
@@ -259,7 +261,7 @@ class ImportScripts::Jive < ImportScripts::Base
     thread_map = {}
 
     csv_parse("messages") do |thread|
-      next unless CATEGORY_IDS.include?(thread.containerid.to_i)
+      next if CATEGORY_IDS.exclude?(thread.containerid.to_i)
 
       if !thread.parentmessageid
         # topic
@@ -327,7 +329,7 @@ class ImportScripts::Jive < ImportScripts::Base
     csv_parse("messages") do |thread|
       # post
 
-      next unless CATEGORY_IDS.include?(thread.containerid.to_i)
+      next if CATEGORY_IDS.exclude?(thread.containerid.to_i)
 
       if thread.parentmessageid
         #IMAGE UPLOADER

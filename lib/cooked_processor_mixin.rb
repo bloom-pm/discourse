@@ -135,7 +135,7 @@ module CookedProcessorMixin
 
   def get_size_from_attributes(img)
     w, h = img["width"].to_i, img["height"].to_i
-    return w, h unless w <= 0 || h <= 0
+    return w, h if w > 0 && h > 0
     # if only width or height are specified attempt to scale image
     if w > 0 || h > 0
       w = w.to_f
@@ -155,7 +155,7 @@ module CookedProcessorMixin
   end
 
   def get_size_from_image_sizes(src, image_sizes)
-    return unless image_sizes.present?
+    return if image_sizes.blank?
     image_sizes.each do |image_size|
       url, size = image_size[0], image_size[1]
       if url && src && url.include?(src) && size && size["width"].to_i > 0 &&
@@ -174,7 +174,7 @@ module CookedProcessorMixin
     return @size_cache[url] if @size_cache.has_key?(url)
 
     absolute_url = url
-    absolute_url = Discourse.base_url_no_prefix + absolute_url if absolute_url =~ %r{^/[^/]}
+    absolute_url = Discourse.base_url_no_prefix + absolute_url if absolute_url =~ %r{\A/[^/]}
 
     return unless absolute_url
 
@@ -361,5 +361,14 @@ module CookedProcessorMixin
     span = create_node("span", klass)
     span.content = content if content
     span
+  end
+
+  def each_responsive_ratio
+    SiteSetting
+      .responsive_post_image_sizes
+      .split("|")
+      .map(&:to_f)
+      .sort
+      .each { |r| yield r if r > 1 }
   end
 end

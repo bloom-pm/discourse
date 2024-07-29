@@ -4,9 +4,9 @@ class Category < ActiveRecord::Base
   RESERVED_SLUGS = ["none"]
 
   self.ignored_columns = [
-    :suppress_from_latest, # TODO(2020-11-18): remove
-    :required_tag_group_id, # TODO(2023-04-01): remove
-    :min_tags_from_required_group, # TODO(2023-04-01): remove
+    :suppress_from_latest, # TODO: Remove when 20240212034010_drop_deprecated_columns has been promoted to pre-deploy
+    :required_tag_group_id, # TODO: Remove when 20240212034010_drop_deprecated_columns has been promoted to pre-deploy
+    :min_tags_from_required_group, # TODO: Remove when 20240212034010_drop_deprecated_columns has been promoted to pre-deploy
   ]
 
   include Searchable
@@ -16,13 +16,7 @@ class Category < ActiveRecord::Base
   include AnonCacheInvalidator
   include HasDestroyedWebHook
 
-  REQUIRE_TOPIC_APPROVAL = "require_topic_approval"
-  REQUIRE_REPLY_APPROVAL = "require_reply_approval"
-  NUM_AUTO_BUMP_DAILY = "num_auto_bump_daily"
-
-  register_custom_field_type(REQUIRE_TOPIC_APPROVAL, :boolean)
-  register_custom_field_type(REQUIRE_REPLY_APPROVAL, :boolean)
-  register_custom_field_type(NUM_AUTO_BUMP_DAILY, :integer)
+  SLUG_REF_SEPARATOR = ":"
 
   belongs_to :topic
   belongs_to :topic_only_relative_url,
@@ -35,6 +29,7 @@ class Category < ActiveRecord::Base
   belongs_to :uploaded_logo, class_name: "Upload"
   belongs_to :uploaded_logo_dark, class_name: "Upload"
   belongs_to :uploaded_background, class_name: "Upload"
+  belongs_to :uploaded_background_dark, class_name: "Upload"
 
   has_many :topics
   has_many :category_users
@@ -46,7 +41,23 @@ class Category < ActiveRecord::Base
   has_many :topic_timers, dependent: :destroy
   has_many :upload_references, as: :target, dependent: :destroy
 
+  has_one :category_setting, dependent: :destroy
+
+  delegate :auto_bump_cooldown_days,
+           :num_auto_bump_daily,
+           :num_auto_bump_daily=,
+           :require_reply_approval,
+           :require_reply_approval=,
+           :require_reply_approval?,
+           :require_topic_approval,
+           :require_topic_approval=,
+           :require_topic_approval?,
+           to: :category_setting,
+           allow_nil: true
+
   has_and_belongs_to_many :web_hooks
+
+  accepts_nested_attributes_for :category_setting, update_only: true
 
   validates :user_id, presence: true
 
@@ -73,6 +84,12 @@ class Category < ActiveRecord::Base
   validate :ensure_slug
   validate :permissions_compatibility_validator
 
+  validates :default_slow_mode_seconds,
+            numericality: {
+              only_integer: true,
+              greater_than: 0,
+            },
+            allow_nil: true
   validates :auto_close_hours,
             numericality: {
               greater_than: 0,
@@ -88,23 +105,30 @@ class Category < ActiveRecord::Base
   before_save :apply_permissions
   before_save :downcase_email
   before_save :downcase_name
+  before_save :ensure_category_setting
 
-  after_save :publish_discourse_stylesheet
-  after_save :publish_category
   after_save :reset_topic_ids_cache
   after_save :clear_subcategory_ids
   after_save :clear_url_cache
   after_save :update_reviewables
+  after_save :publish_discourse_stylesheet
+  after_save :publish_category
 
   after_save do
     if saved_change_to_uploaded_logo_id? || saved_change_to_uploaded_logo_dark_id? ||
-         saved_change_to_uploaded_background_id?
-      upload_ids = [self.uploaded_logo_id, self.uploaded_logo_dark_id, self.uploaded_background_id]
+         saved_change_to_uploaded_background_id? || saved_change_to_uploaded_background_dark_id?
+      upload_ids = [
+        self.uploaded_logo_id,
+        self.uploaded_logo_dark_id,
+        self.uploaded_background_id,
+        self.uploaded_background_dark_id,
+      ]
       UploadReference.ensure_exist!(upload_ids: upload_ids, target: self)
     end
   end
 
   after_destroy :reset_topic_ids_cache
+  after_destroy :clear_subcategory_ids
   after_destroy :publish_category_deletion
   after_destroy :remove_site_settings
 
@@ -125,18 +149,26 @@ class Category < ActiveRecord::Base
 
   has_many :category_tags, dependent: :destroy
   has_many :tags, through: :category_tags
+  has_many :none_synonym_tags,
+           -> { where(target_tag_id: nil) },
+           through: :category_tags,
+           source: :tag
   has_many :category_tag_groups, dependent: :destroy
   has_many :tag_groups, through: :category_tag_groups
 
   has_many :category_required_tag_groups, -> { order(order: :asc) }, dependent: :destroy
   has_many :sidebar_section_links, as: :linkable, dependent: :delete_all
+  has_many :embeddable_hosts, dependent: :destroy
+
+  has_many :category_form_templates, dependent: :destroy
+  has_many :form_templates, through: :category_form_templates
 
   belongs_to :reviewable_by_group, class_name: "Group"
 
   scope :latest, -> { order("topic_count DESC") }
 
   scope :secured,
-        ->(guardian = nil) {
+        ->(guardian = nil) do
           ids = guardian.secure_category_ids if guardian
 
           if ids.present?
@@ -147,13 +179,13 @@ class Category < ActiveRecord::Base
           else
             where("NOT categories.read_restricted").references(:categories)
           end
-        }
+        end
 
   TOPIC_CREATION_PERMISSIONS ||= [:full]
   POST_CREATION_PERMISSIONS ||= %i[create_post full]
 
   scope :topic_create_allowed,
-        ->(guardian) {
+        ->(guardian) do
           scoped = scoped_to_permissions(guardian, TOPIC_CREATION_PERMISSIONS)
 
           if !SiteSetting.allow_uncategorized_topics && !guardian.is_staff?
@@ -161,10 +193,29 @@ class Category < ActiveRecord::Base
           end
 
           scoped
-        }
+        end
 
   scope :post_create_allowed,
         ->(guardian) { scoped_to_permissions(guardian, POST_CREATION_PERMISSIONS) }
+
+  scope :with_ancestors, ->(id) { where(<<~SQL, id) }
+        id IN (
+          WITH RECURSIVE ancestors(category_id) AS (
+            SELECT ?
+            UNION
+            SELECT parent_category_id
+            FROM categories, ancestors
+            WHERE id = ancestors.category_id
+          )
+          SELECT category_id FROM ancestors
+        )
+      SQL
+
+  scope :with_parents, ->(ids) { where(<<~SQL, ids: ids) }
+    id IN (:ids)
+    OR
+    id IN (SELECT DISTINCT parent_category_id FROM categories WHERE id IN (:ids))
+  SQL
 
   delegate :post_template, to: "self.class"
 
@@ -175,29 +226,247 @@ class Category < ActiveRecord::Base
                 :subcategory_ids,
                 :subcategory_list,
                 :notification_level,
-                :has_children
+                :has_children,
+                :subcategory_count
 
   # Allows us to skip creating the category definition topic in tests.
   attr_accessor :skip_category_definition
 
-  @topic_id_cache = DistributedCache.new("category_topic_ids")
+  def self.preload_user_fields!(guardian, categories)
+    category_ids = categories.map(&:id)
+
+    # Load notification levels
+    notification_levels = CategoryUser.notification_levels_for(guardian.user)
+    notification_levels.default = CategoryUser.default_notification_level
+
+    # Load permissions
+    allowed_topic_create_ids =
+      if !guardian.is_admin? && !guardian.is_anonymous?
+        Category.topic_create_allowed(guardian).where(id: category_ids).pluck(:id).to_set
+      end
+
+    # Load subcategory counts (used to fill has_children property)
+    subcategory_count =
+      Category.secured(guardian).where.not(parent_category_id: nil).group(:parent_category_id).count
+
+    # Update category attributes
+    categories.each do |category|
+      category.notification_level = notification_levels[category[:id]]
+
+      category.permission = CategoryGroup.permission_types[:full] if guardian.is_admin? ||
+        allowed_topic_create_ids&.include?(category[:id])
+
+      category.has_children = subcategory_count.key?(category[:id])
+
+      category.subcategory_count = subcategory_count[category[:id]] if category.has_children
+    end
+  end
+
+  def self.ancestors_of(category_ids)
+    ancestor_ids = []
+
+    SiteSetting.max_category_nesting.times do
+      category_ids =
+        where(id: category_ids)
+          .where.not(parent_category_id: nil)
+          .pluck("DISTINCT parent_category_id")
+
+      ancestor_ids.concat(category_ids)
+
+      break if category_ids.empty?
+    end
+
+    where(id: ancestor_ids)
+  end
+
+  # Perform a search. If a category exists in the result, its ancestors do too.
+  # Also check for prefix matches. If a category has a prefix match, its
+  # ancestors report a match too.
+  scope :tree_search,
+        ->(only, except, term) do
+          term = term.strip
+          escaped_term = ActiveRecord::Base.connection.quote(term.downcase)
+          prefix_match = "starts_with(LOWER(categories.name), #{escaped_term})"
+
+          word_match = <<~SQL
+            COALESCE(
+              (
+                SELECT BOOL_AND(position(pattern IN LOWER(categories.name)) <> 0)
+                FROM unnest(regexp_split_to_array(#{escaped_term}, '\s+')) AS pattern
+              ),
+              true
+            )
+          SQL
+
+          if except
+            prefix_match =
+              "NOT categories.id IN (#{except.reselect(:id).to_sql}) AND #{prefix_match}"
+            word_match = "NOT categories.id IN (#{except.reselect(:id).to_sql}) AND #{word_match}"
+          end
+
+          if only
+            prefix_match = "categories.id IN (#{only.reselect(:id).to_sql}) AND #{prefix_match}"
+            word_match = "categories.id IN (#{only.reselect(:id).to_sql}) AND #{word_match}"
+          end
+
+          categories =
+            Category.select(
+              "categories.*",
+              "#{prefix_match} AS has_prefix_match",
+              "#{word_match} AS has_word_match",
+            )
+
+          (1...SiteSetting.max_category_nesting).each do
+            categories = Category.from("(#{categories.to_sql}) AS categories")
+
+            subcategory_matches =
+              categories
+                .where.not(parent_category_id: nil)
+                .group("categories.parent_category_id")
+                .select(
+                  "categories.parent_category_id AS id",
+                  "BOOL_OR(categories.has_prefix_match) AS has_prefix_match",
+                  "BOOL_OR(categories.has_word_match) AS has_word_match",
+                )
+
+            categories =
+              Category.joins(
+                "LEFT JOIN (#{subcategory_matches.to_sql}) AS subcategory_matches ON categories.id = subcategory_matches.id",
+              ).select(
+                "categories.*",
+                "#{prefix_match} OR COALESCE(subcategory_matches.has_prefix_match, false) AS has_prefix_match",
+                "#{word_match} OR COALESCE(subcategory_matches.has_word_match, false) AS has_word_match",
+              )
+          end
+
+          categories =
+            Category.from("(#{categories.to_sql}) AS categories").where(has_word_match: true)
+
+          categories.select("has_prefix_match AS matches", :id)
+        end
+
+  # Given a relation, 'matches', which contains category ids and a 'matches'
+  # boolean, and a limit (the maximum number of subcategories per category),
+  # produce a subset of the matches categories annotated with information about
+  # their ancestors.
+  scope :select_descendants,
+        ->(matches, limit) do
+          max_nesting = SiteSetting.max_category_nesting
+
+          categories =
+            joins("INNER JOIN (#{matches.to_sql}) AS matches ON matches.id = categories.id").select(
+              "categories.id",
+              "categories.name",
+              "ARRAY[]::record[] AS ancestors",
+              "0 AS depth",
+              "matches.matches",
+            )
+
+          categories = Category.from("(#{categories.to_sql}) AS c1")
+
+          (1...max_nesting).each { |i| categories = categories.joins(<<~SQL) }
+            INNER JOIN LATERAL (
+              (SELECT c#{i}.id, c#{i}.name, c#{i}.ancestors, c#{i}.depth, c#{i}.matches)
+              UNION ALL
+              (SELECT
+                categories.id,
+                categories.name,
+                c#{i}.ancestors || ARRAY[ROW(NOT c#{i}.matches, c#{i}.name)] AS ancestors,
+                c#{i}.depth + 1 as depth,
+                matches.matches
+              FROM categories
+              INNER JOIN matches
+              ON matches.id = categories.id
+              WHERE categories.parent_category_id = c#{i}.id
+              AND c#{i}.depth = #{i - 1}
+              ORDER BY (NOT matches.matches, categories.name)
+              LIMIT #{limit})
+            ) c#{i + 1} ON true
+          SQL
+
+          categories.select(
+            "c#{max_nesting}.id",
+            "c#{max_nesting}.ancestors",
+            "c#{max_nesting}.name",
+            "c#{max_nesting}.matches",
+          )
+        end
+
+  scope :limited_categories_matching,
+        ->(only, except, parent_id, term) do
+          joins(<<~SQL).order("c.ancestors || ARRAY[ROW(NOT c.matches, c.name)]")
+            INNER JOIN (
+              WITH matches AS (#{Category.tree_search(only, except, term).to_sql})
+              #{Category.where(parent_category_id: parent_id).select_descendants(Category.from("matches").select(:matches, :id), 5).to_sql}
+            ) AS c
+            ON categories.id = c.id
+          SQL
+        end
+
+  def self.topic_id_cache
+    @topic_id_cache ||= DistributedCache.new("category_topic_ids")
+  end
 
   def self.topic_ids
-    @topic_id_cache["ids"] || reset_topic_ids_cache
+    topic_id_cache.defer_get_set("ids") { Set.new(Category.pluck(:topic_id).compact) }
   end
 
   def self.reset_topic_ids_cache
-    @topic_id_cache["ids"] = Set.new(Category.pluck(:topic_id).compact)
+    topic_id_cache.clear
   end
 
   def reset_topic_ids_cache
     Category.reset_topic_ids_cache
   end
 
+  # Accepts an array of slugs with each item in the array
+  # Returns the category ids of the last slug in the array. The slugs array has to follow the proper category
+  # nesting hierarchy. If any of the slug in the array is invalid or if the slugs array does not follow the proper
+  # category nesting hierarchy, nil is returned.
+  #
+  # When only a single slug is provided, the category id of all the categories with that slug is returned.
+  def self.ids_from_slugs(slugs)
+    return [] if slugs.blank?
+
+    params = {}
+    params_index = 0
+
+    sqls =
+      slugs.map do |slug|
+        category_slugs =
+          slug.split(":").first(SiteSetting.max_category_nesting).map { Slug.for(_1, "") }
+
+        sql = ""
+
+        if category_slugs.length == 1
+          params[:"slug_#{params_index}"] = category_slugs.first
+          sql = "SELECT id FROM categories WHERE slug = :slug_#{params_index}"
+          params_index += 1
+        else
+          category_slugs.each_with_index do |category_slug, index|
+            params[:"slug_#{params_index}"] = category_slug
+
+            sql =
+              if index == 0
+                "SELECT id FROM categories WHERE slug = :slug_#{params_index} AND parent_category_id IS NULL"
+              else
+                "SELECT id FROM categories WHERE parent_category_id = (#{sql}) AND slug = :slug_#{params_index}"
+              end
+
+            params_index += 1
+          end
+        end
+
+        sql
+      end
+
+    DB.query_single(sqls.join("\nUNION ALL\n"), params)
+  end
+
   @@subcategory_ids = DistributedCache.new("subcategory_ids")
 
   def self.subcategory_ids(category_id)
-    @@subcategory_ids[category_id] ||= begin
+    @@subcategory_ids.defer_get_set(category_id.to_s) do
       sql = <<~SQL
             WITH RECURSIVE subcategories AS (
                 SELECT :category_id id, 1 depth
@@ -372,7 +641,7 @@ class Category < ActiveRecord::Base
     @@cache_text ||= LruRedux::ThreadSafeCache.new(1000)
     @@cache_text.getset(self.description) do
       text = Nokogiri::HTML5.fragment(self.description).text.strip
-      Rack::Utils.escape_html(text).html_safe
+      ERB::Util.html_escape(text).html_safe
     end
   end
 
@@ -397,7 +666,7 @@ class Category < ActiveRecord::Base
   end
 
   def ensure_slug
-    return unless name.present?
+    return if name.blank?
 
     self.name.strip!
 
@@ -420,7 +689,7 @@ class Category < ActiveRecord::Base
     end
 
     # only allow to use category itself id.
-    match_id = /^(\d+)-category/.match(self.slug)
+    match_id = /\A(\d+)-category/.match(self.slug)
     if match_id.present?
       errors.add(:slug, :invalid) if new_record? || (match_id[1] != self.id.to_s)
     end
@@ -600,22 +869,6 @@ class Category < ActiveRecord::Base
     [read_restricted, mapped]
   end
 
-  def require_topic_approval?
-    custom_fields[REQUIRE_TOPIC_APPROVAL]
-  end
-
-  def require_reply_approval?
-    custom_fields[REQUIRE_REPLY_APPROVAL]
-  end
-
-  def num_auto_bump_daily
-    custom_fields[NUM_AUTO_BUMP_DAILY]
-  end
-
-  def num_auto_bump_daily=(v)
-    custom_fields[NUM_AUTO_BUMP_DAILY] = v
-  end
-
   def auto_bump_limiter
     return nil if num_auto_bump_daily.to_i == 0
     RateLimiter.new(nil, "auto_bump_limit_#{self.id}", 1, 86_400 / num_auto_bump_daily.to_i)
@@ -626,22 +879,11 @@ class Category < ActiveRecord::Base
   end
 
   def self.auto_bump_topic!
-    bumped = false
-
-    auto_bumps =
-      CategoryCustomField
-        .where(name: Category::NUM_AUTO_BUMP_DAILY)
-        .where('NULLIF(value, \'\')::int > 0')
-        .pluck(:category_id)
-
-    if (auto_bumps.length > 0)
-      auto_bumps.shuffle.each do |category_id|
-        bumped = Category.find_by(id: category_id)&.auto_bump_topic!
-        break if bumped
-      end
-    end
-
-    bumped
+    Category
+      .joins(:category_setting)
+      .where("category_settings.num_auto_bump_daily > 0")
+      .shuffle
+      .any?(&:auto_bump_topic!)
   end
 
   # will automatically bump a single topic
@@ -666,7 +908,7 @@ class Category < ActiveRecord::Base
         .exclude_scheduled_bump_topics
         .where(category_id: self.id)
         .where("id <> ?", self.topic_id)
-        .where("bumped_at < ?", 1.day.ago)
+        .where("bumped_at < ?", (self.auto_bump_cooldown_days || 1).days.ago)
         .where("pinned_at IS NULL AND NOT closed AND NOT archived")
         .order("bumped_at ASC")
         .limit(1)
@@ -777,9 +1019,8 @@ class Category < ActiveRecord::Base
 
   def self.query_parent_category(parent_slug)
     encoded_parent_slug = CGI.escape(parent_slug) if SiteSetting.slug_generation_method == "encoded"
-    self.where(slug: (encoded_parent_slug || parent_slug), parent_category_id: nil).pluck_first(
-      :id,
-    ) || self.where(id: parent_slug.to_i).pluck_first(:id)
+    self.where(slug: (encoded_parent_slug || parent_slug), parent_category_id: nil).pick(:id) ||
+      self.where(id: parent_slug.to_i).pick(:id)
   end
 
   def self.query_category(slug_or_id, parent_category_id)
@@ -795,8 +1036,8 @@ class Category < ActiveRecord::Base
   end
 
   def has_children?
-    @has_children ||= (id && Category.where(parent_category_id: id).exists?) ? :true : :false
-    @has_children == :true
+    return @has_children if defined?(@has_children)
+    @has_children = (id && Category.where(parent_category_id: id).exists?)
   end
 
   def uncategorized?
@@ -805,7 +1046,7 @@ class Category < ActiveRecord::Base
 
   def seeded?
     [
-      SiteSetting.lounge_category_id,
+      SiteSetting.general_category_id,
       SiteSetting.meta_category_id,
       SiteSetting.staff_category_id,
       SiteSetting.uncategorized_category_id,
@@ -824,24 +1065,16 @@ class Category < ActiveRecord::Base
   end
 
   def url
-    @@url_cache.defer_get_set(self.id) do
+    @@url_cache.defer_get_set(self.id.to_s) do
       "#{Discourse.base_path}/c/#{slug_path.join("/")}/#{self.id}"
     end
   end
 
-  def url_with_id
-    Discourse.deprecate(
-      "Category#url_with_id is deprecated. Use `Category#url` instead.",
-      output_in_test: true,
-      drop_from: "2.9.0",
-    )
-
-    url
-  end
+  alias_method :relative_url, :url
 
   # If the name changes, try and update the category definition topic too if it's an exact match
   def rename_category_definition
-    return unless topic.present?
+    return if topic.blank?
     old_name = saved_changes.transform_values(&:first)["name"]
     if topic.title == I18n.t("category.topic_prefix", category: old_name)
       topic.update_attribute(:title, I18n.t("category.topic_prefix", category: name))
@@ -896,7 +1129,7 @@ class Category < ActiveRecord::Base
       slug_path.inject(nil) do |parent_id, slug|
         category = Category.where(slug: slug, parent_category_id: parent_id)
 
-        if match_id = /^(\d+)-category/.match(slug).presence
+        if match_id = /\A(\d+)-category/.match(slug).presence
           category = category.or(Category.where(id: match_id[1], parent_category_id: parent_id))
         end
 
@@ -990,13 +1223,29 @@ class Category < ActiveRecord::Base
       .find_each { |category| category.create_category_definition }
   end
 
-  def slug_path
+  def slug_path(parent_ids = Set.new)
     if self.parent_category_id.present?
-      slug_path = self.parent_category.slug_path
-      slug_path.push(self.slug_for_url)
-      slug_path
+      if parent_ids.add?(self.parent_category_id)
+        self.parent_category.slug_path(parent_ids) << self.slug_for_url
+      else
+        []
+      end
     else
       [self.slug_for_url]
+    end
+  end
+
+  def slug_ref(depth: 1)
+    if self.parent_category_id.present?
+      built_ref = [self.slug]
+      parent = self.parent_category
+      while parent.present? && (built_ref.length < depth + 1)
+        built_ref << parent.slug
+        parent = parent.parent_category
+      end
+      built_ref.reverse.join(Category::SLUG_REF_SEPARATOR)
+    else
+      self.slug
     end
   end
 
@@ -1024,6 +1273,10 @@ class Category < ActiveRecord::Base
   end
 
   private
+
+  def ensure_category_setting
+    self.build_category_setting if self.category_setting.blank?
+  end
 
   def should_update_reviewables?
     SiteSetting.enable_category_group_moderation? && saved_change_to_reviewable_by_group_id?
@@ -1134,6 +1387,7 @@ end
 #  allow_unlimited_owner_edits_on_first_post :boolean          default(FALSE), not null
 #  default_slow_mode_seconds                 :integer
 #  uploaded_logo_dark_id                     :integer
+#  uploaded_background_dark_id               :integer
 #
 # Indexes
 #

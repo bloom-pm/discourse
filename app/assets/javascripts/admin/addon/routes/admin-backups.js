@@ -1,46 +1,49 @@
-import Backup from "admin/models/backup";
-import BackupStatus from "admin/models/backup-status";
-import DiscourseRoute from "discourse/routes/discourse";
-import EmberObject from "@ember/object";
-import I18n from "I18n";
-import PreloadStore from "discourse/lib/preload-store";
-import User from "discourse/models/user";
+import EmberObject, { action } from "@ember/object";
+import { service } from "@ember/service";
 import { ajax } from "discourse/lib/ajax";
 import { extractError } from "discourse/lib/ajax-error";
+import PreloadStore from "discourse/lib/preload-store";
+import DiscourseRoute from "discourse/routes/discourse";
 import getURL from "discourse-common/lib/get-url";
-import showModal from "discourse/lib/show-modal";
-import { inject as service } from "@ember/service";
 import { bind } from "discourse-common/utils/decorators";
+import I18n from "discourse-i18n";
+import StartBackupModal from "admin/components/modal/start-backup";
+import Backup from "admin/models/backup";
+import BackupStatus from "admin/models/backup-status";
 
 const LOG_CHANNEL = "/admin/backups/logs";
 
-export default DiscourseRoute.extend({
-  dialog: service(),
+export default class AdminBackupsRoute extends DiscourseRoute {
+  @service currentUser;
+  @service dialog;
+  @service router;
+  @service messageBus;
+  @service modal;
 
   activate() {
     this.messageBus.subscribe(LOG_CHANNEL, this.onMessage);
-  },
+  }
 
   deactivate() {
     this.messageBus.unsubscribe(LOG_CHANNEL, this.onMessage);
-  },
+  }
 
-  model() {
-    return PreloadStore.getAndRemove("operations_status", () =>
+  async model() {
+    const status = await PreloadStore.getAndRemove("operations_status", () =>
       ajax("/admin/backups/status.json")
-    ).then((status) =>
-      BackupStatus.create({
-        isOperationRunning: status.is_operation_running,
-        canRollback: status.can_rollback,
-        allowRestore: status.allow_restore,
-      })
     );
-  },
+
+    return BackupStatus.create({
+      isOperationRunning: status.is_operation_running,
+      canRollback: status.can_rollback,
+      allowRestore: status.allow_restore,
+    });
+  }
 
   @bind
   onMessage(log) {
     if (log.message === "[STARTED]") {
-      User.currentProp("hideReadOnlyAlert", true);
+      this.currentUser.set("hideReadOnlyAlert", true);
       this.controllerFor("adminBackups").set("model.isOperationRunning", true);
       this.controllerFor("adminBackupsLogs").get("logs").clear();
     } else if (log.message === "[FAILED]") {
@@ -51,7 +54,7 @@ export default DiscourseRoute.extend({
         })
       );
     } else if (log.message === "[SUCCESS]") {
-      User.currentProp("hideReadOnlyAlert", false);
+      this.currentUser.set("hideReadOnlyAlert", false);
       this.controllerFor("adminBackups").set("model.isOperationRunning", false);
       if (log.operation === "restore") {
         // redirect to homepage when the restore is done (session might be lost)
@@ -62,105 +65,113 @@ export default DiscourseRoute.extend({
         .get("logs")
         .pushObject(EmberObject.create(log));
     }
-  },
+  }
 
-  actions: {
-    showStartBackupModal() {
-      showModal("admin-start-backup", { admin: true });
-      this.controllerFor("modal").set("modalClass", "start-backup-modal");
-    },
+  @action
+  showStartBackupModal() {
+    this.modal.show(StartBackupModal, {
+      model: { startBackup: this.startBackup },
+    });
+  }
 
-    startBackup(withUploads) {
-      this.transitionTo("admin.backups.logs");
-      Backup.start(withUploads).then((result) => {
-        if (!result.success) {
-          this.dialog.alert(result.message);
-        }
-      });
-    },
+  @action
+  startBackup(withUploads) {
+    this.router.transitionTo("admin.backups.logs");
+    Backup.start(withUploads).then((result) => {
+      if (!result.success) {
+        this.dialog.alert(result.message);
+      }
+    });
+  }
 
-    destroyBackup(backup) {
-      return this.dialog.yesNoConfirm({
-        message: I18n.t("admin.backups.operations.destroy.confirm"),
-        didConfirm: () => {
-          backup
-            .destroy()
-            .then(() =>
-              this.controllerFor("adminBackupsIndex")
-                .get("model")
-                .removeObject(backup)
-            );
-        },
-      });
-    },
-
-    startRestore(backup) {
-      this.dialog.yesNoConfirm({
-        message: I18n.t("admin.backups.operations.restore.confirm"),
-        didConfirm: () => {
-          this.transitionTo("admin.backups.logs");
-          backup.restore();
-        },
-      });
-    },
-
-    cancelOperation() {
-      this.dialog.yesNoConfirm({
-        message: I18n.t("admin.backups.operations.cancel.confirm"),
-        didConfirm: () => {
-          Backup.cancel().then(() => {
-            this.controllerFor("adminBackups").set(
-              "model.isOperationRunning",
-              false
-            );
-          });
-        },
-      });
-    },
-
-    rollback() {
-      return this.dialog.yesNoConfirm({
-        message: I18n.t("admin.backups.operations.rollback.confirm"),
-        didConfirm: () => {
-          Backup.rollback().then((result) => {
-            if (!result.success) {
-              this.dialog.alert(result.message);
-            } else {
-              // redirect to homepage (session might be lost)
-              window.location = getURL("/");
-            }
-          });
-        },
-      });
-    },
-
-    uploadSuccess(filename) {
-      this.dialog.alert(I18n.t("admin.backups.upload.success", { filename }));
-    },
-
-    uploadError(filename, message) {
-      this.dialog.alert(
-        I18n.t("admin.backups.upload.error", { filename, message })
-      );
-    },
-
-    remoteUploadSuccess() {
-      Backup.find()
-        .then((backups) => backups.map((backup) => Backup.create(backup)))
-        .then((backups) => {
-          this.controllerFor("adminBackupsIndex").set(
-            "model",
-            backups.map((backup) => Backup.create(backup))
+  @action
+  destroyBackup(backup) {
+    return this.dialog.yesNoConfirm({
+      message: I18n.t("admin.backups.operations.destroy.confirm"),
+      didConfirm: () => {
+        backup
+          .destroy()
+          .then(() =>
+            this.controllerFor("adminBackupsIndex")
+              .get("model")
+              .removeObject(backup)
           );
-        })
-        .catch((error) => {
-          this.dialog.alert(
-            I18n.t("admin.backups.backup_storage_error", {
-              error_message: extractError(error),
-            })
+      },
+    });
+  }
+
+  @action
+  startRestore(backup) {
+    this.dialog.yesNoConfirm({
+      message: I18n.t("admin.backups.operations.restore.confirm"),
+      didConfirm: () => {
+        this.router.transitionTo("admin.backups.logs");
+        backup.restore();
+      },
+    });
+  }
+
+  @action
+  cancelOperation() {
+    this.dialog.yesNoConfirm({
+      message: I18n.t("admin.backups.operations.cancel.confirm"),
+      didConfirm: () => {
+        Backup.cancel().then(() => {
+          this.controllerFor("adminBackups").set(
+            "model.isOperationRunning",
+            false
           );
-          return [];
         });
-    },
-  },
-});
+      },
+    });
+  }
+
+  @action
+  rollback() {
+    return this.dialog.yesNoConfirm({
+      message: I18n.t("admin.backups.operations.rollback.confirm"),
+      didConfirm: () => {
+        Backup.rollback().then((result) => {
+          if (!result.success) {
+            this.dialog.alert(result.message);
+          } else {
+            // redirect to homepage (session might be lost)
+            window.location = getURL("/");
+          }
+        });
+      },
+    });
+  }
+
+  @action
+  uploadSuccess(filename) {
+    this.dialog.alert(I18n.t("admin.backups.upload.success", { filename }));
+  }
+
+  @action
+  uploadError(filename, message) {
+    this.dialog.alert(
+      I18n.t("admin.backups.upload.error", { filename, message })
+    );
+  }
+
+  @action
+  remoteUploadSuccess() {
+    Backup.find()
+      .then((backups) => backups.map((backup) => Backup.create(backup)))
+      .then((backups) => {
+        this.controllerFor("adminBackupsIndex").set(
+          "model",
+          backups.map((backup) => Backup.create(backup))
+        );
+      })
+      .catch((error) => {
+        this.dialog.alert(
+          I18n.t("admin.backups.backup_storage_error", {
+            error_message: extractError(error),
+          })
+        );
+        return [];
+      });
+  }
+}

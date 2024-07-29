@@ -1,9 +1,10 @@
+import { getOwner } from "@ember/owner";
+import { render } from "@ember/test-helpers";
+import hbs from "htmlbars-inline-precompile";
+import { module, test } from "qunit";
 import { setupRenderingTest } from "discourse/tests/helpers/component-test";
 import { exists, query } from "discourse/tests/helpers/qunit-helpers";
-import hbs from "htmlbars-inline-precompile";
-import { render } from "@ember/test-helpers";
-import { module, test } from "qunit";
-import fabricators from "../helpers/fabricators";
+import ChatFabricators from "discourse/plugins/chat/discourse/lib/fabricators";
 
 module(
   "Discourse Chat | Component | chat-channel-preview-card",
@@ -13,12 +14,14 @@ module(
     hooks.beforeEach(function () {
       this.set(
         "channel",
-        fabricators.chatChannel({ chatable_type: "Category" })
+        new ChatFabricators(getOwner(this)).channel({
+          chatable_type: "Category",
+        })
       );
-      this.channel.setProperties({
-        description: "Important stuff is announced here.",
-        title: "announcements",
-      });
+
+      this.channel.description = "Important stuff is announced here.";
+      this.channel.title = "announcements";
+      this.channel.meta = { can_join_chat_channel: true };
       this.currentUser.set("has_chat_enabled", true);
       this.siteSettings.chat_enabled = true;
     });
@@ -27,13 +30,13 @@ module(
       await render(hbs`<ChatChannelPreviewCard @channel={{this.channel}} />`);
 
       assert.strictEqual(
-        query(".chat-channel-title__name").innerText,
+        query(".chat-channel-name__label").innerText,
         this.channel.title,
         "it shows the channel title"
       );
 
       assert.true(
-        exists(query(".chat-channel-title__category-badge")),
+        exists(query(".chat-channel-icon.--category-badge")),
         "it shows the category hashtag badge"
       );
     });
@@ -49,7 +52,7 @@ module(
     });
 
     test("no channel description", async function (assert) {
-      this.channel.set("description", null);
+      this.channel.description = null;
 
       await render(hbs`<ChatChannelPreviewCard @channel={{this.channel}} />`);
 
@@ -83,7 +86,7 @@ module(
     });
 
     test("closed channel", async function (assert) {
-      this.channel.set("status", "closed");
+      this.channel.status = "closed";
       await render(hbs`<ChatChannelPreviewCard @channel={{this.channel}} />`);
 
       assert.false(

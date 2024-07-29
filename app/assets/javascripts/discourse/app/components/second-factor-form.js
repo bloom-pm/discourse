@@ -1,8 +1,8 @@
 import Component from "@ember/component";
 import { action } from "@ember/object";
-import I18n from "I18n";
 import { SECOND_FACTOR_METHODS } from "discourse/models/user";
 import discourseComputed from "discourse-common/utils/decorators";
+import I18n from "discourse-i18n";
 
 export default Component.extend({
   @discourseComputed("secondFactorMethod")
@@ -42,10 +42,12 @@ export default Component.extend({
     }
   },
 
-  @discourseComputed("backupEnabled", "secondFactorMethod")
-  showToggleMethodLink(backupEnabled, secondFactorMethod) {
+  @discourseComputed("backupEnabled", "totpEnabled", "secondFactorMethod")
+  showToggleMethodLink(backupEnabled, totpEnabled, secondFactorMethod) {
     return (
-      backupEnabled && secondFactorMethod !== SECOND_FACTOR_METHODS.SECURITY_KEY
+      backupEnabled &&
+      totpEnabled &&
+      secondFactorMethod !== SECOND_FACTOR_METHODS.SECURITY_KEY
     );
   },
 

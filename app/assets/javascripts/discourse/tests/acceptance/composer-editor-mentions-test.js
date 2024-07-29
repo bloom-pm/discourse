@@ -1,16 +1,19 @@
+import { click, visit } from "@ember/test-helpers";
 import { test } from "qunit";
-import { click, fillIn, triggerKeyEvent, visit } from "@ember/test-helpers";
+import { setCaretPosition } from "discourse/lib/utilities";
 import {
   acceptance,
   exists,
   fakeTime,
   loggedInUser,
   query,
+  queryAll,
+  simulateKeys,
 } from "discourse/tests/helpers/qunit-helpers";
-import { setCaretPosition } from "discourse/lib/utilities";
 
 acceptance("Composer - editor mentions", function (needs) {
   let clock = null;
+
   const status = {
     emoji: "tooth",
     description: "off to dentist",
@@ -19,12 +22,7 @@ acceptance("Composer - editor mentions", function (needs) {
 
   needs.user();
   needs.settings({ enable_mentions: true, allow_uncategorized_topics: true });
-
-  needs.hooks.afterEach(() => {
-    if (clock) {
-      clock.restore();
-    }
-  });
+  needs.hooks.afterEach(() => clock?.restore());
 
   needs.pretender((server, helper) => {
     server.get("/u/search/users", () => {
@@ -43,6 +41,17 @@ acceptance("Composer - editor mentions", function (needs) {
             avatar_template:
               "https://avatars.discourse.org/v3/letter/t/41988e/{size}.png",
           },
+          {
+            username: "foo",
+            avatar_template:
+              "https://avatars.discourse.org/v3/letter/t/41988e/{size}.png",
+          },
+        ],
+        groups: [
+          {
+            name: "user_group",
+            full_name: "Group",
+          },
         ],
       });
     });
@@ -52,23 +61,12 @@ acceptance("Composer - editor mentions", function (needs) {
     await visit("/");
     await click("#create-topic");
 
-    // Emulate user pressing backspace in the editor
     const editor = query(".d-editor-input");
 
-    await triggerKeyEvent(".d-editor-input", "keydown", "@");
-    await fillIn(".d-editor-input", "abc @");
-    await setCaretPosition(editor, 5);
-    await triggerKeyEvent(".d-editor-input", "keyup", "@");
-
-    await triggerKeyEvent(".d-editor-input", "keydown", "U");
-    await fillIn(".d-editor-input", "abc @u");
-    await setCaretPosition(editor, 6);
-    await triggerKeyEvent(".d-editor-input", "keyup", "U");
-
-    await click(".autocomplete.ac-user .selected");
+    await simulateKeys(editor, "abc @u\r");
 
     assert.strictEqual(
-      query(".d-editor-input").value,
+      editor.value,
       "abc @user ",
       "should replace mention correctly"
     );
@@ -77,21 +75,13 @@ acceptance("Composer - editor mentions", function (needs) {
   test("selecting user mentions after deleting characters", async function (assert) {
     await visit("/");
     await click("#create-topic");
-    await fillIn(".d-editor-input", "abc @user a");
 
-    // Emulate user typing `@` and `u` in the editor
-    await triggerKeyEvent(".d-editor-input", "keydown", "Backspace");
-    await fillIn(".d-editor-input", "abc @user ");
-    await triggerKeyEvent(".d-editor-input", "keyup", "Backspace");
+    const editor = query(".d-editor-input");
 
-    await triggerKeyEvent(".d-editor-input", "keydown", "Backspace");
-    await fillIn(".d-editor-input", "abc @user");
-    await triggerKeyEvent(".d-editor-input", "keyup", "Backspace");
-
-    await click(".autocomplete.ac-user .selected");
+    await simulateKeys(editor, "abc @user a\b\b\r");
 
     assert.strictEqual(
-      query(".d-editor-input").value,
+      editor.value,
       "abc @user ",
       "should replace mention correctly"
     );
@@ -101,25 +91,14 @@ acceptance("Composer - editor mentions", function (needs) {
     await visit("/");
     await click("#create-topic");
 
-    // Emulate user pressing backspace in the editor
     const editor = query(".d-editor-input");
-    await fillIn(".d-editor-input", "abc @user 123");
+
+    await simulateKeys(editor, "abc @user 123");
     await setCaretPosition(editor, 9);
-
-    await triggerKeyEvent(".d-editor-input", "keydown", "Backspace");
-    await fillIn(".d-editor-input", "abc @use 123");
-    await triggerKeyEvent(".d-editor-input", "keyup", "Backspace");
-    await setCaretPosition(editor, 8);
-
-    await triggerKeyEvent(".d-editor-input", "keydown", "Backspace");
-    await fillIn(".d-editor-input", "abc @us 123");
-    await triggerKeyEvent(".d-editor-input", "keyup", "Backspace");
-    await setCaretPosition(editor, 7);
-
-    await click(".autocomplete.ac-user .selected");
+    await simulateKeys(editor, "\b\b\r");
 
     assert.strictEqual(
-      query(".d-editor-input").value,
+      editor.value,
       "abc @user 123",
       "should replace mention correctly"
     );
@@ -133,28 +112,42 @@ acceptance("Composer - editor mentions", function (needs) {
     await visit("/");
     await click("#create-topic");
 
-    // emulate typing in "abc @u"
     const editor = query(".d-editor-input");
-    await fillIn(".d-editor-input", "@");
-    await setCaretPosition(editor, 5);
-    await triggerKeyEvent(".d-editor-input", "keyup", "@");
-    await fillIn(".d-editor-input", "@u");
-    await setCaretPosition(editor, 6);
-    await triggerKeyEvent(".d-editor-input", "keyup", "U");
+
+    await simulateKeys(editor, "@u");
 
     assert.ok(
-      exists(`.autocomplete .emoji[title='${status.emoji}']`),
+      exists(`.autocomplete .emoji[alt='${status.emoji}']`),
       "status emoji is shown"
     );
+
     assert.equal(
-      query(".autocomplete .status-description").textContent.trim(),
+      query(
+        ".autocomplete .user-status-message-description"
+      ).textContent.trim(),
       status.description,
       "status description is shown"
     );
-    assert.equal(
-      query(".autocomplete .relative-date").textContent.trim(),
-      "1h",
-      "status expiration time is shown"
+  });
+
+  test("metadata matches are moved to the end", async function (assert) {
+    await visit("/");
+    await click("#create-topic");
+
+    const editor = query(".d-editor-input");
+
+    await simulateKeys(editor, "abc @u");
+
+    assert.deepEqual(
+      [...queryAll(".ac-user .username")].map((e) => e.innerText),
+      ["user", "user2", "user_group", "foo"]
+    );
+
+    await simulateKeys(editor, "\bf");
+
+    assert.deepEqual(
+      [...queryAll(".ac-user .username")].map((e) => e.innerText),
+      ["foo", "user_group", "user", "user2"]
     );
   });
 });

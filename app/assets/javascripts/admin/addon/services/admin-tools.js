@@ -1,34 +1,33 @@
-import AdminUser from "admin/models/admin-user";
-import I18n from "I18n";
-import { Promise } from "rsvp";
-import Service, { inject as service } from "@ember/service";
-import { ajax } from "discourse/lib/ajax";
-import { getOwner } from "discourse-common/lib/get-owner";
-import showModal from "discourse/lib/show-modal";
+import { action } from "@ember/object";
+import Service, { service } from "@ember/service";
 import { htmlSafe } from "@ember/template";
+import { Promise } from "rsvp";
+import { ajax } from "discourse/lib/ajax";
+import I18n from "discourse-i18n";
+import PenalizeUserModal from "admin/components/modal/penalize-user";
+import AdminUser from "admin/models/admin-user";
 
 // A service that can act as a bridge between the front end Discourse application
 // and the admin application. Use this if you need front end code to access admin
 // modules. Inject it optionally, and if it exists go to town!
-export default Service.extend({
-  dialog: service(),
+export default class AdminToolsService extends Service {
+  @service dialog;
+  @service modal;
+  @service router;
 
   showActionLogs(target, filters) {
-    const controller = getOwner(target).lookup(
-      "controller:adminLogs.staffActionLogs"
-    );
-    target.transitionToRoute("adminLogs.staffActionLogs").then(() => {
-      controller.changeFilters(filters);
+    this.router.transitionTo("adminLogs.staffActionLogs", {
+      queryParams: { filters },
     });
-  },
+  }
 
   checkSpammer(userId) {
     return AdminUser.find(userId).then((au) => this.spammerDetails(au));
-  },
+  }
 
   deleteUser(id, formData) {
     return AdminUser.find(id).then((user) => user.destroy(formData));
-  },
+  }
 
   spammerDetails(adminUser) {
     return {
@@ -37,45 +36,33 @@ export default Service.extend({
         adminUser.get("can_be_deleted") &&
         adminUser.get("can_delete_all_posts"),
     };
-  },
+  }
 
-  _showControlModal(type, user, opts) {
+  @action
+  async showControlModal(type, user, opts) {
     opts = opts || {};
-
-    const controller = showModal(`admin-penalize-user`, {
-      admin: true,
-      modalClass: `${type}-user-modal`,
-    });
-
-    controller.setProperties({
-      penaltyType: type,
-      postId: opts.postId,
-      postEdit: opts.postEdit,
-    });
-
-    return (
-      user.adminUserView
-        ? Promise.resolve(user)
-        : AdminUser.find(user.get("id"))
-    ).then((loadedUser) => {
-      controller.setProperties({
+    const loadedUser = user.adminUserView
+      ? user
+      : await AdminUser.find(user.get("id"));
+    this.modal.show(PenalizeUserModal, {
+      model: {
+        penaltyType: type,
+        postId: opts.postId,
+        postEdit: opts.postEdit,
         user: loadedUser,
-        loadingUser: false,
         before: opts.before,
         successCallback: opts.successCallback,
-      });
-
-      controller.finishedSetup();
+      },
     });
-  },
+  }
 
   showSilenceModal(user, opts) {
-    this._showControlModal("silence", user, opts);
-  },
+    this.showControlModal("silence", user, opts);
+  }
 
   showSuspendModal(user, opts) {
-    this._showControlModal("suspend", user, opts);
-  },
+    this.showControlModal("suspend", user, opts);
+  }
 
   _deleteSpammer(adminUser) {
     // Try loading the email if the site supports it
@@ -131,5 +118,5 @@ export default Service.extend({
         });
       });
     });
-  },
-});
+  }
+}

@@ -4,6 +4,10 @@
 # results when looking up a category slug via markdown or searching for
 # categories via the # autocomplete character.
 class CategoryHashtagDataSource
+  def self.enabled?
+    true
+  end
+
   def self.icon
     "folder"
   end
@@ -18,21 +22,26 @@ class CategoryHashtagDataSource
       item.slug = category.slug
       item.description = category.description_text
       item.icon = icon
+      item.colors = [category.parent_category&.color, category.color].compact
       item.relative_url = category.url
+      item.id = category.id
 
-      # Single-level category heirarchy should be enough to distinguish between
+      # Single-level category hierarchy should be enough to distinguish between
       # categories here.
-      item.ref =
-        if category.parent_category_id
-          "#{category.parent_category.slug}:#{category.slug}"
-        else
-          category.slug
-        end
+      item.ref = category.slug_ref
     end
   end
 
+  def self.find_by_ids(guardian, ids)
+    Category.secured(guardian).where(id: ids).map { |category| category_to_hashtag_item(category) }
+  end
+
   def self.lookup(guardian, slugs)
-    user_categories = Category.secured(guardian).includes(:parent_category)
+    user_categories =
+      Category
+        .secured(guardian)
+        .includes(:parent_category)
+        .order("parent_category_id ASC NULLS FIRST, id ASC")
     Category
       .query_loaded_from_slugs(slugs, user_categories)
       .map { |category| category_to_hashtag_item(category) }
@@ -47,14 +56,17 @@ class CategoryHashtagDataSource
     base_search =
       Category
         .secured(guardian)
-        .select(:id, :parent_category_id, :slug, :name, :description)
+        .select(:id, :parent_category_id, :slug, :name, :description, :color)
         .includes(:parent_category)
 
     if condition == HashtagAutocompleteService.search_conditions[:starts_with]
-      base_search = base_search.where("LOWER(slug) LIKE :term", term: "#{term}%")
+      base_search = base_search.where("starts_with(LOWER(slug), LOWER(:term))", term: term)
     elsif condition == HashtagAutocompleteService.search_conditions[:contains]
       base_search =
-        base_search.where("LOWER(name) LIKE :term OR LOWER(slug) LIKE :term", term: "%#{term}%")
+        base_search.where(
+          "position(LOWER(:term) IN LOWER(name)) <> 0 OR position(LOWER(:term) IN LOWER(slug)) <> 0",
+          term: term,
+        )
     else
       raise Discourse::InvalidParameters.new("Unknown search condition: #{condition}")
     end

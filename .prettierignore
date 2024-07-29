@@ -3,13 +3,13 @@ plugins/**/assets/stylesheets/vendor/
 plugins/**/assets/javascripts/vendor/
 plugins/**/config/locales/**/*.yml
 plugins/**/config/*.yml
+documentation/
 package.json
 config/locales/**/*.yml
 !config/locales/**/*.en*.yml
 script/import_scripts/**/*.yml
 
 app/assets/javascripts/browser-update.js
-app/assets/javascripts/locales/i18n.js
 app/assets/javascripts/ember-addons/
 app/assets/javascripts/discourse/lib/autosize.js
 lib/javascripts/locale/
@@ -19,6 +19,7 @@ plugins/**/lib/javascripts/locale
 public/
 !/app/assets/javascripts/discourse/public
 vendor/
+!app/assets/javascripts/ember-production-deprecations/vendor/
 app/assets/javascripts/discourse/tests/fixtures
 spec/
 node_modules/

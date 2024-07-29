@@ -3,7 +3,7 @@
 # mixin for all guardian methods dealing with post permissions
 module PostGuardian
   def unrestricted_link_posting?
-    authenticated? && @user.has_trust_level?(TrustLevel[SiteSetting.min_trust_to_post_links])
+    authenticated? && (is_staff? || @user.in_any_groups?(SiteSetting.post_links_allowed_groups_map))
   end
 
   def link_posting_access
@@ -25,7 +25,7 @@ module PostGuardian
   # Can the user act on the post in a particular way.
   #  taken_actions = the list of actions the user has already taken
   def post_can_act?(post, action_key, opts: {}, can_see_post: nil)
-    return false unless (can_see_post.nil? && can_see_post?(post)) || can_see_post
+    return false if !(can_see_post.nil? && can_see_post?(post)) && !can_see_post
 
     # no warnings except for staff
     if action_key == :notify_user &&
@@ -38,12 +38,20 @@ module PostGuardian
 
     taken = opts[:taken_actions].try(:keys).to_a
     is_flag =
-      PostActionType.notify_flag_types[action_key] || PostActionType.custom_types[action_key]
+      if (opts[:notify_flag_types] && opts[:additional_message_types])
+        opts[:notify_flag_types][action_key] || opts[:additional_message_types][action_key]
+      else
+        PostActionType.notify_flag_types[action_key] ||
+          PostActionType.additional_message_types[action_key]
+      end
     already_taken_this_action = taken.any? && taken.include?(PostActionType.types[action_key])
     already_did_flagging = taken.any? && (taken & PostActionType.notify_flag_types.values).any?
 
     result =
-      if authenticated? && post && !@user.anonymous?
+      if authenticated? && post
+        # Allow anonymous users to like if feature is enabled and short-circuit otherwise
+        return SiteSetting.allow_anonymous_likes? && (action_key == :like) if @user.anonymous?
+
         # Silenced users can't flag
         return false if is_flag && @user.silenced?
 
@@ -53,9 +61,23 @@ module PostGuardian
         # post made by staff, but we don't allow staff flags
         return false if is_flag && (!SiteSetting.allow_flagging_staff?) && post&.user&.staff?
 
+        return false if is_flag && PostActionType.disabled_flag_types.keys.include?(action_key)
+
         if action_key == :notify_user &&
              !@user.in_any_groups?(SiteSetting.personal_message_enabled_groups_map)
-          return false
+          # The modifier below is used to add additional permissions for notifying users.
+          # In core the only method of notifying a user is personal messages so we check if the
+          # user can PM. Plugins can extend the behavior of how users are notifier via `notify_user`
+          # post action, and this allows extension for that use case.
+          can_notify = false
+          can_notify =
+            DiscoursePluginRegistry.apply_modifier(
+              :post_guardian_can_notify_user,
+              can_notify,
+              self,
+              post,
+            )
+          return can_notify
         end
 
         # we allow flagging for trust level 1 and higher
@@ -63,7 +85,7 @@ module PostGuardian
         (
           is_flag && not(already_did_flagging) &&
             (
-              @user.has_trust_level?(TrustLevel[SiteSetting.min_trust_to_flag_posts]) ||
+              @user.in_any_groups?(SiteSetting.flag_post_allowed_groups_map) ||
                 post.topic.private_message?
             )
         ) ||
@@ -129,11 +151,7 @@ module PostGuardian
     # Must be staff to edit a locked post
     return false if post.locked? && !is_staff?
 
-    if (
-         is_staff? ||
-           (SiteSetting.trusted_users_can_edit_others? && @user.has_trust_level?(TrustLevel[4])) ||
-           is_category_group_moderator?(post.topic&.category)
-       )
+    if (is_staff? || is_in_edit_post_groups? || is_category_group_moderator?(post.topic&.category))
       return can_create_post?(post.topic)
     end
 
@@ -148,11 +166,11 @@ module PostGuardian
       return true
     end
 
-    if post.wiki && (@user.trust_level >= SiteSetting.min_trust_to_edit_wiki_post.to_i)
+    if post.wiki && @user.in_any_groups?(SiteSetting.edit_wiki_post_allowed_groups_map)
       return can_create_post?(post.topic)
     end
 
-    return false if @user.trust_level < SiteSetting.min_trust_to_edit_post
+    return false if !trusted_with_post_edits?
 
     if is_my_own?(post)
       return false if @user.silenced?
@@ -173,6 +191,11 @@ module PostGuardian
     false
   end
 
+  def is_in_edit_post_groups?
+    SiteSetting.edit_all_post_groups.present? &&
+      user.in_any_groups?(SiteSetting.edit_all_post_groups.to_s.split("|").map(&:to_i))
+  end
+
   def can_edit_hidden_post?(post)
     return false if post.nil?
     post.hidden_at.nil? ||
@@ -190,6 +213,8 @@ module PostGuardian
     return false if post.is_first_post?
 
     return true if is_staff? || is_category_group_moderator?(post.topic&.category)
+
+    return true if user.in_any_groups?(SiteSetting.delete_all_posts_and_topics_allowed_groups_map)
 
     # Can't delete posts in archived topics unless you are staff
     return false if post.topic&.archived?
@@ -243,8 +268,33 @@ module PostGuardian
   def can_delete_post_action?(post_action)
     return false unless is_my_own?(post_action) && !post_action.is_private_message?
 
-    post_action.created_at > SiteSetting.post_undo_action_window_mins.minutes.ago &&
-      !post_action.post&.topic&.archived?
+    ok_to_delete =
+      post_action.created_at > SiteSetting.post_undo_action_window_mins.minutes.ago &&
+        !post_action.post&.topic&.archived?
+
+    # NOTE: This looks strange...but we are checking if someone is posting anonymously
+    # as a AnonymousUser model, _not_ as Guardian::AnonymousUser which is a different thing
+    # used when !authenticated?
+    if authenticated? && is_anonymous?
+      return(
+        ok_to_delete && SiteSetting.allow_anonymous_likes? && post_action.is_like? &&
+          is_my_own?(post_action)
+      )
+    end
+
+    ok_to_delete
+  end
+
+  def can_receive_post_notifications?(post)
+    return false if !authenticated?
+
+    if is_admin? && SiteSetting.suppress_secured_categories_from_admin
+      topic = post.topic
+      if !topic.private_message? && topic.category.read_restricted
+        return secure_category_ids.include?(topic.category_id)
+      end
+    end
+    can_see_post?(post)
   end
 
   def can_see_post?(post)
@@ -255,7 +305,10 @@ module PostGuardian
       return false
     end
     return true if is_moderator? || is_category_group_moderator?(post.topic.category)
-    return true if !post.trashed? || can_see_deleted_post?(post)
+    if (!post.trashed? || can_see_deleted_post?(post)) &&
+         (!post.hidden? || can_see_hidden_post?(post))
+      return true
+    end
     false
   end
 
@@ -264,6 +317,15 @@ module PostGuardian
     return false if @user.anonymous?
     return true if is_staff?
     post.deleted_by_id == @user.id && @user.has_trust_level?(TrustLevel[4])
+  end
+
+  def can_see_hidden_post?(post)
+    if SiteSetting.hidden_post_visible_groups_map.include?(Group::AUTO_GROUPS[:everyone])
+      return true
+    end
+    return false if anonymous?
+    return true if is_staff?
+    post.user_id == @user.id || @user.in_any_groups?(SiteSetting.hidden_post_visible_groups_map)
   end
 
   def can_view_edit_history?(post)
@@ -290,7 +352,7 @@ module PostGuardian
     return false unless authenticated?
     return true if is_staff? || @user.has_trust_level?(TrustLevel[4])
 
-    if @user.has_trust_level?(SiteSetting.min_trust_to_allow_self_wiki) && is_my_own?(post)
+    if @user.in_any_groups?(SiteSetting.self_wiki_allowed_groups_map) && is_my_own?(post)
       return false if post.hidden?
       return !post.edit_time_limit_expired?(@user)
     end
@@ -311,11 +373,12 @@ module PostGuardian
   end
 
   def can_see_deleted_posts?(category = nil)
-    is_staff? || is_category_group_moderator?(category)
+    is_staff? || is_category_group_moderator?(category) ||
+      @user.in_any_groups?(SiteSetting.delete_all_posts_and_topics_allowed_groups_map)
   end
 
   def can_view_raw_email?(post)
-    post && is_staff?
+    post && @user.in_any_groups?(SiteSetting.view_raw_email_allowed_groups_map)
   end
 
   def can_unhide?(post)
@@ -324,6 +387,10 @@ module PostGuardian
 
   def can_skip_bump?
     is_staff? || @user.has_trust_level?(TrustLevel[4])
+  end
+
+  def trusted_with_post_edits?
+    is_staff? || @user.in_any_groups?(SiteSetting.edit_post_allowed_groups_map)
   end
 
   private

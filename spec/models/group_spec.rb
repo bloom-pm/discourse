@@ -5,7 +5,17 @@ RSpec.describe Group do
   let(:user) { Fabricate(:user) }
   let(:group) { Fabricate(:group) }
 
+  it_behaves_like "it has custom fields"
+
   describe "Validations" do
+    it { is_expected.to allow_value("#{"a" * 996}.com").for(:automatic_membership_email_domains) }
+    it do
+      is_expected.not_to allow_value("#{"a" * 997}.com").for(:automatic_membership_email_domains)
+    end
+    it { is_expected.to validate_length_of(:bio_raw).is_at_most(3000) }
+    it { is_expected.to validate_length_of(:membership_request_template).is_at_most(5000) }
+    it { is_expected.to validate_length_of(:full_name).is_at_most(100) }
+
     describe "#grant_trust_level" do
       describe "when trust level is not valid" do
         it "should not be valid" do
@@ -47,6 +57,14 @@ RSpec.describe Group do
     end
   end
 
+  describe ".human_users" do
+    before { group.users << user << Discourse.system_user }
+
+    it "returns only human users" do
+      expect(group.human_users).to contain_exactly(user)
+    end
+  end
+
   describe "#posts_for" do
     it "returns the post in the group" do
       p = Fabricate(:post)
@@ -63,6 +81,16 @@ RSpec.describe Group do
 
       posts = group.posts_for(Guardian.new)
       expect(posts).not_to include(p)
+    end
+
+    it "filters results by datetime using the before parameter" do
+      p1 = Fabricate(:post)
+      p2 = Fabricate(:post, created_at: p1.created_at + 2.minute)
+      group.add(p1.user)
+
+      posts = group.posts_for(Guardian.new, before: p1.created_at + 1.minute)
+      expect(posts).to include(p1)
+      expect(posts).not_to include(p2)
     end
   end
 
@@ -177,18 +205,6 @@ RSpec.describe Group do
     end
   end
 
-  def real_admins
-    Group[:admins].user_ids.reject { |id| id < 0 }
-  end
-
-  def real_moderators
-    Group[:moderators].user_ids.reject { |id| id < 0 }
-  end
-
-  def real_staff
-    Group[:staff].user_ids.reject { |id| id < 0 }
-  end
-
   describe "#primary_group=" do
     before { group.add(user) }
 
@@ -232,6 +248,31 @@ RSpec.describe Group do
     end
   end
 
+  describe ".auto_groups_between" do
+    it "returns the auto groups between lower and upper bounds" do
+      expect(
+        described_class.auto_groups_between(:trust_level_0, :trust_level_3),
+      ).to contain_exactly(10, 11, 12, 13)
+    end
+
+    it "excludes the undefined groups between staff and TL0" do
+      expect(described_class.auto_groups_between(:admins, :trust_level_0)).to contain_exactly(
+        1,
+        2,
+        3,
+        10,
+      )
+    end
+
+    it "returns an empty array when lower group is higher than upper group" do
+      expect(described_class.auto_groups_between(:trust_level_1, :trust_level_0)).to be_empty
+    end
+
+    it "returns an empty array when passing an unknown group" do
+      expect(described_class.auto_groups_between(:trust_level_0, :trust_level_1337)).to be_empty
+    end
+  end
+
   describe ".refresh_automatic_group!" do
     it "does not include staged users in any automatic groups" do
       staged = Fabricate(:staged, trust_level: 1)
@@ -247,13 +288,13 @@ RSpec.describe Group do
     end
 
     describe "after updating automatic group members" do
-      fab!(:user) { Fabricate(:user) }
+      fab!(:user)
 
       it "triggers an event when a user is removed from an automatic group" do
         tl3_users = Group.find(Group::AUTO_GROUPS[:trust_level_3])
         tl3_users.add(user)
 
-        events = DiscourseEvent.track_events { Group.refresh_automatic_group!(:trust_level_3) }
+        _events = DiscourseEvent.track_events { Group.refresh_automatic_group!(:trust_level_3) }
 
         expect(GroupUser.exists?(group: tl3_users, user: user)).to eq(false)
         publish_event_job_args = Jobs::PublishGroupMembershipUpdates.jobs.last["args"].first
@@ -269,6 +310,7 @@ RSpec.describe Group do
 
         events = DiscourseEvent.track_events { Group.refresh_automatic_group!(:trust_level_0) }
 
+        expect(events).to include(event_name: :group_updated, params: [tl0_users])
         expect(GroupUser.exists?(group: tl0_users, user: user)).to eq(true)
         publish_event_job_args = Jobs::PublishGroupMembershipUpdates.jobs.last["args"].first
         expect(publish_event_job_args["user_ids"]).to include(user.id)
@@ -378,33 +420,33 @@ RSpec.describe Group do
 
     Group.refresh_automatic_groups!(:admins, :staff, :moderators)
 
-    expect(real_admins).to eq [admin.id]
-    expect(real_moderators).to eq [moderator.id]
-    expect(real_staff.sort).to eq [moderator.id, admin.id].sort
+    expect(Group[:admins].human_users).to contain_exactly(admin)
+    expect(Group[:moderators].human_users).to contain_exactly(moderator)
+    expect(Group[:staff].human_users).to contain_exactly(moderator, admin)
 
     admin.admin = false
     admin.save
 
     Group.refresh_automatic_group!(:admins)
-    expect(real_admins).to be_empty
+    expect(Group[:admins].human_users).to be_empty
 
     moderator.revoke_moderation!
 
     admin.grant_admin!
-    expect(real_admins).to eq [admin.id]
-    expect(real_staff).to eq [admin.id]
+    expect(Group[:admins].human_users).to contain_exactly(admin)
+    expect(Group[:staff].human_users).to contain_exactly(admin)
 
     admin.revoke_admin!
-    expect(real_admins).to be_empty
-    expect(real_staff).to be_empty
+    expect(Group[:admins].human_users).to be_empty
+    expect(Group[:staff].human_users).to be_empty
 
     admin.grant_moderation!
-    expect(real_moderators).to eq [admin.id]
-    expect(real_staff).to eq [admin.id]
+    expect(Group[:moderators].human_users).to contain_exactly(admin)
+    expect(Group[:staff].human_users).to contain_exactly(admin)
 
     admin.revoke_moderation!
-    expect(real_admins).to be_empty
-    expect(real_staff).to eq []
+    expect(Group[:admins].human_users).to be_empty
+    expect(Group[:staff].human_users).to be_empty
 
     # we need some work to set min username to 6
 
@@ -449,24 +491,23 @@ RSpec.describe Group do
     Group.delete_all
     Group.refresh_automatic_groups!
 
-    groups = Group.includes(:users).to_a
-    expect(groups.count).to eq Group::AUTO_GROUPS.count
+    expect(Group.count).to eq Group::AUTO_GROUPS.count
 
-    g = groups.find { |grp| grp.id == Group::AUTO_GROUPS[:admins] }
-    expect(g.users.count).to eq g.user_count
-    expect(g.users.pluck(:id)).to contain_exactly(admin.id)
+    g = Group[:admins]
+    expect(g.human_users.count).to eq(g.user_count)
+    expect(g.human_users).to contain_exactly(admin)
 
-    g = groups.find { |grp| grp.id == Group::AUTO_GROUPS[:staff] }
-    expect(g.users.count).to eq g.user_count
-    expect(g.users.pluck(:id)).to contain_exactly(admin.id)
+    g = Group[:admins]
+    expect(g.human_users.count).to eq(g.user_count)
+    expect(g.human_users).to contain_exactly(admin)
 
-    g = groups.find { |grp| grp.id == Group::AUTO_GROUPS[:trust_level_1] }
-    expect(g.users.count).to eq g.user_count
-    expect(g.users.pluck(:id)).to contain_exactly(admin.id, user.id)
+    g = Group[:trust_level_1]
+    expect(g.human_users.count).to eq(g.user_count)
+    expect(g.human_users).to contain_exactly(admin, user)
 
-    g = groups.find { |grp| grp.id == Group::AUTO_GROUPS[:trust_level_2] }
-    expect(g.users.count).to eq g.user_count
-    expect(g.users.pluck(:id)).to contain_exactly(user.id)
+    g = Group[:trust_level_2]
+    expect(g.human_users.count).to eq(g.user_count)
+    expect(g.human_users).to contain_exactly(admin, user)
   end
 
   it "can set members via usernames helper" do
@@ -492,18 +533,18 @@ RSpec.describe Group do
   end
 
   describe "new" do
-    subject { Fabricate.build(:group) }
+    subject(:group) { Fabricate.build(:group) }
 
     it "triggers a extensibility event" do
-      event = DiscourseEvent.track_events { subject.save! }.first
+      event = DiscourseEvent.track_events { group.save! }.first
 
       expect(event[:event_name]).to eq(:group_created)
-      expect(event[:params].first).to eq(subject)
+      expect(event[:params].first).to eq(group)
     end
   end
 
   describe "destroy" do
-    fab!(:user) { Fabricate(:user) }
+    fab!(:user)
     fab!(:group) { Fabricate(:group, users: [user]) }
 
     before { group.add(user) }
@@ -571,19 +612,42 @@ RSpec.describe Group do
     expect(group.id).to eq Group[group.name.to_sym].id
   end
 
+  it "allows you to lookup a group by integer id" do
+    group = Fabricate(:group)
+    expect(Group.lookup_groups(group_ids: group.id)).to contain_exactly(group)
+  end
+
+  it "allows you to lookup groups by comma separated string" do
+    group1 = Fabricate(:group)
+    group2 = Fabricate(:group)
+    expect(Group.lookup_groups(group_ids: "#{group1.id},#{group2.id}")).to contain_exactly(
+      group1,
+      group2,
+    )
+  end
+
+  it "allows you to lookup groups by array" do
+    group1 = Fabricate(:group)
+    group2 = Fabricate(:group)
+    expect(Group.lookup_groups(group_ids: [group1.id, group2.id])).to contain_exactly(
+      group1,
+      group2,
+    )
+  end
+
   it "can find desired groups correctly" do
-    expect(Group.desired_trust_level_groups(2).sort).to eq [10, 11, 12]
+    expect(Group.desired_trust_level_groups(2)).to contain_exactly(10, 11, 12)
   end
 
   it "correctly handles trust level changes" do
     user = Fabricate(:user, trust_level: 2)
     Group.user_trust_level_change!(user.id, 2)
 
-    expect(user.groups.map(&:name).sort).to eq %w[trust_level_0 trust_level_1 trust_level_2]
+    expect(user.groups.map(&:name)).to match_array %w[trust_level_0 trust_level_1 trust_level_2]
 
     Group.user_trust_level_change!(user.id, 0)
     user.reload
-    expect(user.groups.map(&:name).sort).to eq ["trust_level_0"]
+    expect(user.groups.map(&:name)).to contain_exactly("trust_level_0")
   end
 
   it "generates an event when applying group from trust level change" do
@@ -603,7 +667,7 @@ RSpec.describe Group do
   end
 
   describe "group management" do
-    fab!(:group) { Fabricate(:group) }
+    fab!(:group)
 
     it "by default has no managers" do
       expect(group.group_users.where("group_users.owner")).to be_empty
@@ -641,8 +705,8 @@ RSpec.describe Group do
     describe "when a user has qualified for trust level 1" do
       fab!(:user) { Fabricate(:user, trust_level: 1, created_at: Time.zone.now - 10.years) }
 
-      fab!(:group) { Fabricate(:group, grant_trust_level: 1) }
-      fab!(:group2) { Fabricate(:group, grant_trust_level: 0) }
+      fab!(:group) { Fabricate(:group, grant_trust_level: 3) }
+      fab!(:group2) { Fabricate(:group, grant_trust_level: 2) }
 
       before { user.user_stat.update!(topics_entered: 999, posts_read_count: 999, time_read: 999) }
 
@@ -650,11 +714,15 @@ RSpec.describe Group do
         group.add(user)
         group2.add(user)
 
-        expect(user.reload.trust_level).to eq(1)
+        expect(user.reload.trust_level).to eq(3)
 
         group.remove(user)
 
-        expect(user.reload.trust_level).to eq(0)
+        expect(user.reload.trust_level).to eq(2)
+
+        group2.remove(user)
+
+        expect(user.reload.trust_level).to eq(1)
       end
     end
 
@@ -729,6 +797,11 @@ RSpec.describe Group do
       expect(can_view?(logged_on_user, group)).to eq(false)
       expect(can_view?(nil, group)).to eq(false)
 
+      group.add_owner(moderator)
+
+      expect(can_view?(moderator, group)).to eq(true)
+
+      GroupUser.delete_by(group: group, user: moderator)
       group.update_columns(visibility_level: Group.visibility_levels[:staff])
 
       expect(can_view?(admin, group)).to eq(true)
@@ -792,6 +865,11 @@ RSpec.describe Group do
       expect(can_view?(logged_on_user, group)).to eq(false)
       expect(can_view?(nil, group)).to eq(false)
 
+      group.add_owner(moderator)
+
+      expect(can_view?(moderator, group)).to eq(true)
+
+      GroupUser.delete_by(group: group, user: moderator)
       group.update_columns(members_visibility_level: Group.visibility_levels[:staff])
 
       expect(can_view?(admin, group)).to eq(true)
@@ -860,6 +938,20 @@ RSpec.describe Group do
       events = DiscourseEvent.track_events { group.remove(user) }.map { |e| e[:event_name] }
       expect(events).to include(:user_removed_from_group)
     end
+
+    describe "with webhook" do
+      fab!(:group_user_web_hook)
+
+      it "Enqueues webhook events" do
+        group.remove(user)
+        job_args = Jobs::EmitWebHookEvent.jobs.last["args"].first
+
+        expect(job_args["event_name"]).to eq("user_removed_from_group")
+        payload = JSON.parse(job_args["payload"])
+        expect(payload["group_id"]).to eq(group.id)
+        expect(payload["user_id"]).to eq(user.id)
+      end
+    end
   end
 
   describe "#add" do
@@ -916,7 +1008,7 @@ RSpec.describe Group do
     end
 
     context "when adding a user into a public group" do
-      fab!(:category) { Fabricate(:category) }
+      fab!(:category)
 
       it "should publish the group's categories to the client" do
         group.update!(public_admission: true, categories: [category])
@@ -949,7 +1041,6 @@ RSpec.describe Group do
 
     it "should return the right groups" do
       Group.delete_all
-      Group.refresh_automatic_groups!
 
       group_name =
         Fabricate(:group, name: "tEsT_more_things", full_name: "Abc something awesome").name
@@ -990,7 +1081,45 @@ RSpec.describe Group do
       expect {
         group.bulk_add([user.id, admin.id])
         group.reload
-      }.to change { group.user_count }.by(2)
+      }.to change { group.user_count }.from(0).to(2)
+    end
+  end
+
+  describe "#bulk_remove" do
+    it "removes multiple users from the group and doesn't error with user_ids not present" do
+      group.bulk_add([user.id, admin.id])
+
+      group.bulk_remove([user.id, admin.id, admin.id + 1])
+
+      expect(group.group_users.count).to be_zero
+    end
+
+    it "updates group user count" do
+      group.bulk_add([user.id, admin.id])
+      expect(group.reload.user_count).to eq(2)
+
+      group.bulk_remove([user.id, admin.id])
+      expect(group.reload.user_count).to eq(0)
+    end
+
+    describe "with webhook" do
+      fab!(:group_user_web_hook)
+
+      it "Enqueues user_removed_from_group webhook events for each group_user" do
+        group.bulk_add([user.id, admin.id])
+
+        group.bulk_remove([user.id, admin.id])
+        Jobs::EmitWebHookEvent
+          .jobs
+          .last(2)
+          .each do |event|
+            job_args = event["args"].first
+            expect(job_args["event_name"]).to eq("user_removed_from_group")
+            payload = JSON.parse(job_args["payload"])
+            expect(payload["group_id"]).to eq(group.id)
+            expect([user.id, admin.id]).to include(payload["user_id"])
+          end
+      end
     end
   end
 
@@ -1268,7 +1397,7 @@ RSpec.describe Group do
     it "enables smtp and records the change" do
       group.update(
         smtp_port: 587,
-        smtp_ssl: true,
+        smtp_ssl_mode: Group.smtp_ssl_modes[:starttls],
         smtp_server: "smtp.gmail.com",
         email_username: "test@gmail.com",
         email_password: "password",
@@ -1285,7 +1414,7 @@ RSpec.describe Group do
     it "records the change for singular setting changes" do
       group.update(
         smtp_port: 587,
-        smtp_ssl: true,
+        smtp_ssl_mode: Group.smtp_ssl_modes[:starttls],
         smtp_server: "smtp.gmail.com",
         email_username: "test@gmail.com",
         email_password: "password",
@@ -1319,7 +1448,7 @@ RSpec.describe Group do
     it "disables smtp and records the change" do
       group.update(
         smtp_port: 587,
-        smtp_ssl: true,
+        smtp_ssl_mode: Group.smtp_ssl_modes[:starttls],
         smtp_server: "smtp.gmail.com",
         email_username: "test@gmail.com",
         email_password: "password",
@@ -1331,7 +1460,7 @@ RSpec.describe Group do
 
       group.update(
         smtp_port: nil,
-        smtp_ssl: false,
+        smtp_ssl_mode: Group.smtp_ssl_modes[:none],
         smtp_server: nil,
         email_username: nil,
         email_password: nil,

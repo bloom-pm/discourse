@@ -1,37 +1,38 @@
-import Report from "admin/models/report";
 import Component from "@ember/component";
-import discourseDebounce from "discourse-common/lib/debounce";
-import loadScript from "discourse/lib/load-script";
-import { makeArray } from "discourse-common/lib/helpers";
-import { number } from "discourse/lib/formatter";
 import { schedule } from "@ember/runloop";
+import { classNames } from "@ember-decorators/component";
+import { number } from "discourse/lib/formatter";
+import loadScript from "discourse/lib/load-script";
+import discourseDebounce from "discourse-common/lib/debounce";
+import { makeArray } from "discourse-common/lib/helpers";
 import { bind } from "discourse-common/utils/decorators";
+import Report from "admin/models/report";
 
-export default Component.extend({
-  classNames: ["admin-report-chart"],
-  limit: 8,
-  total: 0,
-  options: null,
+@classNames("admin-report-chart")
+export default class AdminReportChart extends Component {
+  limit = 8;
+  total = 0;
+  options = null;
 
   didInsertElement() {
-    this._super(...arguments);
+    super.didInsertElement(...arguments);
 
     window.addEventListener("resize", this._resizeHandler);
-  },
+  }
 
   willDestroyElement() {
-    this._super(...arguments);
+    super.willDestroyElement(...arguments);
 
     window.removeEventListener("resize", this._resizeHandler);
 
     this._resetChart();
-  },
+  }
 
   didReceiveAttrs() {
-    this._super(...arguments);
+    super.didReceiveAttrs(...arguments);
 
     discourseDebounce(this, this._scheduleChartRendering, 100);
-  },
+  }
 
   _scheduleChartRendering() {
     schedule("afterRender", () => {
@@ -40,7 +41,7 @@ export default Component.extend({
         this.element && this.element.querySelector(".chart-canvas")
       );
     });
-  },
+  }
 
   _renderChart(model, chartCanvas) {
     if (!chartCanvas) {
@@ -99,7 +100,7 @@ export default Component.extend({
         this._buildChartConfig(data, this.options)
       );
     });
-  },
+  }
 
   _buildChartConfig(data, options) {
     return {
@@ -161,21 +162,21 @@ export default Component.extend({
         },
       },
     };
-  },
+  }
 
   _resetChart() {
     if (this._chart) {
       this._chart.destroy();
       this._chart = null;
     }
-  },
+  }
 
   _applyChartGrouping(model, data, options) {
     return Report.collapse(model, data, options.chartGrouping);
-  },
+  }
 
   @bind
   _resizeHandler() {
     discourseDebounce(this, this._scheduleChartRendering, 500);
-  },
-});
+  }
+}

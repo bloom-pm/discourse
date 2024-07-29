@@ -35,8 +35,8 @@ RSpec.describe TopTopic do
   end
 
   describe "#compute_top_score_for" do
-    fab!(:user) { Fabricate(:user) }
-    fab!(:coding_horror) { Fabricate(:coding_horror) }
+    fab!(:user)
+    fab!(:coding_horror)
 
     fab!(:topic_1) { Fabricate(:topic, posts_count: 10, like_count: 28) }
     fab!(:t1_post_1) { Fabricate(:post, topic: topic_1, like_count: 28, post_number: 1) }
@@ -62,11 +62,11 @@ RSpec.describe TopTopic do
       TopTopic.refresh!
       top_topics = TopTopic.all
 
-      expect(top_topics.where(topic_id: topic_1.id).pluck_first(:yearly_score)).to eq(27)
-      expect(top_topics.where(topic_id: topic_2.id).pluck_first(:yearly_score)).to be_within(
+      expect(top_topics.where(topic_id: topic_1.id).pick(:yearly_score)).to eq(27)
+      expect(top_topics.where(topic_id: topic_2.id).pick(:yearly_score)).to be_within(
         0.0000000001,
       ).of(18.301029995664)
-      expect(top_topics.where(topic_id: topic_3.id).pluck_first(:yearly_score)).to be_within(
+      expect(top_topics.where(topic_id: topic_3.id).pick(:yearly_score)).to be_within(
         0.0000000001,
       ).of(10.602059991328)
 
@@ -84,11 +84,11 @@ RSpec.describe TopTopic do
       TopTopic.refresh!
       top_topics = TopTopic.all
 
-      expect(top_topics.where(topic_id: topic_1.id).pluck_first(:yearly_score)).to eq(27)
-      expect(top_topics.where(topic_id: topic_2.id).pluck_first(:yearly_score)).to be_within(
+      expect(top_topics.where(topic_id: topic_1.id).pick(:yearly_score)).to eq(27)
+      expect(top_topics.where(topic_id: topic_2.id).pick(:yearly_score)).to be_within(
         0.0000000001,
       ).of(18.301029995664)
-      expect(top_topics.where(topic_id: topic_3.id).pluck_first(:yearly_score)).to be_within(
+      expect(top_topics.where(topic_id: topic_3.id).pick(:yearly_score)).to be_within(
         0.0000000001,
       ).of(11.2041199826559)
 
@@ -106,11 +106,11 @@ RSpec.describe TopTopic do
       TopTopic.refresh!
       top_topics = TopTopic.all
 
-      expect(top_topics.where(topic_id: topic_1.id).pluck_first(:yearly_score)).to eq(69)
-      expect(top_topics.where(topic_id: topic_2.id).pluck_first(:yearly_score)).to be_within(
+      expect(top_topics.where(topic_id: topic_1.id).pick(:yearly_score)).to eq(69)
+      expect(top_topics.where(topic_id: topic_2.id).pick(:yearly_score)).to be_within(
         0.0000000001,
       ).of(33.301029995664)
-      expect(top_topics.where(topic_id: topic_3.id).pluck_first(:yearly_score)).to be_within(
+      expect(top_topics.where(topic_id: topic_3.id).pick(:yearly_score)).to be_within(
         0.0000000001,
       ).of(10.602059991328)
 
@@ -128,11 +128,11 @@ RSpec.describe TopTopic do
       TopTopic.refresh!
       top_topics = TopTopic.all
 
-      expect(top_topics.where(topic_id: topic_1.id).pluck_first(:yearly_score)).to eq(30)
-      expect(top_topics.where(topic_id: topic_2.id).pluck_first(:yearly_score)).to be_within(
+      expect(top_topics.where(topic_id: topic_1.id).pick(:yearly_score)).to eq(30)
+      expect(top_topics.where(topic_id: topic_2.id).pick(:yearly_score)).to be_within(
         0.0000000001,
       ).of(21.301029995664)
-      expect(top_topics.where(topic_id: topic_3.id).pluck_first(:yearly_score)).to be_within(
+      expect(top_topics.where(topic_id: topic_3.id).pick(:yearly_score)).to be_within(
         0.0000000001,
       ).of(10.602059991328)
 
@@ -144,11 +144,11 @@ RSpec.describe TopTopic do
       TopTopic.refresh!
       top_topics = TopTopic.all
 
-      expect(top_topics.where(topic_id: topic_1.id).pluck_first(:yearly_score)).to eq(27)
-      expect(top_topics.where(topic_id: topic_2.id).pluck_first(:yearly_score)).to be_within(
+      expect(top_topics.where(topic_id: topic_1.id).pick(:yearly_score)).to eq(27)
+      expect(top_topics.where(topic_id: topic_2.id).pick(:yearly_score)).to be_within(
         0.0000000001,
       ).of(18.301029995664)
-      expect(top_topics.where(topic_id: topic_3.id).pluck_first(:yearly_score)).to be_within(
+      expect(top_topics.where(topic_id: topic_3.id).pick(:yearly_score)).to be_within(
         0.0000000001,
       ).of(10.602059991328)
     end

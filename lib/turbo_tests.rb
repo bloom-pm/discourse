@@ -15,10 +15,23 @@ require "parallel_tests/rspec/runner"
 require "./lib/turbo_tests/reporter"
 require "./lib/turbo_tests/runner"
 require "./lib/turbo_tests/json_rows_formatter"
+require "./lib/turbo_tests/documentation_formatter"
+
+RSpec.configure do |config|
+  # this is an unusual config option because it is used by the formatter, not just the runner
+  config.full_cause_backtrace = true
+end
 
 module TurboTests
-  FakeException = Struct.new(:backtrace, :message, :cause)
-  class FakeException
+  class FakeException < Exception
+    attr_reader :backtrace, :message, :cause
+
+    def initialize(backtrace, message, cause)
+      @backtrace = backtrace
+      @message = message
+      @cause = cause
+    end
+
     def self.from_obj(obj)
       if obj
         obj = obj.symbolize_keys
@@ -54,9 +67,19 @@ module TurboTests
   end
 
   FakeExample =
-    Struct.new(:execution_result, :location, :full_description, :metadata, :location_rerun_argument)
+    Struct.new(
+      :execution_result,
+      :location,
+      :description,
+      :full_description,
+      :metadata,
+      :location_rerun_argument,
+      :process_id,
+      :command_string,
+    )
+
   class FakeExample
-    def self.from_obj(obj)
+    def self.from_obj(obj, process_id:, command_string:)
       obj = obj.symbolize_keys
       metadata = obj[:metadata].symbolize_keys
 
@@ -71,9 +94,12 @@ module TurboTests
       new(
         FakeExecutionResult.from_obj(obj[:execution_result]),
         obj[:location],
+        obj[:description],
         obj[:full_description],
         metadata,
         obj[:location_rerun_argument],
+        process_id,
+        command_string,
       )
     end
 

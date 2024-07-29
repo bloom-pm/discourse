@@ -1,13 +1,11 @@
 # frozen_string_literal: true
 
 RSpec.describe TopicQuery::PrivateMessageLists do
-  fab!(:admin) { Fabricate(:admin) }
-  fab!(:user) { Fabricate(:user) }
+  fab!(:admin)
+  fab!(:user) { Fabricate(:user, refresh_auto_groups: true) }
   fab!(:user_2) { Fabricate(:user) }
   fab!(:user_3) { Fabricate(:user) }
   fab!(:user_4) { Fabricate(:user) }
-
-  before_all { Group.refresh_automatic_groups! }
 
   fab!(:group) do
     Fabricate(:group, messageable_level: Group::ALIAS_LEVELS[:everyone]).tap { |g| g.add(user_2) }
@@ -163,10 +161,8 @@ RSpec.describe TopicQuery::PrivateMessageLists do
   end
 
   describe "#list_private_messages_unread" do
-    fab!(:user) { Fabricate(:user) }
+    fab!(:user) { Fabricate(:user, refresh_auto_groups: true) }
     fab!(:user_2) { Fabricate(:user) }
-
-    before_all { Group.refresh_automatic_groups! }
 
     fab!(:pm) do
       create_post(
@@ -207,10 +203,8 @@ RSpec.describe TopicQuery::PrivateMessageLists do
   end
 
   describe "#list_private_messages_new" do
-    fab!(:user) { Fabricate(:user) }
+    fab!(:user) { Fabricate(:user, refresh_auto_groups: true) }
     fab!(:user_2) { Fabricate(:user) }
-
-    before_all { Group.refresh_automatic_groups! }
 
     fab!(:pm) do
       create_post(
@@ -318,6 +312,40 @@ RSpec.describe TopicQuery::PrivateMessageLists do
       group_2.remove(user_4)
 
       expect(TopicQuery.new(user_4).private_messages_for(user_4, :all)).to eq([])
+    end
+  end
+
+  describe "#list_private_messages_direct_and_groups" do
+    it "returns a list of all personal and group private messages for a given user" do
+      expect(
+        TopicQuery.new(user_2).list_private_messages_direct_and_groups(user_2).topics,
+      ).to contain_exactly(private_message, group_message)
+    end
+
+    it "returns a list of personal private messages and user watching group private messages for a given user when the `groups_notification_level` option is set" do
+      expect(
+        TopicQuery
+          .new(user_2)
+          .list_private_messages_direct_and_groups(
+            user_2,
+            groups_messages_notification_level: :watching,
+          )
+          .topics,
+      ).to contain_exactly(private_message, group_message)
+
+      TopicUser.find_by(user: user_2, topic: group_message).update!(
+        notification_level: NotificationLevels.topic_levels[:regular],
+      )
+
+      expect(
+        TopicQuery
+          .new(user_2)
+          .list_private_messages_direct_and_groups(
+            user_2,
+            groups_messages_notification_level: :watching,
+          )
+          .topics,
+      ).to contain_exactly(private_message)
     end
   end
 end

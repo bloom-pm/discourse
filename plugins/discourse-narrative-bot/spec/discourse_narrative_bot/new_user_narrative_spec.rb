@@ -6,7 +6,7 @@ RSpec.describe DiscourseNarrativeBot::NewUserNarrative do
   fab!(:discobot_user) { narrative_bot.discobot_user }
   fab!(:discobot_username) { narrative_bot.discobot_username }
   fab!(:first_post) { Fabricate(:post, user: discobot_user) }
-  fab!(:user) { Fabricate(:user) }
+  fab!(:user)
 
   fab!(:topic) do
     Fabricate(
@@ -31,6 +31,7 @@ RSpec.describe DiscourseNarrativeBot::NewUserNarrative do
     stub_image_size
     Jobs.run_immediately!
     SiteSetting.discourse_narrative_bot_enabled = true
+    Group.refresh_automatic_groups!
   end
 
   describe "#notify_timeout" do
@@ -286,22 +287,43 @@ RSpec.describe DiscourseNarrativeBot::NewUserNarrative do
         )
       end
 
-      it "should create the right reply when the bookmark is created" do
-        post.update!(user: discobot_user)
-        narrative.expects(:enqueue_timeout_job).with(user)
+      it "triggers the response when bookmarking the topic" do
+        Jobs.run_later!
+        topic = Fabricate(:topic)
+        post = Fabricate(:post, topic: topic)
+        bookmark = Fabricate(:bookmark, bookmarkable: topic)
 
-        narrative.input(:bookmark, user, post: post)
-        new_post = Post.last
-        profile_page_url = "#{Discourse.base_url}/u/#{user.username}"
+        expect_job_enqueued(
+          job: :bot_input,
+          args: {
+            user_id: bookmark.user_id,
+            post_id: post.id,
+            input: "bookmark",
+          },
+        )
+      end
 
-        expected_raw = <<~RAW
+      context "when the bookmark is created" do
+        let(:profile_page_url) { "#{Discourse.base_url_no_prefix}/prefix/u/#{user.username}" }
+        let(:new_post) { Post.last }
+        let(:user_state) { narrative.get_data(user)[:state].to_sym }
+        let(:expected_raw) { <<~RAW }
           #{I18n.t("discourse_narrative_bot.new_user_narrative.bookmark.reply", bookmark_url: "#{profile_page_url}/activity/bookmarks", base_uri: "")}
 
           #{I18n.t("discourse_narrative_bot.new_user_narrative.onebox.instructions", base_uri: "")}
         RAW
 
-        expect(new_post.raw).to eq(expected_raw.chomp)
-        expect(narrative.get_data(user)[:state].to_sym).to eq(:tutorial_onebox)
+        before do
+          set_subfolder("/prefix")
+          post.update!(user: discobot_user)
+          narrative.stubs(:enqueue_timeout_job).with(user)
+        end
+
+        it "creates the right reply" do
+          narrative.input(:bookmark, user, post: post)
+          expect(new_post.raw).to eq(expected_raw.chomp)
+          expect(user_state).to eq(:tutorial_onebox)
+        end
       end
 
       it "should skip tutorials in SiteSetting.discourse_narrative_bot_skip_tutorials" do
@@ -823,8 +845,11 @@ RSpec.describe DiscourseNarrativeBot::NewUserNarrative do
           end
         end
 
-        describe "when min_trust_to_post_embedded_media is too high" do
-          before { SiteSetting.min_trust_to_post_embedded_media = 4 }
+        describe "when embedded_media_post_allowed_groups does not include the user" do
+          before do
+            SiteSetting.embedded_media_post_allowed_groups = Group::AUTO_GROUPS[:trust_level_4]
+            Group.refresh_automatic_groups!
+          end
 
           it "should skip the images tutorial step" do
             post.update!(
@@ -1023,7 +1048,7 @@ RSpec.describe DiscourseNarrativeBot::NewUserNarrative do
       let(:another_post) { Fabricate(:post, user: discobot_user, topic: topic) }
       let(:flag) do
         Fabricate(
-          :flag,
+          :flag_post_action,
           post: post,
           user: user,
           post_action_type_id: PostActionType.types[:inappropriate],
@@ -1031,7 +1056,7 @@ RSpec.describe DiscourseNarrativeBot::NewUserNarrative do
       end
       let(:other_flag) do
         Fabricate(
-          :flag,
+          :flag_post_action,
           post: another_post,
           user: user,
           post_action_type_id: PostActionType.types[:spam],
@@ -1157,7 +1182,7 @@ RSpec.describe DiscourseNarrativeBot::NewUserNarrative do
 
       describe "when post contain the right answer" do
         let(:post) { Fabricate(:post, user: discobot_user, topic: topic) }
-        let(:flag) { Fabricate(:flag, post: post, user: user) }
+        let(:flag) { Fabricate(:flag_post_action, post: post, user: user) }
 
         before do
           narrative.set_data(user, state: :tutorial_flag, topic_id: topic.id)

@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
 RSpec.describe Admin::ColorSchemesController do
-  fab!(:admin) { Fabricate(:admin) }
-  fab!(:moderator) { Fabricate(:moderator) }
-  fab!(:user) { Fabricate(:user) }
+  fab!(:admin)
+  fab!(:moderator)
+  fab!(:user)
 
   let(:valid_params) do
     {
@@ -30,6 +30,20 @@ RSpec.describe Admin::ColorSchemesController do
         expect(scheme_names).to include(scheme_name)
         expect(scheme_colors[0]["name"]).to eq(base_scheme_colors[0].name)
         expect(scheme_colors[0]["hex"]).to eq(base_scheme_colors[0].hex)
+      end
+
+      it "serializes default colors even when not present in database" do
+        scheme = ColorScheme.create_from_base({ name: "my color scheme" })
+        scheme.colors.find_by(name: "primary").destroy!
+        scheme_name = scheme.name
+
+        get "/admin/color_schemes.json"
+        expect(response.status).to eq(200)
+
+        serialized_scheme = response.parsed_body.find { |s| s["name"] == "my color scheme" }
+        scheme_colors = serialized_scheme["colors"]
+        expect(scheme_colors[0]["name"]).to eq("primary")
+        expect(scheme_colors[0]["hex"]).to eq(scheme.resolved_colors["primary"])
       end
     end
 

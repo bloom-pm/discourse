@@ -1,15 +1,17 @@
 import { alias, match } from "@ember/object/computed";
-import { schedule, throttle } from "@ember/runloop";
-import DiscourseURL from "discourse/lib/url";
 import Mixin from "@ember/object/mixin";
-import afterTransition from "discourse/lib/after-transition";
-import { escapeExpression } from "discourse/lib/utilities";
-import { inject as service } from "@ember/service";
+import { schedule, throttle } from "@ember/runloop";
+import { service } from "@ember/service";
 import { wantsNewWindow } from "discourse/lib/intercept-click";
-import { bind } from "discourse-common/utils/decorators";
+import { headerOffset } from "discourse/lib/offset-calculator";
+import DiscourseURL from "discourse/lib/url";
+import { escapeExpression } from "discourse/lib/utilities";
 import discourseLater from "discourse-common/lib/later";
+import { bind } from "discourse-common/utils/decorators";
 
 const DEFAULT_SELECTOR = "#main-outlet";
+const AVATAR_OVERFLOW_SIZE = 44;
+const MOBILE_SCROLL_EVENT = "scroll.mobile-card-cloak";
 
 let _cardClickListenerSelectors = [DEFAULT_SELECTOR];
 
@@ -22,27 +24,31 @@ export function resetCardClickListenerSelector() {
 }
 
 export default Mixin.create({
+  appEvents: service(),
+  currentUser: service(),
+  menu: service(),
   router: service(),
+  site: service(),
+  siteSettings: service(),
 
   elementId: null, //click detection added for data-{elementId}
-  triggeringLinkClass: null, //the <a> classname where this card should appear
-  _showCallback: null, //username, $target - load up data for when show is called, should call this._positionCard($target) when it's done.
-
-  postStream: alias("topic.postStream"),
-  viewingTopic: match("router.currentRouteName", /^topic\./),
+  _showCallback: null, //username - load up data for when show is called
 
   visible: false,
   username: null,
   loading: null,
   cardTarget: null,
   post: null,
-  isFixed: false,
   isDocked: false,
+  _menuInstance: null,
+
+  postStream: alias("topic.postStream"),
+  viewingTopic: match("router.currentRouteName", /^topic\./),
 
   _show(username, target, event) {
     // No user card for anon
     if (this.siteSettings.hide_user_profiles_from_public && !this.currentUser) {
-      return false;
+      return true;
     }
 
     username = escapeExpression(username.toString());
@@ -56,20 +62,11 @@ export default Mixin.create({
 
     this.appEvents.trigger("card:show", username, target, event);
 
-    const currentUsername = this.username;
-    if (username === currentUsername || this.loading === username) {
-      this._positionCard($(target));
-      return;
-    }
+    const postId = target.closest("article")?.dataset?.postId || null;
 
-    const closestArticle = target.closest("article");
-    const postId = closestArticle?.dataset?.postId || null;
-    const wasVisible = this.visible;
-    const previousTarget = this.cardTarget;
-
-    if (wasVisible) {
+    if (this.visible) {
       this._close();
-      if (target === previousTarget) {
+      if (target === this.cardTarget) {
         return;
       }
     }
@@ -78,6 +75,7 @@ export default Mixin.create({
       this.viewingTopic && postId
         ? this.postStream.findLoadedPost(postId)
         : null;
+
     this.setProperties({
       username,
       loading: username,
@@ -85,8 +83,11 @@ export default Mixin.create({
       post,
     });
 
+    document.querySelector(".card-cloak")?.classList.remove("hidden");
+
     this.appEvents.trigger("user-card:show", { username });
-    this._showCallback(username, $(target)).then((user) => {
+    this._positionCard(target, event);
+    this._showCallback(username).then((user) => {
       this.appEvents.trigger("user-card:after-show", { user });
     });
 
@@ -100,17 +101,6 @@ export default Mixin.create({
 
   didInsertElement() {
     this._super(...arguments);
-    afterTransition($(this.element), this._hide);
-    const id = this.elementId;
-    const triggeringLinkClass = this.triggeringLinkClass;
-    const previewClickEvent = `click.discourse-preview-${id}-${triggeringLinkClass}`;
-    const mobileScrollEvent = "scroll.mobile-card-cloak";
-
-    this.setProperties({
-      boundCardClickHandler: this._cardClickHandler,
-      previewClickEvent,
-      mobileScrollEvent,
-    });
 
     document.addEventListener("mousedown", this._clickOutsideHandler);
     document.addEventListener("keyup", this._escListener);
@@ -118,13 +108,17 @@ export default Mixin.create({
     _cardClickListenerSelectors.forEach((selector) => {
       document
         .querySelector(selector)
-        .addEventListener("click", this.boundCardClickHandler);
+        .addEventListener("click", this._cardClickHandler);
     });
 
-    this.appEvents.on(previewClickEvent, this, "_previewClick");
+    this.appEvents.on(
+      `d-editor:preview-click-${this.elementId}`,
+      this,
+      "_previewClick"
+    );
 
     this.appEvents.on(
-      `topic-header:trigger-${id}`,
+      `topic-header:trigger-${this.elementId}`,
       this,
       "_topicHeaderTrigger"
     );
@@ -135,7 +129,7 @@ export default Mixin.create({
   @bind
   _cardClickHandler(event) {
     if (this.avatarSelector) {
-      let matched = this._showCardOnClick(
+      const matched = this._showCardOnClick(
         event,
         this.avatarSelector,
         (el) => el.dataset[this.avatarDataAttrKey]
@@ -153,151 +147,99 @@ export default Mixin.create({
   },
 
   _showCardOnClick(event, selector, transformText) {
-    let matchingEl = event.target.closest(selector);
+    const matchingEl = event.target.closest(selector);
     if (matchingEl) {
       if (wantsNewWindow(event)) {
         return true;
       }
 
-      event.preventDefault();
-      event.stopPropagation();
-      return this._show(transformText(matchingEl), matchingEl, event);
+      const shouldBubble = this._show(
+        transformText(matchingEl),
+        matchingEl,
+        event
+      );
+
+      if (!shouldBubble) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
     }
 
     return false;
   },
 
-  _topicHeaderTrigger(username, target) {
-    this.setProperties({ isFixed: true, isDocked: true });
-    return this._show(username, target);
+  _topicHeaderTrigger(username, target, event) {
+    this.set("isDocked", true);
+    return this._show(username, target, event);
+  },
+
+  @bind
+  _onScroll() {
+    throttle(this, this._close, 1000);
   },
 
   _bindMobileScroll() {
-    const mobileScrollEvent = this.mobileScrollEvent;
-    const onScroll = () => {
-      throttle(this, this._close, 1000);
-    };
-
-    $(window).on(mobileScrollEvent, onScroll);
+    window.addEventListener(MOBILE_SCROLL_EVENT, this._onScroll);
   },
 
   _unbindMobileScroll() {
-    const mobileScrollEvent = this.mobileScrollEvent;
-
-    $(window).off(mobileScrollEvent);
+    window.removeEventListener(MOBILE_SCROLL_EVENT, this._onScroll);
   },
 
-  _previewClick($target) {
-    this.set("isFixed", true);
-    return this._show($target.text().replace(/^@/, ""), $target);
+  _previewClick(target, event) {
+    return this._show(target.innerText.replace(/^@/, ""), target, event);
   },
 
-  _positionCard(target) {
-    const rtl = $("html").css("direction") === "rtl";
-    if (!target) {
-      return;
-    }
-    const width = $(this.element).width();
-    const height = 175;
-    const isFixed = this.isFixed;
-    const isDocked = this.isDocked;
+  _positionCard(target, event) {
+    schedule("afterRender", async () => {
+      if (this.site.desktopView) {
+        this._menuInstance = await this.menu.show(target, {
+          content: this.element,
+          autoUpdate: false,
+          identifier: "card",
+          padding: {
+            top: 10 + AVATAR_OVERFLOW_SIZE + headerOffset(),
+            right: 10,
+            bottom: 10,
+            left: 10,
+          },
+          maxWidth: "unset",
+        });
+      } else {
+        this._menuInstance = await this.menu.show(target, {
+          content: this.element,
+          strategy: "fixed",
+          identifier: "card",
+          computePosition: (content) => {
+            content.style.left = "10px";
+            content.style.right = "10px";
+            content.style.top = 10 + AVATAR_OVERFLOW_SIZE + "px";
+          },
+        });
+      }
 
-    let verticalAdjustments = 0;
+      this.element.classList.toggle("docked-card", this.isDocked);
 
-    schedule("afterRender", () => {
-      if (target) {
-        if (!this.site.mobileView) {
-          let position = target.offset();
-          if (target.parents(".d-header").length > 0) {
-            position.top = target.position().top;
-          }
-
-          if (position) {
-            position.bottom = "unset";
-
-            if (rtl) {
-              // The site direction is rtl
-              position.right = $(window).width() - position.left + 10;
-              position.left = "auto";
-              let overage = $(window).width() - 50 - (position.right + width);
-              if (overage < 0) {
-                position.right += overage;
-                position.top += target.height() + 48;
-                verticalAdjustments += target.height() + 48;
-              }
-            } else {
-              // The site direction is ltr
-              position.left += target.width() + 10;
-
-              let overage = $(window).width() - 50 - (position.left + width);
-              if (overage < 0) {
-                position.left += overage;
-                position.top += target.height() + 48;
-                verticalAdjustments += target.height() + 48;
-              }
-            }
-
-            // It looks better to have the card aligned slightly higher
-            position.top -= 24;
-
-            if (isFixed) {
-              position.top -= $("html").scrollTop();
-              //if content is fixed and will be cut off on the bottom, display it above...
-              if (
-                position.top + height + verticalAdjustments >
-                $(window).height() - 50
-              ) {
-                position.bottom =
-                  $(window).height() -
-                  (target.offset().top - $("html").scrollTop());
-                if (verticalAdjustments > 0) {
-                  position.bottom += 48;
-                }
-                position.top = "unset";
-              }
-            }
-
-            const avatarOverflowSize = 44;
-            if (isDocked && position.top < avatarOverflowSize) {
-              position.top = avatarOverflowSize;
-            }
-
-            $(this.element).css(position);
-          }
-        }
-
-        if (this.site.mobileView) {
-          $(".card-cloak").removeClass("hidden");
-          let position = target.offset();
-          position.top = "10%"; // match modal behaviour
-          position.left = 0;
-          $(this.element).css(position);
-        }
-        $(this.element).toggleClass("docked-card", isDocked);
-
-        // After the card is shown, focus on the first link
-        //
-        // note: we DO NOT use afterRender here cause _positionCard may
-        // run afterwards, if we allowed this to happen the usercard
-        // may be offscreen and we may scroll all the way to it on focus
-        if (event.pointerId === -1) {
-          discourseLater(() => {
-            const firstLink = this.element.querySelector("a");
-            firstLink && firstLink.focus();
-          }, 350);
-        }
+      // After the card is shown, focus on the first link
+      //
+      // note: we DO NOT use afterRender here cause _positionCard may
+      // run afterwards, if we allowed this to happen the usercard
+      // may be offscreen and we may scroll all the way to it on focus
+      if (event?.pointerId === -1) {
+        discourseLater(() => {
+          this.element.querySelector("a")?.focus();
+        }, 350);
       }
     });
   },
 
   @bind
   _hide() {
-    if (!this.visible) {
-      $(this.element).css({ left: -9999, top: -9999 });
-      if (this.site.mobileView) {
-        $(".card-cloak").addClass("hidden");
-      }
+    if (!this.visible && this.site.mobileView) {
+      document.querySelector(".card-cloak")?.classList.add("hidden");
     }
+
+    this._menuInstance?.destroy();
   },
 
   _close() {
@@ -307,7 +249,6 @@ export default Mixin.create({
       loading: null,
       cardTarget: null,
       post: null,
-      isFixed: false,
       isDocked: false,
     });
 
@@ -329,11 +270,14 @@ export default Mixin.create({
     _cardClickListenerSelectors.forEach((selector) => {
       document
         .querySelector(selector)
-        .removeEventListener("click", this.boundCardClickHandler);
+        .removeEventListener("click", this._cardClickHandler);
     });
 
-    const previewClickEvent = this.previewClickEvent;
-    this.appEvents.off(previewClickEvent, this, "_previewClick");
+    this.appEvents.off(
+      `d-editor:preview-click-${this.elementId}`,
+      this,
+      "_previewClick"
+    );
 
     this.appEvents.off(
       `topic-header:trigger-${this.elementId}`,
@@ -347,21 +291,18 @@ export default Mixin.create({
 
   @bind
   _clickOutsideHandler(event) {
-    if (this.visible) {
-      if (
-        event.target
-          .closest(`[data-${this.elementId}]`)
-          ?.getAttribute(`data-${this.elementId}`) ||
-        event.target.closest(`a.${this.triggeringLinkClass}`) ||
-        event.target.closest(`#${this.elementId}`)
-      ) {
-        return;
-      }
-
-      this._close();
+    if (
+      !this.visible ||
+      event.target
+        .closest(`[data-${this.elementId}]`)
+        ?.getAttribute(`data-${this.elementId}`) ||
+      event.target.closest(`a.${this.triggeringLinkClass}`) ||
+      event.target.closest(`#${this.elementId}`)
+    ) {
+      return;
     }
 
-    return true;
+    this._close();
   },
 
   @bind
@@ -369,7 +310,6 @@ export default Mixin.create({
     if (this.visible && event.key === "Escape") {
       this.cardTarget?.focus();
       this._close();
-      return;
     }
   },
 });

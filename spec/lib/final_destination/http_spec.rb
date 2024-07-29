@@ -7,9 +7,14 @@ describe FinalDestination::HTTP do
     Socket.stubs(:tcp).never
     TCPSocket.stubs(:open).never
     Addrinfo.stubs(:getaddrinfo).never
+
+    FinalDestination::SSRFDetector.allow_ip_lookups_in_test!
   end
 
-  after { WebMock.enable! }
+  after do
+    WebMock.enable!
+    FinalDestination::SSRFDetector.disallow_ip_lookups_in_test!
+  end
 
   def expect_tcp_and_abort(stub_addr, &blk)
     success = Class.new(StandardError)
@@ -18,10 +23,6 @@ describe FinalDestination::HTTP do
       yield
     rescue success
     end
-  end
-
-  def stub_ip_lookup(stub_addr, ips)
-    FinalDestination::SSRFDetector.stubs(:lookup_ips).with { |addr| stub_addr == addr }.returns(ips)
   end
 
   def stub_tcp_to_raise(stub_addr, exception)
@@ -108,5 +109,13 @@ describe FinalDestination::HTTP do
     expect do
       FinalDestination::HTTP.start("example.com", 80, open_timeout: 5) {}
     end.to raise_error(Net::OpenTimeout)
+  end
+
+  it "validates address argument against nil value" do
+    expect do FinalDestination::HTTP.start(nil) {} end.to raise_error(ArgumentError)
+  end
+
+  it "validates address argument against empty value" do
+    expect do FinalDestination::HTTP.start("") {} end.to raise_error(ArgumentError)
   end
 end

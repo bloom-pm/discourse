@@ -1,10 +1,8 @@
-import Badge from "discourse/models/badge";
-import I18n from "I18n";
-import Route from "@ember/routing/route";
-import { ajax } from "discourse/lib/ajax";
 import { action, get } from "@ember/object";
-import showModal from "discourse/lib/show-modal";
-import { inject as service } from "@ember/service";
+import Route from "@ember/routing/route";
+import { service } from "@ember/service";
+import Badge from "discourse/models/badge";
+import I18n from "discourse-i18n";
 
 export default class AdminBadgesShowRoute extends Route {
   @service dialog;
@@ -25,42 +23,14 @@ export default class AdminBadgesShowRoute extends Route {
     );
   }
 
-  setupController(controller, model) {
+  setupController(controller) {
     super.setupController(...arguments);
-    if (model.image_url) {
-      controller.showImageUploader();
-    } else if (model.icon) {
-      controller.showIconSelector();
-    }
+
+    controller.setup();
   }
 
   @action
-  editGroupings() {
-    const model = this.controllerFor("admin-badges").get("badgeGroupings");
-    showModal("admin-edit-badge-groupings", { model, admin: true });
-  }
-
-  @action
-  preview(badge, explain) {
-    badge.set("preview_loading", true);
-    ajax("/admin/badges/preview.json", {
-      type: "POST",
-      data: {
-        sql: badge.get("query"),
-        target_posts: !!badge.get("target_posts"),
-        trigger: badge.get("trigger"),
-        explain,
-      },
-    })
-      .then(function (model) {
-        badge.set("preview_loading", false);
-        showModal("admin-badge-preview", { model, admin: true });
-      })
-      .catch(function (error) {
-        badge.set("preview_loading", false);
-        // eslint-disable-next-line no-console
-        console.error(error);
-        this.dialog.alert("Network error");
-      });
+  updateGroupings(groupings) {
+    this.controllerFor("admin-badges").set("badgeGroupings", groupings);
   }
 }

@@ -3,16 +3,17 @@
 class Invite < ActiveRecord::Base
   class UserExists < StandardError
   end
+
   class RedemptionFailed < StandardError
   end
+
   class ValidationFailed < StandardError
   end
 
   include RateLimiter::OnCreateRecord
   include Trashable
 
-  # TODO(2021-05-22): remove
-  self.ignored_columns = %w[user_id redeemed_at]
+  self.ignored_columns = %w[user_id redeemed_at] # TODO: Remove when 20240212034010_drop_deprecated_columns has been promoted to pre-deploy
 
   BULK_INVITE_EMAIL_LIMIT = 200
   DOMAIN_REGEX =
@@ -30,7 +31,9 @@ class Invite < ActiveRecord::Base
   has_many :topics, through: :topic_invites, source: :topic
 
   validates_presence_of :invited_by_id
-  validates :email, email: true, allow_blank: true
+  validates :email, email: true, allow_blank: true, length: { maximum: 500 }
+  validates :custom_message, length: { maximum: 1000 }
+  validates :domain, length: { maximum: 500 }
   validate :ensure_max_redemptions_allowed
   validate :valid_redemption_count
   validate :valid_domain, if: :will_save_change_to_domain?
@@ -133,7 +136,7 @@ class Invite < ActiveRecord::Base
 
   def self.generate(invited_by, opts = nil)
     opts ||= {}
-
+    time_zone = Time.find_zone(invited_by&.user_option&.timezone) || Time.zone
     email = Email.downcase(opts[:email]) if opts[:email].present?
 
     raise UserExists.new(new.user_exists_error_msg(email)) if find_user_by_email(email)
@@ -169,7 +172,7 @@ class Invite < ActiveRecord::Base
       invite.update_columns(
         created_at: Time.zone.now,
         updated_at: Time.zone.now,
-        expires_at: opts[:expires_at] || SiteSetting.invite_expiry_days.days.from_now,
+        expires_at: opts[:expires_at] || time_zone.now + SiteSetting.invite_expiry_days.days,
         emailed_status: emailed_status,
       )
     else
@@ -178,7 +181,8 @@ class Invite < ActiveRecord::Base
       create_args[:invited_by] = invited_by
       create_args[:email] = email
       create_args[:emailed_status] = emailed_status
-      create_args[:expires_at] = opts[:expires_at] || SiteSetting.invite_expiry_days.days.from_now
+      create_args[:expires_at] = opts[:expires_at] ||
+        time_zone.now + SiteSetting.invite_expiry_days.days
 
       invite = Invite.create!(create_args)
     end
@@ -273,10 +277,12 @@ class Invite < ActiveRecord::Base
   end
 
   def self.invalidate_for_email(email)
-    invite = Invite.find_by(email: Email.downcase(email))
-    invite.update!(invalidated_at: Time.zone.now) if invite
+    Invite.find_by(email: Email.downcase(email))&.invalidate!
+  end
 
-    invite
+  def invalidate!
+    update_attribute(:invalidated_at, Time.current)
+    self
   end
 
   def resend_invite
@@ -344,12 +350,14 @@ class Invite < ActiveRecord::Base
     self.domain.downcase!
 
     if self.domain !~ Invite::DOMAIN_REGEX
-      self.errors.add(:base, I18n.t("invite.domain_not_allowed"))
+      self.errors.add(:base, I18n.t("invite.domain_not_allowed_admin"))
     end
   end
 
   def user_exists_error_msg(email)
-    I18n.t("invite.user_exists", email: CGI.escapeHTML(email))
+    error_key = SiteSetting.hide_email_address_taken? ? "generic_error_response" : "user_exists"
+
+    I18n.t("invite.#{error_key}", email: CGI.escapeHTML(email))
   end
 end
 

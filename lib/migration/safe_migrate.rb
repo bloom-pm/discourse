@@ -56,6 +56,7 @@ class Migration::SafeMigrate
         def e.cause
           nil
         end
+
         def e.backtrace
           super.reject do |frame|
             frame =~ /safe_migrate\.rb/ || frame =~ /schema_migration_details\.rb/
@@ -116,7 +117,7 @@ class Migration::SafeMigrate
   end
 
   def self.protect!(sql)
-    if sql =~ /^\s*(?:drop\s+table|alter\s+table.*rename\s+to)\s+/i
+    if sql =~ /\A\s*(?:drop\s+table|alter\s+table.*rename\s+to)\s+/i
       $stdout.puts("", <<~TEXT)
         WARNING
         -------------------------------------------------------------------------------------
@@ -129,7 +130,7 @@ class Migration::SafeMigrate
         in use by live applications.
       TEXT
       raise Discourse::InvalidMigration, "Attempt was made to drop a table"
-    elsif sql =~ /^\s*alter\s+table.*(?:rename|drop)\s+/i
+    elsif sql =~ /\A\s*alter\s+table.*(?:rename|drop(?!\s+not\s+null))\s+/i
       $stdout.puts("", <<~TEXT)
         WARNING
         -------------------------------------------------------------------------------------
@@ -140,7 +141,7 @@ class Migration::SafeMigrate
         or rename columns.
 
         Note, to minimize disruption use self.ignored_columns = ["column name"] on your
-        ActiveRecord model, this can be removed 6 months or so later.
+        ActiveRecord model, this can be removed after the post deployment migration has been promoted to a regular migration.
 
         This protection is in place to protect us against dropping columns that are currently
         in use by live applications.

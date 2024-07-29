@@ -1,10 +1,13 @@
-import DropdownSelectBox from "select-kit/components/dropdown-select-box";
-import I18n from "I18n";
 import { computed } from "@ember/object";
+import { service } from "@ember/service";
+import IgnoreDurationModal from "discourse/components/modal/ignore-duration-with-username";
 import { popupAjaxError } from "discourse/lib/ajax-error";
-import showModal from "discourse/lib/show-modal";
+import I18n from "discourse-i18n";
+import DropdownSelectBox from "select-kit/components/dropdown-select-box";
 
 export default DropdownSelectBox.extend({
+  modal: service(),
+
   classNames: ["user-notifications", "user-notifications-dropdown"],
 
   selectKitOptions: {
@@ -23,14 +26,14 @@ export default DropdownSelectBox.extend({
     const content = [];
 
     content.push({
-      icon: "user",
+      icon: "bell",
       id: "changeToNormal",
       description: I18n.t("user.user_notifications.normal_option_title"),
       name: I18n.t("user.user_notifications.normal_option"),
     });
 
     content.push({
-      icon: "times-circle",
+      icon: "bell-slash",
       id: "changeToMuted",
       description: I18n.t("user.user_notifications.mute_option_title"),
       name: I18n.t("user.user_notifications.mute_option"),
@@ -55,8 +58,11 @@ export default DropdownSelectBox.extend({
     this.updateNotificationLevel({ level: "mute" }).catch(popupAjaxError);
   },
   changeToIgnored() {
-    showModal("ignore-duration", {
-      model: this.user,
+    this.modal.show(IgnoreDurationModal, {
+      model: {
+        ignoredUsername: this.user.username,
+        enableSelection: false,
+      },
     });
   },
 

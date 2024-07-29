@@ -1,5 +1,6 @@
 <div
-  class="user-menu revamped menu-panel drop-down"
+  class={{this.classNames}}
+  data-tab-id={{this.currentTabId}}
   data-max-width="320"
   {{did-insert this.triggerRenderedAppEvent}}
 >
@@ -35,12 +36,11 @@
         class="quick-access-panel"
         tabindex="-1"
       >
-        {{component
-          this.currentPanelComponent
-          closeUserMenu=@closeUserMenu
-          filterByTypes=this.currentNotificationTypes
-          ariaLabelledby=(concat "user-menu-button-" this.currentTabId)
-        }}
+        <this.currentPanelComponent
+          @closeUserMenu={{@closeUserMenu}}
+          @filterByTypes={{this.currentNotificationTypes}}
+          @ariaLabelledby={{concat "user-menu-button-" this.currentTabId}}
+        />
       </div>
     </div>
   </div>

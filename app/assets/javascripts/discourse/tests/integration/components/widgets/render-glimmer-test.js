@@ -1,12 +1,14 @@
-import { module, test } from "qunit";
-import { exists, query } from "discourse/tests/helpers/qunit-helpers";
-import { setupRenderingTest } from "discourse/tests/helpers/component-test";
+import ClassicComponent from "@ember/component";
 import { click, fillIn, render } from "@ember/test-helpers";
 import { hbs } from "ember-cli-htmlbars";
+import { module, test } from "qunit";
+import { setupRenderingTest } from "discourse/tests/helpers/component-test";
+import { exists, query } from "discourse/tests/helpers/qunit-helpers";
 import widgetHbs from "discourse/widgets/hbs-compiler";
-import Widget from "discourse/widgets/widget";
-import ClassicComponent from "@ember/component";
-import RenderGlimmer from "discourse/widgets/render-glimmer";
+import RenderGlimmer, {
+  registerWidgetShim,
+} from "discourse/widgets/render-glimmer";
+import Widget, { deleteFromRegistry } from "discourse/widgets/widget";
 import { bind } from "discourse-common/utils/decorators";
 
 class DemoWidget extends Widget {
@@ -66,18 +68,22 @@ class DemoComponent extends ClassicComponent {
   }
 
   didInsertElement() {
+    super.didInsertElement(...arguments);
     DemoComponent.eventLog.push("didInsertElement");
   }
 
   willDestroyElement() {
+    super.willDestroyElement(...arguments);
     DemoComponent.eventLog.push("willDestroyElement");
   }
 
   didReceiveAttrs() {
+    super.didReceiveAttrs(...arguments);
     DemoComponent.eventLog.push("didReceiveAttrs");
   }
 
   willDestroy() {
+    super.willDestroy(...arguments);
     DemoComponent.eventLog.push("willDestroy");
   }
 }
@@ -126,12 +132,24 @@ module("Integration | Component | Widget | render-glimmer", function (hooks) {
     this.registry.register("widget:demo-widget", DemoWidget);
     this.registry.register("widget:toggle-demo-widget", ToggleDemoWidget);
     this.registry.register("component:demo-component", DemoComponent);
+    registerWidgetShim(
+      "render-glimmer-test-shim",
+      "div.my-wrapper",
+      hbs`<span class='shim-content'>{{@data.attr1}}</span>`
+    );
+    registerWidgetShim(
+      "render-glimmer-test-wrapper-attrs",
+      "div.initial-wrapper-class",
+      hbs`{{@setWrapperElementAttrs class=(concat-class "static-extra-class" @data.extraClass) data-some-attr=@data.dataAttrValue}}`
+    );
   });
 
   hooks.afterEach(function () {
     this.registry.unregister("widget:demo-widget");
     this.registry.unregister("widget:toggle-demo-widget");
     this.registry.unregister("component:demo-component");
+    deleteFromRegistry("render-glimmer-test-shim");
+    deleteFromRegistry("render-glimmer-test-wrapper-attrs");
   });
 
   test("argument handling", async function (assert) {
@@ -150,12 +168,6 @@ module("Integration | Component | Widget | render-glimmer", function (hooks) {
     );
 
     await fillIn("input.dynamic-value-input", "somedynamicvalue");
-    assert.strictEqual(
-      query("div.glimmer-content").innerText,
-      "arg1=val1 dynamicArg=",
-      "changed arguments do not change before rerender"
-    );
-
     await click(".my-widget button");
     assert.strictEqual(
       query("div.glimmer-content").innerText,
@@ -192,16 +204,10 @@ module("Integration | Component | Widget | render-glimmer", function (hooks) {
     DemoComponent.eventLog = [];
 
     await fillIn("input.dynamic-value-input", "somedynamicvalue");
-    assert.deepEqual(
-      DemoComponent.eventLog,
-      [],
-      "component is not notified of attr change before widget rerender"
-    );
-
     await click(".my-widget button");
     assert.deepEqual(
       DemoComponent.eventLog,
-      ["didReceiveAttrs"],
+      ["didReceiveAttrs", "didReceiveAttrs"], // once for input, once for event
       "component is notified of attr change during widget rerender"
     );
 
@@ -309,5 +315,41 @@ module("Integration | Component | Widget | render-glimmer", function (hooks) {
     assert.strictEqual(query("div.glimmer-wrapper").innerText, "Two");
     await click(".toggleButton");
     assert.strictEqual(query("div.glimmer-wrapper").innerText, "One");
+  });
+
+  test("registerWidgetShim can register a fake widget", async function (assert) {
+    await render(
+      hbs`<MountWidget @widget="render-glimmer-test-shim" @args={{hash attr1="val1"}} />`
+    );
+
+    assert.dom("div.my-wrapper span.shim-content").exists();
+    assert.dom("div.my-wrapper span.shim-content").hasText("val1");
+  });
+
+  test("setWrapperElementAttrs API", async function (assert) {
+    await render(
+      hbs`<MountWidget @widget="render-glimmer-test-wrapper-attrs" @args={{hash extraClass=this.extraClass dataAttrValue=this.dataAttrValue}} />`
+    );
+
+    assert.dom("div.initial-wrapper-class").exists();
+    assert
+      .dom("div.initial-wrapper-class")
+      .hasAttribute("class", "initial-wrapper-class static-extra-class");
+    assert
+      .dom("div.initial-wrapper-class")
+      .doesNotHaveAttribute("data-some-attr");
+
+    this.set("extraClass", "dynamic-extra-class");
+    this.set("dataAttrValue", "hello world");
+
+    assert
+      .dom("div.initial-wrapper-class")
+      .hasAttribute(
+        "class",
+        "initial-wrapper-class static-extra-class dynamic-extra-class"
+      );
+    assert
+      .dom("div.initial-wrapper-class")
+      .hasAttribute("data-some-attr", "hello world");
   });
 });

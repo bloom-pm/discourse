@@ -60,6 +60,12 @@ RSpec.describe FinalDestination do
     expect(fd.ignored).to eq(%w[test.localhost google.com meta.discourse.org])
   end
 
+  it "raises an error when URL is too long to encode" do
+    expect {
+      FinalDestination.new("https://meta.discourse.org/" + "x" * UrlHelper::MAX_URL_LENGTH)
+    }.to raise_error(FinalDestination::UrlEncodingError)
+  end
+
   describe ".resolve" do
     it "has a ready status code before anything happens" do
       expect(fd("https://eviltrout.com").status).to eq(:ready)
@@ -454,7 +460,9 @@ RSpec.describe FinalDestination do
     before { described_class.clear_https_cache!("wikipedia.com") }
 
     context "when there is a redirect" do
-      before do
+      after { WebMock.reset! }
+
+      it "correctly streams" do
         stub_request(:get, "http://wikipedia.com/").to_return(
           status: 302,
           body: "",
@@ -462,6 +470,7 @@ RSpec.describe FinalDestination do
             "location" => "https://wikipedia.com/",
           },
         )
+
         # webmock does not do chunks
         stub_request(:get, "https://wikipedia.com/").to_return(
           status: 200,
@@ -469,11 +478,7 @@ RSpec.describe FinalDestination do
           headers: {
           },
         )
-      end
 
-      after { WebMock.reset! }
-
-      it "correctly streams" do
         chunk = nil
         result =
           fd.get do |resp, c|
@@ -483,6 +488,26 @@ RSpec.describe FinalDestination do
 
         expect(result).to eq("https://wikipedia.com/")
         expect(chunk).to eq("<html><head>")
+      end
+
+      it "does not forward 'Authorization' header to subsequent hosts" do
+        fd =
+          FinalDestination.new(
+            "http://wikipedia.com",
+            headers: {
+              "Authorization" => "Basic #{Base64.strict_encode64("account_id:license_key")}",
+            },
+          )
+
+        stub_request(:get, "http://wikipedia.com").with(
+          basic_auth: %w[account_id license_key],
+        ).to_return(status: 302, body: "", headers: { "Location" => "http://some.host.com/" })
+
+        stub_request(:get, "http://some.host.com/")
+          .with { |req| expect(req.headers.key?("Authorization")).to eq(false) }
+          .to_return(status: 200, body: "")
+
+        fd.get {}
       end
     end
 
@@ -546,14 +571,30 @@ RSpec.describe FinalDestination do
       expect(fd(nil).validate_uri_format).to eq(false)
     end
 
-    it "returns false for invalid ports" do
-      expect(fd("http://eviltrout.com:21").validate_uri_format).to eq(false)
+    it "returns false for invalid https ports" do
       expect(fd("https://eviltrout.com:8000").validate_uri_format).to eq(false)
     end
 
-    it "returns true for valid ports" do
+    it "returns true for valid http and https ports" do
       expect(fd("http://eviltrout.com:80").validate_uri_format).to eq(true)
       expect(fd("https://eviltrout.com:443").validate_uri_format).to eq(true)
+    end
+
+    it "returns false for invalid http port" do
+      expect(fd("http://eviltrout.com:21").validate_uri_format).to eq(false)
+    end
+
+    context "when s3_endpoint defined" do
+      before { SiteSetting.s3_endpoint = "http://minio.local:9000" }
+
+      it "returns false if the host is not in allowed_internal_hosts" do
+        expect(fd("http://discoursetest.minio.local:9000").validate_uri_format).to eq(false)
+      end
+
+      it "returns true if the host is in allowed_internal_hosts" do
+        SiteSetting.allowed_internal_hosts = %w[minio.local discoursetest.minio.local].join("|")
+        expect(fd("http://discoursetest.minio.local:9000").validate_uri_format).to eq(true)
+      end
     end
   end
 

@@ -1,33 +1,32 @@
 import Component from "@ember/component";
-import discourseComputed from "discourse-common/utils/decorators";
+import { computed } from "@ember/object";
 import { dasherize } from "@ember/string";
+import { classNames } from "@ember-decorators/component";
+import discourseComputed from "discourse-common/utils/decorators";
 
-export default Component.extend({
-  classNames: ["embed-setting"],
-
+@classNames("embed-setting")
+export default class EmbeddingSetting extends Component {
   @discourseComputed("field")
   inputId(field) {
     return dasherize(field);
-  },
+  }
 
   @discourseComputed("field")
   translationKey(field) {
     return `admin.embedding.${field}`;
-  },
+  }
 
   @discourseComputed("type")
   isCheckbox(type) {
     return type === "checkbox";
-  },
+  }
 
-  @discourseComputed("value")
-  checked: {
-    get(value) {
-      return !!value;
-    },
-    set(value) {
-      this.set("value", value);
-      return value;
-    },
-  },
-});
+  @computed("value")
+  get checked() {
+    return !!this.value;
+  }
+
+  set checked(value) {
+    this.set("value", value);
+  }
+}

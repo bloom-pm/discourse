@@ -1,18 +1,18 @@
+import { visit } from "@ember/test-helpers";
+import { test } from "qunit";
 import {
   acceptance,
   count,
   exists,
   updateCurrentUser,
 } from "discourse/tests/helpers/qunit-helpers";
-import { test } from "qunit";
-import { visit } from "@ember/test-helpers";
 
 acceptance("Managing Group Category Notification Defaults", function () {
   test("As an anonymous user", async function (assert) {
     await visit("/g/discourse/manage/categories");
 
     assert.ok(
-      exists(".group-members tr"),
+      exists(".group-members .group-member"),
       "it should redirect to members page for an anonymous user"
     );
   });

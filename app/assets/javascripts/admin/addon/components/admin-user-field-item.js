@@ -1,15 +1,20 @@
-import discourseComputed from "discourse-common/utils/decorators";
-import { i18n, propertyEqual } from "discourse/lib/computed";
 import Component from "@ember/component";
-import I18n from "I18n";
-import UserField from "admin/models/user-field";
-import { bufferedProperty } from "discourse/mixins/buffered-content";
-import { isEmpty } from "@ember/utils";
-import { popupAjaxError } from "discourse/lib/ajax-error";
-import { schedule } from "@ember/runloop";
 import { action } from "@ember/object";
+import { schedule } from "@ember/runloop";
+import { service } from "@ember/service";
+import { isEmpty } from "@ember/utils";
+import { Promise } from "rsvp";
+import { popupAjaxError } from "discourse/lib/ajax-error";
+import { i18n, propertyEqual } from "discourse/lib/computed";
+import { bufferedProperty } from "discourse/mixins/buffered-content";
+import discourseComputed from "discourse-common/utils/decorators";
+import I18n from "discourse-i18n";
+import UserField from "admin/models/user-field";
 
 export default Component.extend(bufferedProperty("userField"), {
+  adminCustomUserFields: service(),
+  dialog: service(),
+
   tagName: "",
   isEditing: false,
 
@@ -41,20 +46,17 @@ export default Component.extend(bufferedProperty("userField"), {
   },
 
   @discourseComputed(
-    "userField.{editable,required,show_on_profile,show_on_user_card,searchable}"
+    "userField.{editable,show_on_profile,show_on_user_card,searchable}"
   )
   flags(userField) {
     const ret = [];
     if (userField.editable) {
       ret.push(I18n.t("admin.user_fields.editable.enabled"));
     }
-    if (userField.required) {
-      ret.push(I18n.t("admin.user_fields.required.enabled"));
-    }
-    if (userField.showOnProfile) {
+    if (userField.show_on_profile) {
       ret.push(I18n.t("admin.user_fields.show_on_profile.enabled"));
     }
-    if (userField.showOnUserCard) {
+    if (userField.show_on_user_card) {
       ret.push(I18n.t("admin.user_fields.show_on_user_card.enabled"));
     }
     if (userField.searchable) {
@@ -64,19 +66,51 @@ export default Component.extend(bufferedProperty("userField"), {
     return ret.join(", ");
   },
 
+  @discourseComputed("buffered.requirement")
+  editableDisabled(requirement) {
+    return requirement === "for_all_users";
+  },
+
   @action
-  save() {
+  changeRequirementType(requirement) {
+    this.buffered.set("requirement", requirement);
+    this.buffered.set("editable", requirement === "for_all_users");
+  },
+
+  async _confirmChanges() {
+    return new Promise((resolve) => {
+      this.dialog.yesNoConfirm({
+        message: I18n.t("admin.user_fields.requirement.confirmation"),
+        didCancel: () => resolve(false),
+        didConfirm: () => resolve(true),
+      });
+    });
+  },
+
+  @action
+  async save() {
     const attrs = this.buffered.getProperties(
       "name",
       "description",
       "field_type",
       "editable",
-      "required",
+      "requirement",
       "show_on_profile",
       "show_on_user_card",
       "searchable",
-      "options"
+      "options",
+      ...this.adminCustomUserFields.additionalProperties
     );
+
+    let confirm = true;
+
+    if (attrs.requirement === "for_all_users") {
+      confirm = await this._confirmChanges();
+    }
+
+    if (!confirm) {
+      return;
+    }
 
     return this.userField
       .save(attrs)

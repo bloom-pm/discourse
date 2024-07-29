@@ -4,7 +4,7 @@ class PostRevision < ActiveRecord::Base
   belongs_to :post
   belongs_to :user
 
-  serialize :modifications, Hash
+  serialize :modifications, type: Hash
 
   after_create :create_notification
 
@@ -28,6 +28,12 @@ class PostRevision < ActiveRecord::Base
     SQL
   end
 
+  def categories
+    return [] if modifications["category_id"].blank?
+
+    @categories ||= Category.with_parents(modifications["category_id"])
+  end
+
   def hide!
     update_column(:hidden, true)
   end
@@ -38,6 +44,17 @@ class PostRevision < ActiveRecord::Base
 
   def create_notification
     PostActionNotifier.after_create_post_revision(self)
+  end
+
+  def self.copy(original_post, target_post)
+    cols_to_copy = (column_names - %w[id post_id]).join(", ")
+
+    DB.exec <<~SQL
+    INSERT INTO post_revisions(post_id, #{cols_to_copy})
+    SELECT #{target_post.id}, #{cols_to_copy}
+    FROM post_revisions
+    WHERE post_id = #{original_post.id}
+    SQL
   end
 end
 

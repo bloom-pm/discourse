@@ -1,23 +1,25 @@
 import Component from "@ember/component";
-import { alias, equal } from "@ember/object/computed";
-import discourseComputed from "discourse-common/utils/decorators";
 import { action } from "@ember/object";
-import I18n from "I18n";
-import { inject as service } from "@ember/service";
+import { alias, equal } from "@ember/object/computed";
+import { service } from "@ember/service";
+import { classNames } from "@ember-decorators/component";
+import discourseComputed from "discourse-common/utils/decorators";
+import I18n from "discourse-i18n";
 
-export default Component.extend({
-  classNames: ["watched-word"],
-  dialog: service(),
+@classNames("watched-word")
+export default class AdminWatchedWord extends Component {
+  @service dialog;
 
-  isReplace: equal("actionKey", "replace"),
-  isTag: equal("actionKey", "tag"),
-  isLink: equal("actionKey", "link"),
-  isCaseSensitive: alias("word.case_sensitive"),
+  @equal("actionKey", "replace") isReplace;
+  @equal("actionKey", "tag") isTag;
+  @equal("actionKey", "link") isLink;
+  @alias("word.case_sensitive") isCaseSensitive;
+  @alias("word.html") isHtml;
 
   @discourseComputed("word.replacement")
   tags(replacement) {
     return replacement.split(",");
-  },
+  }
 
   @action
   deleteWord() {
@@ -33,5 +35,5 @@ export default Component.extend({
           })
         );
       });
-  },
-});
+  }
+}

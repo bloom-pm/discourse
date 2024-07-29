@@ -1,7 +1,8 @@
-import { acceptance } from "discourse/tests/helpers/qunit-helpers";
-import { test } from "qunit";
 import { set } from "@ember/object";
-import fabricators from "../../helpers/fabricators";
+import { getOwner } from "@ember/owner";
+import { test } from "qunit";
+import { acceptance } from "discourse/tests/helpers/qunit-helpers";
+import ChatFabricators from "discourse/plugins/chat/discourse/lib/fabricators";
 
 acceptance("Discourse Chat | Unit | Service | chat-guardian", function (needs) {
   needs.hooks.beforeEach(function () {
@@ -69,7 +70,7 @@ acceptance("Discourse Chat | Unit | Service | chat-guardian", function (needs) {
   });
 
   test("#canArchiveChannel", async function (assert) {
-    const channel = fabricators.chatChannel();
+    const channel = new ChatFabricators(getOwner(this)).channel();
 
     set(this.currentUser, "has_chat_enabled", true);
     set(this.currentUser, "admin", true);
@@ -83,12 +84,12 @@ acceptance("Discourse Chat | Unit | Service | chat-guardian", function (needs) {
     set(this.currentUser, "admin", true);
     set(this.currentUser, "moderator", true);
 
-    channel.set("status", "read_only");
+    channel.status = "read_only";
     assert.notOk(this.chatGuardian.canArchiveChannel(channel));
-    channel.set("status", "open");
+    channel.status = "open";
 
-    channel.set("status", "archived");
+    channel.status = "archived";
     assert.notOk(this.chatGuardian.canArchiveChannel(channel));
-    channel.set("status", "open");
+    channel.status = "open";
   });
 });

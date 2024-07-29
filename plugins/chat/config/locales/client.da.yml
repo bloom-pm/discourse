@@ -5,11 +5,18 @@
 # https://translate.discourse.org/
 
 da:
-  js:
+  admin_js:
     admin:
       site_settings:
         categories:
           chat: Chat
+  js:
+    admin:
+      site_settings:
+        chat_separate_sidebar_mode:
+          always: "Altid"
+          fullscreen: "Når chat er i fuld skærm"
+          never: "Aldrig"
       logs:
         staff_actions:
           actions:
@@ -20,12 +27,11 @@ da:
           descriptions:
             chat:
               create_message: "Opret en chatbesked i en angivet kanal."
-    about:
-      chat_messages_count: "Chatbeskeder"
-      chat_channels_count: "Chatkanaler"
-      chat_users_count: "Chatbrugere"
     chat:
+      back_to_forum: "Forum"
+      deleted_chat_username: slettet
       dates:
+        yesterday: "I går"
         time_tiny: "tt:mm"
       all_loaded: "Viser alle beskeder"
       already_enabled: "Chat er allerede aktiveret på dette emne. Opdater venligst."
@@ -38,9 +44,6 @@ da:
       browse_all_channels: "Gennemse alle kanaler"
       move_to_channel:
         title: "Flyt beskeder til kanal"
-        instructions:
-          one: "Du flytter <strong>%{count}</strong> besked. Vælg en destinationskanal. En pladsholdermeddelelse vil blive oprettet i <strong>%{channelTitle}</strong>-kanalen for at angive, at denne besked er blevet flyttet."
-          other: "Du flytter <strong>%{count}</strong> beskeder. Vælg en destinationskanal. En pladsholdermeddelelse vil blive oprettet i <strong>%{channelTitle}</strong>-kanalen for at angive, at disse beskeder er blevet flyttet."
         confirm_move: "Flyt beskeder"
       channel_settings:
         title: "Kanal indstillinger"
@@ -62,19 +65,22 @@ da:
         title: "Luk Kanal"
       channel_delete:
         title: "Slet Kanal"
-        instructions: "<p>Sletter <strong>%{name}</strong>-kanalen og chathistorikken. Alle beskeder og relaterede data, såsom reaktioner og uploads, slettes permanent. Hvis du vil bevare kanalhistorikken og nedlægge den, kan du i stedet for arkivere kanalen.</p> <p>Er du sikker på, at du vil slette <strong>kanalen</strong>? Skriv navnet på kanalen i boksen nedenfor for at bekræfte.</p>"
         confirm_channel_name: "Indtast kanalnavn"
       channels_list_popup:
         browse: "Gennemse kanaler"
         create: "Ny kanal"
-      click_to_join: "Klik her for at se tilgængelige kanaler."
       close: "Luk"
+      remove: "Fjern"
       delete: "Slet"
       edited: "redigeret"
       muted: "stille!"
       joined: "tilmeldt"
       email_frequency:
         never: "Aldrig"
+      header_indicator_preference:
+        never: "Aldrig"
+      separate_sidebar_mode:
+        title: "Vis separate sidebjælke-tilstande for forum og chat"
       enable: "Aktiver chat"
       flag: "Rapportér"
       invalid_access: "Du har ikke adgang til at se denne chatkanal"
@@ -82,13 +88,12 @@ da:
       in_reply_to: "Som svar til"
       heading: "Chat"
       join: "Tilslut"
-      new_messages: "nye beskeder"
+      last_visit: "sidste besøg"
       mention_warning:
-        dismiss: "afvis"
-        groups:
-          users_limit:
-            one: "%{count} bruger"
-            other: "%{count} brugere"
+        invitations_sent:
+          one: "Invitation sendt"
+          other: "Invitationer sendt"
+        invite: "Inviter til kanal"
       reply: "Svar"
       edit: "Rediger"
       rebake_message: "Gendan HTML"
@@ -119,6 +124,7 @@ da:
         back: "Tilbage"
         title: Kanaler
         filter_all: Alle
+        filter_open: Åbn
         filter_closed: Lukket
         filter_archived: Arkiveret
       chat_message_separator:
@@ -126,19 +132,19 @@ da:
         yesterday: I går
       about_view:
         title: Titel
+        name: Navn
         description: Beskrivelse
       channel_info:
         back_to_channel: "Tilbage"
         tabs:
-          about: Om
           members: Brugere
           settings: Indstillinger
+      new_message_modal:
+        no_items: "Ingen punkter"
+        filter: "Filter"
       direct_message_creator:
         title: Ny Besked
         prefix: "Til:"
-      channel_selector:
-        title: "Hop til kanal"
-        no_channels: "Ingen kanaler matcher din søgning"
       create_channel:
         choose_category:
           label: "Vælg en kategori"
@@ -146,22 +152,18 @@ da:
         create: "Opret kanal"
         description: "Beskrivelse (valgfrit)"
         name: "Kanal navn"
+        title: "Ny kanal"
         type: "Type"
         types:
           category: "Kategori"
           topic: "Emne"
       reviewable:
         type: "Chatbesked"
-      reactions:
-        only_you: "Du reagerede med :%{emoji}:"
-        and_others: "Du, %{usernames} reagerede med :%{emoji}:"
-        only_others: "%{usernames} reagerede med :%{emoji}:"
-        others_and_more: "%{usernames} og %{more} andre reagerede med :%{emoji}:"
-        you_others_and_more: "Du, %{usernames} og %{more} andre reagerede med :%{emoji}:"
       composer:
         italic_text: "kursiv skrift"
         bold_text: "fed skrift"
         code_text: "kode tekst"
+        send: "Send"
       quote:
         copy_success: "Chat-citat kopieret til udklipsholderen"
       notification_levels:
@@ -169,14 +171,22 @@ da:
       settings:
         follow: "Tilslut"
         followed: "Tilmeldt"
+        threading_enabled: "Aktiveret"
+        threading_disabled: "Deaktiveret"
         notifications: "Notifikationer"
         preview: "Forhåndsvisning"
         save: "Gem"
         saved: "Gemt"
         unfollow: "Forlad"
         admin_title: "Admin"
+        settings_title: "Indstillinger"
+        category_label: "Kategori"
+        history_label: "Historik"
+        members_label: "Brugere"
       admin:
         title: "Chat"
+        export_messages:
+          description: "Dette eksporterer alle beskeder fra alle kanaler."
       incoming_webhooks:
         back: "Tilbage"
         description: "Beskrivelse"
@@ -203,13 +213,29 @@ da:
       replying_indicator:
         single_user: "%{username} skriver"
       retention_reminders:
-        public: "Kanalhistorikken gemmes i %{days} dage."
-        dm: "Personlig chathistorik gemmes i %{days} dage."
+        short:
+          one: "%{count} dag"
+          other: "%{count} dage"
       emoji_picker:
         objects: "Objekter"
         activities: "Aktiviteter"
         flags: "Flag"
         symbols: "Symboler"
+      thread:
+        title: "Titel"
+        replies:
+          one: "%{count} svar"
+          other: "%{count} svar"
+        settings: "Indstillinger"
+        last_reply: "seneste svar"
+        notifications:
+          regular:
+            title: "Normal"
+          tracking:
+            title: "Følger"
+        participants_other_count:
+          one: "+%{count}"
+          other: "+%{count}"
       draft_channel_screen:
         header: "Ny Besked"
         cancel: "Annuller"
@@ -248,9 +274,18 @@ da:
     review:
       types:
         reviewable_chat_message:
-          flagged_by: "Markeret af"
+          title: "Rapporteret chatbesked"
+          noun: "chatbesked"
     keyboard_shortcuts_help:
       chat:
         title: "Chat"
         keyboard_shortcuts:
           switch_channel_arrows: "%{shortcut} Skift kanal"
+    styleguide:
+      sections:
+        chat:
+          title: Chat
+    sidebar:
+      panels:
+        chat:
+          label: "Chat"

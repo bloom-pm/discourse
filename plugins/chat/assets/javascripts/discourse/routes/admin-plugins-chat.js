@@ -1,7 +1,7 @@
-import DiscourseRoute from "discourse/routes/discourse";
 import EmberObject from "@ember/object";
-import ChatChannel from "discourse/plugins/chat/discourse/models/chat-channel";
 import { ajax } from "discourse/lib/ajax";
+import DiscourseRoute from "discourse/routes/discourse";
+import ChatChannel from "discourse/plugins/chat/discourse/models/chat-channel";
 
 export default class AdminPluginsChatRoute extends DiscourseRoute {
   model() {
@@ -9,7 +9,7 @@ export default class AdminPluginsChatRoute extends DiscourseRoute {
       return { model: null };
     }
 
-    return ajax("/admin/plugins/chat.json").then((model) => {
+    return ajax("/admin/plugins/chat/hooks.json").then((model) => {
       model.incoming_chat_webhooks = model.incoming_chat_webhooks.map(
         (webhook) => EmberObject.create(webhook)
       );

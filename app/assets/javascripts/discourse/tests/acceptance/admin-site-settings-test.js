@@ -1,19 +1,20 @@
 import {
-  acceptance,
-  count,
-  exists,
-  query,
-} from "discourse/tests/helpers/qunit-helpers";
-import {
   click,
   currentURL,
   fillIn,
   triggerKeyEvent,
   visit,
 } from "@ember/test-helpers";
-import siteSettingFixture from "discourse/tests/fixtures/site-settings";
 import { test } from "qunit";
+import siteSettingFixture from "discourse/tests/fixtures/site-settings";
 import pretender from "discourse/tests/helpers/create-pretender";
+import {
+  acceptance,
+  count,
+  exists,
+  query,
+  queryAll,
+} from "discourse/tests/helpers/qunit-helpers";
 
 acceptance("Admin - Site Settings", function (needs) {
   let updatedTitle;
@@ -26,7 +27,7 @@ acceptance("Admin - Site Settings", function (needs) {
     });
     server.get("/admin/site_settings", () => {
       const fixtures = siteSettingFixture["/admin/site_settings"].site_settings;
-      const titleSetting = Object.assign({}, fixtures[0]);
+      const titleSetting = { ...fixtures[0] };
 
       if (updatedTitle) {
         titleSetting.value = updatedTitle;
@@ -127,6 +128,14 @@ acceptance("Admin - Site Settings", function (needs) {
     assert.strictEqual(count(".row.setting"), 1);
   });
 
+  test("filtering overridden settings", async function (assert) {
+    await visit("/admin/site_settings");
+    assert.dom(".row.setting").exists({ count: 4 });
+
+    await click(".toggle-overridden");
+    assert.dom(".row.setting").exists({ count: 2 });
+  });
+
   test("filter settings by plugin name", async function (assert) {
     await visit("/admin/site_settings");
 
@@ -139,15 +148,15 @@ acceptance("Admin - Site Settings", function (needs) {
   });
 
   test("category name is preserved", async function (assert) {
-    await visit("admin/site_settings/category/basic?filter=menu");
+    await visit("/admin/site_settings/category/basic?filter=menu");
     assert.strictEqual(
       currentURL(),
-      "admin/site_settings/category/basic?filter=menu"
+      "/admin/site_settings/category/basic?filter=menu"
     );
   });
 
   test("shows all_results if current category has none", async function (assert) {
-    await visit("admin/site_settings");
+    await visit("/admin/site_settings");
 
     await click(".admin-nav .basic a");
     assert.strictEqual(currentURL(), "/admin/site_settings/category/basic");
@@ -189,5 +198,43 @@ acceptance("Admin - Site Settings", function (needs) {
         .requestBody,
       "blocked_onebox_domains=proper.com"
     );
+  });
+
+  test("nav menu items have titles", async (assert) => {
+    await visit("/admin/site_settings");
+
+    const navItems = queryAll(".admin-nav .nav-stacked li a");
+    navItems.each((_, item) => {
+      assert.equal(
+        item.title,
+        item.innerText,
+        "menu item has title, and the title is equal to menu item's label"
+      );
+    });
+  });
+
+  test("can perform fuzzy search", async function (assert) {
+    await visit("/admin/site_settings");
+
+    await fillIn("#setting-filter", "top_menu");
+    assert.dom(".row.setting").exists({ count: 1 });
+
+    await fillIn("#setting-filter", "tmenu");
+    assert.dom(".row.setting").exists({ count: 1 });
+
+    // ensures fuzzy search limiter is in place
+    await fillIn("#setting-filter", "obo");
+    assert.dom(".row.setting").exists({ count: 1 });
+    assert.dom(".row.setting").hasText(/onebox/);
+
+    // ensures fuzzy search limiter doesn't limit too much
+    await fillIn("#setting-filter", "blocked_onebox_domains");
+    assert.dom(".row.setting").exists({ count: 1 });
+    assert.dom(".row.setting").hasText(/onebox/);
+
+    // ensures keyword search is working
+    await fillIn("#setting-filter", "blah");
+    assert.dom(".row.setting").exists({ count: 1 });
+    assert.dom(".row.setting").hasText(/username/);
   });
 });

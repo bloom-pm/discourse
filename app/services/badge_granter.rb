@@ -102,7 +102,7 @@ class BadgeGranter
         user_id: user.id,
         badge_id: badge.id,
       )
-      notification = send_notification(user.id, user.username, user.locale, badge)
+      notification = send_notification(user.id, user.username, user.effective_locale, badge)
 
       DB.exec(<<~SQL, notification_id: notification.id, user_id: user.id, badge_id: badge.id)
         UPDATE user_badges
@@ -244,7 +244,7 @@ class BadgeGranter
       post_ids = list.flat_map { |i| i["post_ids"] }.compact.uniq
       user_ids = list.flat_map { |i| i["user_ids"] }.compact.uniq
 
-      next unless post_ids.present? || user_ids.present?
+      next if post_ids.blank? && user_ids.blank?
 
       find_by_type(type).each { |badge| backfill(badge, post_ids: post_ids, user_ids: user_ids) }
     end
@@ -368,7 +368,7 @@ class BadgeGranter
       end
       if opts[:target_posts]
         raise "Query did not return a post ID" unless result.post_id
-        unless Post.exists?(result.post_id).present?
+        if Post.exists?(result.post_id).blank?
           raise "Query returned a non-existent post ID:\n#{result.post_id}"
         end
       end
@@ -383,7 +383,7 @@ class BadgeGranter
   def self.backfill(badge, opts = nil)
     return unless SiteSetting.enable_badges
     return unless badge.enabled
-    return unless badge.query.present?
+    return if badge.query.blank?
 
     post_ids = user_ids = nil
     post_ids = opts[:post_ids] if opts
@@ -500,7 +500,6 @@ class BadgeGranter
       WHERE u.title IS NOT NULL
         AND u.title <> ''
         AND up.user_id = u.id
-        AND up.badge_granted_title
         AND up.granted_title_badge_id IS NOT NULL
         AND NOT EXISTS(
           SELECT 1
@@ -514,12 +513,11 @@ class BadgeGranter
 
     DB.exec <<~SQL
       UPDATE user_profiles up
-      SET badge_granted_title    = FALSE,
-          granted_title_badge_id = NULL
+      SET granted_title_badge_id = NULL
       FROM users u
       WHERE up.user_id = u.id
         AND (u.title IS NULL OR u.title = '')
-        AND (up.badge_granted_title OR up.granted_title_badge_id IS NOT NULL)
+        AND up.granted_title_badge_id IS NOT NULL
     SQL
   end
 

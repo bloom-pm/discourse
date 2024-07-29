@@ -1,42 +1,43 @@
+import Component from "@ember/component";
+import { action, computed } from "@ember/object";
+import { schedule, scheduleOnce } from "@ember/runloop";
+import { service } from "@ember/service";
+import ItsATrap from "@discourse/itsatrap";
+import $ from "jquery";
+import { emojiSearch, isSkinTonableEmoji } from "pretty-text/emoji";
+import { translations } from "pretty-text/emoji/data";
+import { resolveCachedShortUrls } from "pretty-text/upload-short-url";
+import { Promise } from "rsvp";
+import InsertHyperlink from "discourse/components/modal/insert-hyperlink";
 import { ajax } from "discourse/lib/ajax";
+import { SKIP } from "discourse/lib/autocomplete";
+import { setupHashtagAutocomplete } from "discourse/lib/hashtag-autocomplete";
+import { linkSeenHashtagsInContext } from "discourse/lib/hashtag-decorator";
+import { wantsNewWindow } from "discourse/lib/intercept-click";
+import { PLATFORM_KEY_MODIFIER } from "discourse/lib/keyboard-shortcuts";
+import { linkSeenMentions } from "discourse/lib/link-mentions";
+import { loadOneboxes } from "discourse/lib/load-oneboxes";
+import { emojiUrlFor, generateCookFunction } from "discourse/lib/text";
+import { siteDir } from "discourse/lib/text-direction";
 import {
   caretPosition,
   inCodeBlock,
   translateModKey,
 } from "discourse/lib/utilities";
+import TextareaTextManipulation, {
+  getHead,
+} from "discourse/mixins/textarea-text-manipulation";
+import { isTesting } from "discourse-common/config/environment";
+import discourseDebounce from "discourse-common/lib/debounce";
+import deprecated from "discourse-common/lib/deprecated";
+import { getRegister } from "discourse-common/lib/get-owner";
+import { findRawTemplate } from "discourse-common/lib/raw-templates";
 import discourseComputed, {
   bind,
   observes,
   on,
 } from "discourse-common/utils/decorators";
-import { emojiSearch, isSkinTonableEmoji } from "pretty-text/emoji";
-import { emojiUrlFor, generateCookFunction } from "discourse/lib/text";
-import { schedule, scheduleOnce } from "@ember/runloop";
-import Component from "@ember/component";
-import I18n from "I18n";
-import ItsATrap from "@discourse/itsatrap";
-import { Promise } from "rsvp";
-import { SKIP } from "discourse/lib/autocomplete";
-import { setupHashtagAutocomplete } from "discourse/lib/hashtag-autocomplete";
-import deprecated from "discourse-common/lib/deprecated";
-import discourseDebounce from "discourse-common/lib/debounce";
-import { findRawTemplate } from "discourse-common/lib/raw-templates";
-import { getRegister } from "discourse-common/lib/get-owner";
-import { isTesting } from "discourse-common/config/environment";
-import { linkSeenHashtags } from "discourse/lib/link-hashtags";
-import { linkSeenMentions } from "discourse/lib/link-mentions";
-import { loadOneboxes } from "discourse/lib/load-oneboxes";
-import loadScript from "discourse/lib/load-script";
-import { resolveCachedShortUrls } from "pretty-text/upload-short-url";
-import { inject as service } from "@ember/service";
-import showModal from "discourse/lib/show-modal";
-import { siteDir } from "discourse/lib/text-direction";
-import { translations } from "pretty-text/emoji/data";
-import { wantsNewWindow } from "discourse/lib/intercept-click";
-import { action } from "@ember/object";
-import TextareaTextManipulation, {
-  getHead,
-} from "discourse/mixins/textarea-text-manipulation";
+import I18n from "discourse-i18n";
 
 function getButtonLabel(labelKey, defaultLabel) {
   // use the Font Awesome icon if the label matches the default
@@ -52,6 +53,7 @@ class Toolbar {
     const { siteSettings, capabilities } = opts;
     this.shortcuts = {};
     this.context = null;
+    this.handleSmartListAutocomplete = false;
 
     this.groups = [
       { group: "fontStyles", buttons: [] },
@@ -59,22 +61,26 @@ class Toolbar {
       { group: "extras", buttons: [] },
     ];
 
+    const boldLabel = getButtonLabel("composer.bold_label", "B");
+    const boldIcon = boldLabel ? null : "bold";
     this.addButton({
       id: "bold",
       group: "fontStyles",
-      icon: "bold",
-      label: getButtonLabel("composer.bold_label", "B"),
+      icon: boldIcon,
+      label: boldLabel,
       shortcut: "B",
       preventFocus: true,
       trimLeading: true,
       perform: (e) => e.applySurround("**", "**", "bold_text"),
     });
 
+    const italicLabel = getButtonLabel("composer.italic_label", "I");
+    const italicIcon = italicLabel ? null : "italic";
     this.addButton({
       id: "italic",
       group: "fontStyles",
-      icon: "italic",
-      label: getButtonLabel("composer.italic_label", "I"),
+      icon: italicIcon,
+      label: italicLabel,
       shortcut: "I",
       preventFocus: true,
       trimLeading: true,
@@ -84,6 +90,7 @@ class Toolbar {
     if (opts.showLink) {
       this.addButton({
         id: "link",
+        icon: "link",
         group: "insertions",
         shortcut: "K",
         preventFocus: true,
@@ -110,6 +117,7 @@ class Toolbar {
         id: "code",
         group: "insertions",
         shortcut: "E",
+        icon: "code",
         preventFocus: true,
         trimLeading: true,
         action: (...args) => this.context.send("formatCode", args),
@@ -155,45 +163,55 @@ class Toolbar {
     this.groups[this.groups.length - 1].lastGroup = true;
   }
 
-  addButton(button) {
-    const g = this.groups.findBy("group", button.group);
+  addButton(buttonAttrs) {
+    const g = this.groups.findBy("group", buttonAttrs.group);
     if (!g) {
-      throw new Error(`Couldn't find toolbar group ${button.group}`);
+      throw new Error(`Couldn't find toolbar group ${buttonAttrs.group}`);
     }
 
     const createdButton = {
-      id: button.id,
-      tabindex: button.tabindex || "-1",
-      className: button.className || button.id,
-      label: button.label,
-      icon: button.label ? null : button.icon || button.id,
-      action: button.action || ((a) => this.context.send("toolbarButton", a)),
-      perform: button.perform || function () {},
-      trimLeading: button.trimLeading,
-      popupMenu: button.popupMenu || false,
-      preventFocus: button.preventFocus || false,
+      id: buttonAttrs.id,
+      tabindex: buttonAttrs.tabindex || "-1",
+      className: buttonAttrs.className || buttonAttrs.id,
+      label: buttonAttrs.label,
+      icon: buttonAttrs.icon,
+      action: (button) => {
+        buttonAttrs.action
+          ? buttonAttrs.action(button)
+          : this.context.send("toolbarButton", button);
+        this.context.appEvents.trigger(
+          "d-editor:toolbar-button-clicked",
+          button
+        );
+      },
+      perform: buttonAttrs.perform || function () {},
+      trimLeading: buttonAttrs.trimLeading,
+      popupMenu: buttonAttrs.popupMenu || false,
+      preventFocus: buttonAttrs.preventFocus || false,
+      condition: buttonAttrs.condition || (() => true),
     };
 
-    if (button.sendAction) {
-      createdButton.sendAction = button.sendAction;
+    if (buttonAttrs.sendAction) {
+      createdButton.sendAction = buttonAttrs.sendAction;
     }
 
-    const title = I18n.t(button.title || `composer.${button.id}_title`);
-    if (button.shortcut) {
-      const mac = /Mac|iPod|iPhone|iPad/.test(navigator.platform);
-      const mod = mac ? "Meta" : "Ctrl";
-
-      const shortcutTitle = `${translateModKey(mod + "+")}${translateModKey(
-        button.shortcut
-      )}`;
+    const title = I18n.t(
+      buttonAttrs.title || `composer.${buttonAttrs.id}_title`
+    );
+    if (buttonAttrs.shortcut) {
+      const shortcutTitle = `${translateModKey(
+        PLATFORM_KEY_MODIFIER + "+"
+      )}${translateModKey(buttonAttrs.shortcut)}`;
 
       createdButton.title = `${title} (${shortcutTitle})`;
-      this.shortcuts[`${mod}+${button.shortcut}`.toLowerCase()] = createdButton;
+      this.shortcuts[
+        `${PLATFORM_KEY_MODIFIER}+${buttonAttrs.shortcut}`.toLowerCase()
+      ] = createdButton;
     } else {
       createdButton.title = title;
     }
 
-    if (button.unshift) {
+    if (buttonAttrs.unshift) {
       g.buttons.unshift(createdButton);
     } else {
       g.buttons.push(createdButton);
@@ -216,6 +234,9 @@ export function onToolbarCreate(func) {
 }
 
 export default Component.extend(TextareaTextManipulation, {
+  emojiStore: service("emoji-store"),
+  modal: service(),
+
   classNames: ["d-editor"],
   ready: false,
   lastSel: null,
@@ -223,10 +244,38 @@ export default Component.extend(TextareaTextManipulation, {
   showLink: true,
   emojiPickerIsActive: false,
   emojiFilter: "",
-  emojiStore: service("emoji-store"),
   isEditorFocused: false,
   processPreview: true,
   composerFocusSelector: "#reply-control .d-editor-input",
+
+  selectedFormTemplateId: computed("formTemplateIds", {
+    get() {
+      if (this._selectedFormTemplateId) {
+        return this._selectedFormTemplateId;
+      }
+
+      return this.formTemplateId || this.formTemplateIds?.[0];
+    },
+
+    set(key, value) {
+      return (this._selectedFormTemplateId = value);
+    },
+  }),
+
+  @action
+  updateSelectedFormTemplateId(formTemplateId) {
+    this.selectedFormTemplateId = formTemplateId;
+  },
+
+  @discourseComputed("formTemplateIds", "replyingToTopic", "editingPost")
+  showFormTemplateForm(formTemplateIds, replyingToTopic, editingPost) {
+    // TODO(@keegan): Remove !editingPost once we add edit/draft support for form templates
+    if (formTemplateIds?.length > 0 && !replyingToTopic && !editingPost) {
+      return true;
+    }
+
+    return false;
+  },
 
   @discourseComputed("placeholder")
   placeholderTranslated(placeholder) {
@@ -275,6 +324,26 @@ export default Component.extend(TextareaTextManipulation, {
 
     this._itsatrap.bind("tab", () => this.indentSelection("right"));
     this._itsatrap.bind("shift+tab", () => this.indentSelection("left"));
+    this._itsatrap.bind(`${PLATFORM_KEY_MODIFIER}+shift+.`, () =>
+      this.send("insertCurrentTime")
+    );
+
+    // These must be bound manually because itsatrap does not support
+    // beforeinput or input events.
+    //
+    // beforeinput is better used to detect line breaks because it is
+    // fired before the actual value of the textarea is changed,
+    // and sometimes in the input event no `insertLineBreak` event type
+    // is fired.
+    //
+    // c.f. https://developer.mozilla.org/en-US/docs/Web/API/Element/beforeinput_event
+    if (this._textarea) {
+      this._textarea.addEventListener(
+        "beforeinput",
+        this.onBeforeInputSmartList
+      );
+      this._textarea.addEventListener("input", this.onInputSmartList);
+    }
 
     // disable clicking on links in the preview
     this.element
@@ -285,12 +354,28 @@ export default Component.extend(TextareaTextManipulation, {
       this.appEvents.on("composer:insert-block", this, "insertBlock");
       this.appEvents.on("composer:insert-text", this, "insertText");
       this.appEvents.on("composer:replace-text", this, "replaceText");
+      this.appEvents.on("composer:apply-surround", this, "_applySurround");
       this.appEvents.on(
         "composer:indent-selected-text",
         this,
         "indentSelection"
       );
     }
+  },
+
+  @bind
+  onBeforeInputSmartList(event) {
+    // This inputType is much more consistently fired in `beforeinput`
+    // rather than `input`.
+    this.handleSmartListAutocomplete = event.inputType === "insertLineBreak";
+  },
+
+  @bind
+  onInputSmartList() {
+    if (this.handleSmartListAutocomplete) {
+      this.maybeContinueList();
+    }
+    this.handleSmartListAutocomplete = false;
   },
 
   @bind
@@ -302,15 +387,17 @@ export default Component.extend(TextareaTextManipulation, {
     if (event.target.tagName === "A") {
       if (event.target.classList.contains("mention")) {
         this.appEvents.trigger(
-          "click.discourse-preview-user-card-mention",
-          $(event.target)
+          "d-editor:preview-click-user-card",
+          event.target,
+          event
         );
       }
 
       if (event.target.classList.contains("mention-group")) {
         this.appEvents.trigger(
-          "click.discourse-preview-group-card-mention-group",
-          $(event.target)
+          "d-editor:preview-click-group-card",
+          event.target,
+          event
         );
       }
 
@@ -325,11 +412,20 @@ export default Component.extend(TextareaTextManipulation, {
       this.appEvents.off("composer:insert-block", this, "insertBlock");
       this.appEvents.off("composer:insert-text", this, "insertText");
       this.appEvents.off("composer:replace-text", this, "replaceText");
+      this.appEvents.off("composer:apply-surround", this, "_applySurround");
       this.appEvents.off(
         "composer:indent-selected-text",
         this,
         "indentSelection"
       );
+    }
+
+    if (this._textarea) {
+      this._textarea.removeEventListener(
+        "beforeinput",
+        this.onBeforeInputSmartList
+      );
+      this._textarea.removeEventListener("input", this.onInputSmartList);
     }
 
     this._itsatrap?.destroy();
@@ -369,91 +465,102 @@ export default Component.extend(TextareaTextManipulation, {
     return toolbar;
   },
 
-  cachedCookAsync(text) {
-    if (this._cachedCookFunction) {
-      return Promise.resolve(this._cachedCookFunction(text));
-    }
-
-    const markdownOptions = this.markdownOptions || {};
-    return generateCookFunction(markdownOptions).then((cook) => {
-      this._cachedCookFunction = cook;
-      return cook(text);
-    });
+  async cachedCookAsync(text, options) {
+    this._cachedCookFunction ||= await generateCookFunction(options || {});
+    return await this._cachedCookFunction(text);
   },
 
-  _updatePreview() {
-    if (this._state !== "inDOM" || !this.processPreview) {
+  async _updatePreview() {
+    if (
+      this._state !== "inDOM" ||
+      !this.processPreview ||
+      this.isDestroying ||
+      this.isDestroyed
+    ) {
       return;
     }
 
-    const value = this.value;
+    const cooked = await this.cachedCookAsync(this.value, this.markdownOptions);
 
-    this.cachedCookAsync(value).then((cooked) => {
-      if (this.isDestroyed) {
+    if (this.preview === cooked || this.isDestroying || this.isDestroyed) {
+      return;
+    }
+
+    this.set("preview", cooked);
+
+    let unseenMentions, unseenHashtags;
+
+    if (this.siteSettings.enable_diffhtml_preview) {
+      const previewElement = this.element.querySelector(".d-editor-preview");
+      const cookedElement = previewElement.cloneNode(false);
+      cookedElement.innerHTML = cooked;
+
+      unseenMentions = linkSeenMentions(cookedElement, this.siteSettings);
+
+      unseenHashtags = linkSeenHashtagsInContext(
+        this.site.hashtag_configurations["topic-composer"],
+        cookedElement
+      );
+
+      loadOneboxes(
+        cookedElement,
+        ajax,
+        this.topicId,
+        this.categoryId,
+        this.siteSettings.max_oneboxes_per_post,
+        /* refresh */ false,
+        /* offline */ true
+      );
+
+      resolveCachedShortUrls(this.siteSettings, cookedElement);
+
+      // trigger all the "api.decorateCookedElement"
+      this.appEvents.trigger(
+        "decorate-non-stream-cooked-element",
+        cookedElement
+      );
+
+      (await import("morphlex")).morph(
+        previewElement,
+        cookedElement,
+        this.morphingOptions
+      );
+    }
+
+    schedule("afterRender", () => {
+      if (
+        this._state !== "inDOM" ||
+        !this.element ||
+        this.isDestroying ||
+        this.isDestroyed
+      ) {
         return;
       }
 
-      if (this.preview === cooked) {
-        return;
+      const previewElement = this.element.querySelector(".d-editor-preview");
+
+      if (previewElement && this.previewUpdated) {
+        this.previewUpdated(previewElement, unseenMentions, unseenHashtags);
       }
-
-      this.set("preview", cooked);
-
-      let previewPromise = Promise.resolve();
-
-      if (this.siteSettings.enable_diffhtml_preview) {
-        const cookedElement = document.createElement("div");
-        cookedElement.innerHTML = cooked;
-
-        linkSeenHashtags(cookedElement);
-        linkSeenMentions(cookedElement, this.siteSettings);
-        resolveCachedShortUrls(this.siteSettings, cookedElement);
-        loadOneboxes(
-          cookedElement,
-          ajax,
-          null,
-          null,
-          this.siteSettings.max_oneboxes_per_post,
-          false,
-          true
-        );
-
-        previewPromise = loadScript("/javascripts/diffhtml.min.js").then(() => {
-          window.diff.innerHTML(
-            this.element.querySelector(".d-editor-preview"),
-            cookedElement.innerHTML
-          );
-        });
-      }
-
-      previewPromise.then(() => {
-        schedule("afterRender", () => {
-          if (this._state !== "inDOM" || !this.element) {
-            return;
-          }
-
-          const preview = this.element.querySelector(".d-editor-preview");
-          if (!preview) {
-            return;
-          }
-
-          if (this.previewUpdated) {
-            this.previewUpdated(preview);
-          }
-        });
-      });
     });
   },
 
+  morphingOptions: {
+    beforeAttributeUpdated: (element, attributeName) => {
+      // Don't morph the open attribute of <details> elements
+      return !(element.tagName === "DETAILS" && attributeName === "open");
+    },
+  },
+
   @observes("ready", "value", "processPreview")
-  _watchForChanges() {
+  async _watchForChanges() {
     if (!this.ready) {
       return;
     }
 
     // Debouncing in test mode is complicated
     if (isTesting()) {
-      this._updatePreview();
+      await this._updatePreview();
     } else {
       discourseDebounce(this, this._updatePreview, 30);
     }
@@ -487,10 +594,6 @@ export default Component.extend(TextareaTextManipulation, {
       },
 
       onKeyUp: (text, cp) => {
-        if (inCodeBlock(text, cp)) {
-          return false;
-        }
-
         const matches =
           /(?:^|[\s.\?,@\/#!%&*;:\[\]{}=\-_()])(:(?!:).?[\w-]*:?(?!:)(?:t\d?)?:?) ?$/gi.exec(
             text.substring(0, cp)
@@ -525,7 +628,11 @@ export default Component.extend(TextareaTextManipulation, {
 
           if (term === "") {
             if (this.emojiStore.favorites.length) {
-              return resolve(this.emojiStore.favorites.slice(0, 5));
+              return resolve(
+                this.emojiStore.favorites
+                  .filter((f) => !this.site.denied_emojis?.includes(f))
+                  .slice(0, 5)
+              );
             } else {
               return resolve([
                 "slight_smile",
@@ -550,12 +657,13 @@ export default Component.extend(TextareaTextManipulation, {
             return resolve([allTranslations[full]]);
           }
 
+          const emojiDenied = this.get("site.denied_emojis") || [];
           const match = term.match(/^:?(.*?):t([2-6])?$/);
           if (match) {
             const name = match[1];
             const scale = match[2];
 
-            if (isSkinTonableEmoji(name)) {
+            if (isSkinTonableEmoji(name) && !emojiDenied.includes(name)) {
               if (scale) {
                 return resolve([`${name}:t${scale}`]);
               } else {
@@ -567,6 +675,7 @@ export default Component.extend(TextareaTextManipulation, {
           const options = emojiSearch(term, {
             maxResults: 5,
             diversity: this.emojiStore.diversity,
+            exclude: emojiDenied,
           });
 
           return resolve(options);
@@ -588,8 +697,8 @@ export default Component.extend(TextareaTextManipulation, {
           });
       },
 
-      triggerRule: (textarea) =>
-        !inCodeBlock(textarea.value, caretPosition(textarea)),
+      triggerRule: async (textarea) =>
+        !(await inCodeBlock(textarea.value, caretPosition(textarea))),
     });
   },
 
@@ -614,6 +723,11 @@ export default Component.extend(TextareaTextManipulation, {
       this.set("value", `${preLines}${number}${post}`);
       this.selectText(preLines.length, number.length);
     }
+  },
+
+  _applySurround(head, tail, exampleKey, opts) {
+    const selected = this.getSelected();
+    this.applySurround(selected, head, tail, exampleKey, opts);
   },
 
   _toggleDirection() {
@@ -719,9 +833,11 @@ export default Component.extend(TextareaTextManipulation, {
         linkText = this._lastSel.value;
       }
 
-      showModal("insert-hyperlink").setProperties({
-        linkText,
-        toolbarEvent,
+      this.modal.show(InsertHyperlink, {
+        model: {
+          linkText,
+          toolbarEvent,
+        },
       });
     },
 
@@ -761,6 +877,15 @@ export default Component.extend(TextareaTextManipulation, {
           );
         }
       }
+    },
+
+    insertCurrentTime() {
+      const sel = this.getSelected("", { lineVal: true });
+      const timezone = this.currentUser.user_option.timezone;
+      const time = moment().format("HH:mm:ss");
+      const date = moment().format("YYYY-MM-DD");
+
+      this.addText(sel, `[date=${date} time=${time} timezone="${timezone}"]`);
     },
 
     focusIn() {

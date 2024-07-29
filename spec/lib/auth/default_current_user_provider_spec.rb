@@ -8,9 +8,6 @@ RSpec.describe Auth::DefaultCurrentUserProvider do
 
   class TestProvider < Auth::DefaultCurrentUserProvider
     attr_reader :env
-    def initialize(env)
-      super(env)
-    end
 
     def cookie_jar
       @cookie_jar ||= ActionDispatch::Request.new(env).cookie_jar
@@ -24,11 +21,11 @@ RSpec.describe Auth::DefaultCurrentUserProvider do
   end
 
   def get_cookie_info(cookie_jar, name)
-    headers = {}
+    response = ActionDispatch::Response.new
     cookie_jar.always_write_cookie = true
-    cookie_jar.write(headers)
+    cookie_jar.write(response)
 
-    header = headers["Set-Cookie"]
+    header = response.headers["Set-Cookie"]
     return if header.nil?
 
     info = {}
@@ -201,6 +198,8 @@ RSpec.describe Auth::DefaultCurrentUserProvider do
 
     context "with rate limiting" do
       before { RateLimiter.enable }
+
+      use_redis_snapshotting
 
       it "rate limits admin api requests" do
         global_setting :max_admin_api_reqs_per_minute, 3
@@ -602,11 +601,9 @@ RSpec.describe Auth::DefaultCurrentUserProvider do
   end
 
   describe "user api" do
-    fab! :user do
-      Fabricate(:user)
-    end
+    fab!(:user)
 
-    let :api_key do
+    let(:api_key) do
       UserApiKey.create!(
         application_name: "my app",
         client_id: "1234",

@@ -31,18 +31,18 @@ class SiteSettings::DefaultsProvider
   end
 
   def all(locale = nil)
-    if locale
-      @defaults[DEFAULT_LOCALE.to_sym].merge(@defaults[locale.to_sym] || {})
-    else
-      @defaults[DEFAULT_LOCALE.to_sym].dup
-    end
+    result =
+      if locale
+        @defaults[DEFAULT_LOCALE.to_sym].merge(@defaults[locale.to_sym] || {})
+      else
+        @defaults[DEFAULT_LOCALE.to_sym].dup
+      end
+
+    DiscoursePluginRegistry.apply_modifier(:site_setting_defaults, result)
   end
 
   def get(name, locale = DEFAULT_LOCALE)
-    value = @defaults.dig(locale.to_sym, name.to_sym)
-    return value unless value.nil?
-
-    @defaults.dig(DEFAULT_LOCALE.to_sym, name.to_sym)
+    all(locale)[name.to_sym]
   end
   alias [] get
 
@@ -63,7 +63,7 @@ class SiteSettings::DefaultsProvider
   end
 
   def has_setting?(name)
-    has_key?(name.to_sym) || has_key?("#{name.to_s}?".to_sym) || name.to_sym == :default_locale
+    has_key?(name.to_sym) || has_key?("#{name}?".to_sym) || name.to_sym == :default_locale
   end
 
   private

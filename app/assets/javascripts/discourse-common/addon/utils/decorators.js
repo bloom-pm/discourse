@@ -1,4 +1,3 @@
-import { on as emberOn } from "@ember/object/evented";
 import { observer } from "@ember/object";
 import {
   alias as EmberAlias,
@@ -30,13 +29,20 @@ import {
   union as EmberUnion,
   uniq as EmberUniq,
 } from "@ember/object/computed";
+import CoreObject from "@ember/object/core";
+import { on as emberOn } from "@ember/object/evented";
 import { bind as emberBind, schedule } from "@ember/runloop";
+import {
+  observes as emberObservesDecorator,
+  on as emberOnDecorator,
+} from "@ember-decorators/object";
+import discourseDebounce from "discourse-common/lib/debounce";
+import deprecated from "discourse-common/lib/deprecated";
 import decoratorAlias from "discourse-common/utils/decorator-alias";
 import extractValue from "discourse-common/utils/extract-value";
 import handleDescriptor from "discourse-common/utils/handle-descriptor";
 import isDescriptor from "discourse-common/utils/is-descriptor";
 import macroAlias from "discourse-common/utils/macro-alias";
-import discourseDebounce from "discourse-common/lib/debounce";
 
 export default function discourseComputedDecorator(...params) {
   // determine if user called as @discourseComputed('blah', 'blah') or @discourseComputed
@@ -65,9 +71,7 @@ export function bind(target, name, descriptor) {
     configurable: true,
     get() {
       const bound = emberBind(this, descriptor.value);
-      const attributes = Object.assign({}, descriptor, {
-        value: bound,
-      });
+      const attributes = { ...descriptor, value: bound };
 
       Object.defineProperty(this, name, attributes);
 
@@ -93,10 +97,9 @@ export function debounce(delay, immediate = false) {
     return {
       enumerable: descriptor.enumerable,
       configurable: descriptor.configurable,
-      writable: descriptor.writable,
-      initializer() {
+      get: function () {
         const originalFunction = descriptor.value;
-        const debounced = function (...args) {
+        const debounced = (...args) => {
           return discourseDebounce(
             this,
             originalFunction,
@@ -106,17 +109,52 @@ export function debounce(delay, immediate = false) {
           );
         };
 
+        // Memoize on instance for future access
+        Object.defineProperty(this, name, {
+          value: debounced,
+          enumerable: descriptor.enumerable,
+          configurable: descriptor.configurable,
+        });
+
         return debounced;
       },
     };
   };
 }
 
-export const on = decoratorAlias(emberOn, "Can not `on` without event names");
-export const observes = decoratorAlias(
-  observer,
-  "Can not `observe` without property names"
-);
+export function on(...onParams) {
+  return function (target) {
+    if (target instanceof CoreObject) {
+      deprecated(
+        `Using 'on' from 'discourse-common/utils/decorators' as a class property decorator is deprecated. You should import it from '@ember-decorators/object' instead.`,
+        { id: "discourse.utils-decorators-on", from: "3.1.0.beta2" }
+      );
+      return emberOnDecorator(...onParams)(...arguments);
+    } else {
+      return decoratorAlias(
+        emberOn,
+        "Can not `on` without event names"
+      )(...onParams)(...arguments);
+    }
+  };
+}
+
+export function observes(...observeParams) {
+  return function (target) {
+    if (target instanceof CoreObject) {
+      deprecated(
+        `Using 'observes' from 'discourse-common/utils/decorators' as a class property decorator is deprecated. You should import it from '@ember-decorators/object' instead.`,
+        { id: "discourse.utils-decorators-observes", from: "3.1.0.beta2" }
+      );
+      return emberObservesDecorator(...observeParams)(...arguments);
+    } else {
+      return decoratorAlias(
+        observer,
+        "Can not `observe` without property names"
+      )(...observeParams)(...arguments);
+    }
+  };
+}
 
 export const alias = macroAlias(EmberAlias);
 export const and = macroAlias(EmberAnd);

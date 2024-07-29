@@ -1,8 +1,8 @@
 import Controller from "@ember/controller";
-import I18n from "I18n";
-import discourseComputed from "discourse-common/utils/decorators";
 import { equal } from "@ember/object/computed";
 import { popupAjaxError } from "discourse/lib/ajax-error";
+import discourseComputed from "discourse-common/utils/decorators";
+import I18n from "discourse-i18n";
 
 const EMAIL_LEVELS = {
   ALWAYS: 0,
@@ -11,6 +11,7 @@ const EMAIL_LEVELS = {
 };
 
 export default Controller.extend({
+  subpageTitle: I18n.t("user.preferences_nav.emails"),
   emailMessagesLevelAway: equal(
     "model.user_option.email_messages_level",
     EMAIL_LEVELS.ONLY_WHEN_AWAY

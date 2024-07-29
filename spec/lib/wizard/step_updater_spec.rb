@@ -51,17 +51,15 @@ RSpec.describe Wizard::StepUpdater do
       updater =
         wizard.create_updater(
           "privacy",
-          login_required: false,
-          invite_only: false,
-          must_approve_users: false,
-          enable_sidebar: false,
+          login_required: "public",
+          invite_only: "sign_up",
+          must_approve_users: "no",
         )
       updater.update
       expect(updater.success?).to eq(true)
       expect(SiteSetting.login_required?).to eq(false)
       expect(SiteSetting.invite_only?).to eq(false)
       expect(SiteSetting.must_approve_users?).to eq(false)
-      expect(SiteSetting.navigation_menu).to eq(NavigationMenuSiteSetting::HEADER_DROPDOWN)
       expect(wizard.completed_steps?("privacy")).to eq(true)
     end
 
@@ -69,17 +67,15 @@ RSpec.describe Wizard::StepUpdater do
       updater =
         wizard.create_updater(
           "privacy",
-          login_required: true,
-          invite_only: true,
-          must_approve_users: true,
-          enable_sidebar: true,
+          login_required: "private",
+          invite_only: "invite_only",
+          must_approve_users: "yes",
         )
       updater.update
       expect(updater.success?).to eq(true)
       expect(SiteSetting.login_required?).to eq(true)
       expect(SiteSetting.invite_only?).to eq(true)
       expect(SiteSetting.must_approve_users?).to eq(true)
-      expect(SiteSetting.navigation_menu).to eq(NavigationMenuSiteSetting::SIDEBAR)
       expect(wizard.completed_steps?("privacy")).to eq(true)
     end
   end
@@ -123,7 +119,7 @@ RSpec.describe Wizard::StepUpdater do
       end
 
       context "with an existing default theme" do
-        fab!(:theme) { Fabricate(:theme) }
+        fab!(:theme)
 
         before { theme.set_default! }
 
@@ -370,7 +366,7 @@ RSpec.describe Wizard::StepUpdater do
       expect(SiteSetting.contact_email).to eq("eviltrout@example.com")
 
       # Should update the TOS topic
-      raw = Post.where(topic_id: SiteSetting.tos_topic_id, post_number: 1).pluck_first(:raw)
+      raw = Post.where(topic_id: SiteSetting.tos_topic_id, post_number: 1).pick(:raw)
       expect(raw).to eq("ACME, Inc. - New Jersey law - Fairfield, New Jersey template")
 
       # Can update the TOS topic again
@@ -382,13 +378,13 @@ RSpec.describe Wizard::StepUpdater do
           city_for_disputes: "San Francisco, California",
         )
       updater.update
-      raw = Post.where(topic_id: SiteSetting.tos_topic_id, post_number: 1).pluck_first(:raw)
+      raw = Post.where(topic_id: SiteSetting.tos_topic_id, post_number: 1).pick(:raw)
       expect(raw).to eq("Pied Piper Inc - California law - San Francisco, California template")
 
       # Can update the TOS to nothing
       updater = wizard.create_updater("corporate", {})
       updater.update
-      raw = Post.where(topic_id: SiteSetting.tos_topic_id, post_number: 1).pluck_first(:raw)
+      raw = Post.where(topic_id: SiteSetting.tos_topic_id, post_number: 1).pick(:raw)
       expect(raw).to eq("company_name - governing_law - city_for_disputes template")
 
       expect(wizard.completed_steps?("corporate")).to eq(true)

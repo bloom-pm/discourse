@@ -1,18 +1,19 @@
-import Service, { inject as service } from "@ember/service";
-import discourseDebounce from "discourse-common/lib/debounce";
-import { withPluginApi } from "discourse/lib/plugin-api";
-import { isTesting } from "discourse-common/config/environment";
+import Service, { service } from "@ember/service";
 import {
   alertChannel,
   onNotification,
 } from "discourse/lib/desktop-notifications";
-import { bind, observes } from "discourse-common/utils/decorators";
+import { withPluginApi } from "discourse/lib/plugin-api";
+import { isTesting } from "discourse-common/config/environment";
+import { bind } from "discourse-common/utils/decorators";
 
 export default class ChatNotificationManager extends Service {
   @service presence;
   @service chat;
+  @service chatStateManager;
+  @service currentUser;
+  @service appEvents;
 
-  _inChat = false;
   _subscribedToCore = true;
   _subscribedToChat = false;
   _countChatInDocTitle = true;
@@ -36,6 +37,17 @@ export default class ChatNotificationManager extends Service {
     withPluginApi("0.12.1", (api) => {
       api.onPageChange(this._pageChanged);
     });
+
+    this._pageChanged();
+
+    this._chatPresenceChannel.on(
+      "change",
+      this._subscribeToCorrectNotifications
+    );
+    this._corePresenceChannel.on(
+      "change",
+      this._subscribeToCorrectNotifications
+    );
   }
 
   willDestroy() {
@@ -45,8 +57,17 @@ export default class ChatNotificationManager extends Service {
       return;
     }
 
+    this._chatPresenceChannel.off(
+      "change",
+      this._subscribeToCorrectNotifications
+    );
     this._chatPresenceChannel.unsubscribe();
     this._chatPresenceChannel.leave();
+
+    this._corePresenceChannel.off(
+      "change",
+      this._subscribeToCorrectNotifications
+    );
     this._corePresenceChannel.unsubscribe();
     this._corePresenceChannel.leave();
   }
@@ -56,20 +77,14 @@ export default class ChatNotificationManager extends Service {
   }
 
   @bind
-  _pageChanged(path) {
-    this.set("_inChat", path.startsWith("/chat/channel/"));
-    if (this._inChat) {
+  _pageChanged() {
+    if (this.chatStateManager.isActive) {
       this._chatPresenceChannel.enter({ onlyWhileActive: false });
       this._corePresenceChannel.leave();
     } else {
       this._chatPresenceChannel.leave();
       this._corePresenceChannel.enter({ onlyWhileActive: false });
     }
-  }
-
-  @observes("_chatPresenceChannel.count", "_corePresenceChannel.count")
-  _channelCountsChanged() {
-    discourseDebounce(this, this._subscribeToCorrectNotifications, 2000);
   }
 
   _coreAlertChannel() {
@@ -80,12 +95,13 @@ export default class ChatNotificationManager extends Service {
     return `/chat${alertChannel(this.currentUser)}`;
   }
 
+  @bind
   _subscribeToCorrectNotifications() {
     const oneTabForEachOpen =
       this._chatPresenceChannel.count > 0 &&
       this._corePresenceChannel.count > 0;
     if (oneTabForEachOpen) {
-      this._inChat
+      this.chatStateManager.isActive
         ? this._subscribeToChat({ only: true })
         : this._subscribeToCore({ only: true });
     } else {
@@ -103,6 +119,7 @@ export default class ChatNotificationManager extends Service {
 
     if (!this._subscribedToChat) {
       this.messageBus.subscribe(this._chatAlertChannel(), this.onMessage);
+      this.set("_subscribedToChat", true);
     }
 
     if (opts.only && this._subscribedToCore) {
@@ -117,9 +134,10 @@ export default class ChatNotificationManager extends Service {
     }
     if (!this._subscribedToCore) {
       this.messageBus.subscribe(this._coreAlertChannel(), this.onMessage);
+      this.set("_subscribedToCore", true);
     }
 
-    if (this.only && this._subscribedToChat) {
+    if (opts.only && this._subscribedToChat) {
       this.messageBus.unsubscribe(this._chatAlertChannel(), this.onMessage);
       this.set("_subscribedToChat", false);
     }
@@ -127,7 +145,16 @@ export default class ChatNotificationManager extends Service {
 
   @bind
   onMessage(data) {
-    return onNotification(data, this.siteSettings, this.currentUser);
+    if (data.channel_id === this.chat.activeChannel?.id) {
+      return;
+    }
+
+    return onNotification(
+      data,
+      this.siteSettings,
+      this.currentUser,
+      this.appEvents
+    );
   }
 
   _shouldRun() {

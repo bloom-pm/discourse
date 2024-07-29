@@ -1,12 +1,16 @@
 # frozen_string_literal: true
 
 class ReviewableScoreTypeSerializer < ApplicationSerializer
-  attributes :id, :title, :reviewable_priority, :icon
+  attributes :id, :title, :reviewable_priority, :icon, :type
+
+  def type
+    ReviewableScore.types[id]
+  end
 
   # Allow us to share post action type translations for backwards compatibility
   def title
-    I18n.t("post_action_types.#{ReviewableScore.types[id]}.title", default: nil) ||
-      I18n.t("reviewable_score_types.#{ReviewableScore.types[id]}.title")
+    I18n.t("post_action_types.#{type}.title", default: nil) ||
+      I18n.t("reviewable_score_types.#{type}.title", default: nil) || PostActionType.names[id]
   end
 
   def reviewable_priority

@@ -1,16 +1,6 @@
 .chat-message-actions {
-  position: absolute;
-  bottom: -100vh;
-  left: 0;
-  right: 0;
-  display: flex;
-  flex-direction: column;
-  border-radius: 8px 8px 0 0;
-  margin: 0 2px;
-  transition: bottom 0.2s ease;
-
   .selected-message-container {
-    padding: 0.5em 0.5em 1em 0.5em;
+    padding: 0.75rem 1rem;
   }
 
   .selected-message {
@@ -19,9 +9,10 @@
     padding: 0.5em;
     border: 1px solid var(--primary-low);
     box-shadow: 0 0 4px rgba(0, 0, 0, 0.125);
-    border-radius: 8px;
 
     .selected-message-reply {
+      margin-left: 5px;
+
       &:not(.is-expanded) {
         @include ellipsis;
       }
@@ -38,7 +29,8 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1em 1em 1.5em 1em;
+    padding: 1em 0 1.5em 0;
+    width: 100%;
 
     .chat-message-reaction {
       background: none;
@@ -75,10 +67,15 @@
 
     .chat-message-reaction,
     .reply-btn,
+    .chat-message-thread-btn,
     .react-btn,
     .bookmark-btn {
       flex-grow: 1;
       height: 42px;
+
+      &:active {
+        background: var(--primary-low);
+      }
     }
 
     .bookmark-btn,
@@ -90,7 +87,6 @@
     }
 
     .reply-btn {
-      border-radius: 3px;
       .d-icon {
         font-size: var(--font-up-4);
       }
@@ -102,29 +98,29 @@
     flex-direction: column;
     justify-content: flex-start;
     align-items: flex-start;
-    padding: 0.5em;
     margin: 0;
 
     .chat-message-action-item {
-      border-bottom: 1px solid var(--primary-low);
       width: 100%;
       list-style: none;
-      padding-bottom: 0.25em;
-      margin-bottom: 0.25em;
       display: flex;
 
+      &:active {
+        background: var(--primary-low);
+      }
+
       &:last-child {
-        border: 0;
-        margin: 0;
-        padding: 0;
+        border-bottom: 0;
       }
 
       .chat-message-action {
         justify-content: flex-start;
+        gap: 0.25em;
         background: none;
         width: 100%;
         border: 0;
         color: var(--primary);
+        padding: 0.75rem 1em;
 
         &:focus,
         .d-icon {
@@ -133,28 +129,11 @@
       }
     }
   }
-}
 
-.chat-message-actions-backdrop {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 100%;
-  width: 100%;
-  z-index: z("header") + 1;
-  transition: background-color 0.2s ease;
-
-  .collapse-area {
-    width: 100%;
-    height: 100%;
-  }
-
-  &.fade-in {
-    background-color: rgba(0, 0, 0, 0.35);
-
-    .chat-message-actions {
-      bottom: 0;
+  //temporary until this uses a proper component instead of the modal
+  .d-modal {
+    &__body {
+      padding: 0;
     }
   }
 }

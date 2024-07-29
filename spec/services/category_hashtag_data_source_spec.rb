@@ -7,12 +7,26 @@ RSpec.describe CategoryHashtagDataSource do
   end
   fab!(:category2) { Fabricate(:category, name: "Book Section", slug: "books", topic_count: 566) }
   fab!(:category3) { Fabricate(:category, slug: "movies", topic_count: 245) }
-  fab!(:group) { Fabricate(:group) }
+  fab!(:group)
   fab!(:category4) { Fabricate(:private_category, slug: "secret", group: group, topic_count: 40) }
   fab!(:category5) { Fabricate(:category, slug: "casual", topic_count: 99) }
-  fab!(:user) { Fabricate(:user) }
+  fab!(:user)
   let(:guardian) { Guardian.new(user) }
   let(:uncategorized_category) { Category.find(SiteSetting.uncategorized_category_id) }
+
+  describe "#find_by_ids" do
+    it "finds categories by their IDs" do
+      expect(
+        described_class.find_by_ids(guardian, [parent_category.id, category1.id]).map(&:slug),
+      ).to contain_exactly("fun", "random")
+    end
+
+    it "does not find categories the user cannot access" do
+      expect(described_class.find_by_ids(guardian, [category4.id]).first).to eq(nil)
+      group.add(user)
+      expect(described_class.find_by_ids(Guardian.new(user), [category4.id]).first).not_to eq(nil)
+    end
+  end
 
   describe "#lookup" do
     it "finds categories using their slug, downcasing for matches" do
@@ -39,6 +53,47 @@ RSpec.describe CategoryHashtagDataSource do
       expect(described_class.lookup(guardian, ["secret"]).first).to eq(nil)
       group.add(user)
       expect(described_class.lookup(Guardian.new(user), ["secret"]).first).not_to eq(nil)
+    end
+
+    context "with sub-sub-categories" do
+      before { SiteSetting.max_category_nesting = 3 }
+
+      it "returns the first matching grandchild category (ordered by IDs) when there are multiple categories with the same slug" do
+        parent1 = Fabricate(:category, slug: "parent1")
+        parent2 = Fabricate(:category, slug: "parent2")
+
+        parent1_child = Fabricate(:category, slug: "child", parent_category_id: parent1.id)
+        parent1_child_grandchild =
+          Fabricate(:category, slug: "grandchild", parent_category_id: parent1_child.id)
+
+        parent2_child = Fabricate(:category, slug: "child", parent_category_id: parent2.id)
+        parent2_child_grandchild =
+          Fabricate(:category, slug: "grandchild", parent_category_id: parent2_child.id)
+
+        result = described_class.lookup(guardian, ["child:grandchild"])
+        expect(result.map(&:relative_url)).to eq([parent1_child_grandchild.url])
+
+        parent1_child.destroy
+        parent1_child = Fabricate(:category, slug: "child", parent_category_id: parent1.id)
+
+        result = described_class.lookup(guardian, ["child:grandchild"])
+        expect(result.map(&:relative_url)).to eq([parent2_child_grandchild.url])
+      end
+
+      it "returns the correct grandchild category when there are multiple children with the same slug and only one of them has the correct grandchild" do
+        parent1 = Fabricate(:category, slug: "parent1")
+        parent1_child = Fabricate(:category, slug: "child", parent_category_id: parent1.id)
+        parent1_child_grandchild =
+          Fabricate(:category, slug: "another-grandchild", parent_category_id: parent1_child.id)
+
+        parent2 = Fabricate(:category, slug: "parent2")
+        parent2_child = Fabricate(:category, slug: "child", parent_category_id: parent2.id)
+        parent2_child_grandchild =
+          Fabricate(:category, slug: "grandchild", parent_category_id: parent2_child.id)
+
+        result = described_class.lookup(guardian, ["child:grandchild"])
+        expect(result.map(&:relative_url)).to eq([parent2_child_grandchild.url])
+      end
     end
   end
 

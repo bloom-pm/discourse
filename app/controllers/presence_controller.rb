@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class PresenceController < ApplicationController
-  skip_before_action :check_xhr
+  skip_before_action :check_xhr, :redirect_to_profile_if_required
   before_action :ensure_logged_in, only: [:update]
   before_action :skip_persist_session
 
@@ -42,6 +42,8 @@ class PresenceController < ApplicationController
   end
 
   def update
+    raise Discourse::ReadOnly if @readonly_mode
+
     client_id = params[:client_id]
     if !client_id.is_a?(String) || client_id.blank?
       raise Discourse::InvalidParameters.new(:client_id)

@@ -31,8 +31,6 @@ class TopicView
     :personal_message,
     :can_review_topic,
     :page,
-    :mentioned_users,
-    :mentions,
   )
   alias queued_posts_enabled? queued_posts_enabled
 
@@ -75,12 +73,11 @@ class TopicView
   end
 
   def self.add_custom_filter(key, &blk)
-    @custom_filters ||= {}
-    @custom_filters[key] = blk
+    custom_filters[key] = blk
   end
 
   def self.custom_filters
-    @custom_filters || {}
+    @custom_filters ||= {}
   end
 
   # Configure a default scope to be applied to @filtered_posts.
@@ -144,9 +141,6 @@ class TopicView
       end
     end
 
-    parse_mentions
-    load_mentioned_users
-
     TopicView.preload(self)
 
     @draft_key = @topic.draft_key
@@ -168,9 +162,15 @@ class TopicView
       topic_embed = topic.topic_embed
       return topic_embed.embed_url if topic_embed
     end
-    path = relative_url.dup
-    path << ((@page > 1) ? "?page=#{@page}" : "")
-    path
+    current_page_path
+  end
+
+  def current_page_path
+    if @page > 1
+      "#{relative_url}?page=#{@page}"
+    else
+      relative_url
+    end
   end
 
   def contains_gaps?
@@ -244,13 +244,17 @@ class TopicView
       else
         title += I18n.t("inline_oneboxer.topic_page_title_post_number", post_number: @post_number)
       end
+    elsif @page > 1
+      title += " - #{I18n.t("page_num", num: @page)}"
     end
+
     if SiteSetting.topic_page_title_includes_category
       if @topic.category_id != SiteSetting.uncategorized_category_id && @topic.category_id &&
            @topic.category
         title += " - #{@topic.category.name}"
-      elsif SiteSetting.tagging_enabled && @topic.tags.exists?
-        title += " - #{@topic.tags.order("tags.topic_count DESC").first.name}"
+      elsif SiteSetting.tagging_enabled && visible_tags.exists?
+        title +=
+          " - #{visible_tags.order("tags.#{Tag.topic_count_column(@guardian)} DESC").first.name}"
       end
     end
     title
@@ -267,6 +271,18 @@ class TopicView
     @desired_post = posts.detect { |p| p.post_number == @post_number }
     @desired_post ||= posts.first
     @desired_post
+  end
+
+  def crawler_posts
+    if single_post_request?
+      [desired_post]
+    else
+      posts
+    end
+  end
+
+  def single_post_request?
+    @post_number && @post_number != 1
   end
 
   def summary(opts = {})
@@ -579,7 +595,7 @@ class TopicView
 
   def pending_posts
     @pending_posts ||=
-      ReviewableQueuedPost.pending.where(created_by: @user, topic: @topic).order(:created_at)
+      ReviewableQueuedPost.pending.where(target_created_by: @user, topic: @topic).order(:created_at)
   end
 
   def actions_summary
@@ -607,9 +623,34 @@ class TopicView
     @pm_params ||= TopicQuery.new(@user).get_pm_params(topic)
   end
 
+  def flag_types
+    @flag_types ||= PostActionType.types
+  end
+
+  def public_flag_types
+    @public_flag_types ||= PostActionType.public_types
+  end
+
+  def notify_flag_types
+    @notify_flag_types ||= PostActionType.notify_flag_types
+  end
+
+  def additional_message_types
+    @additional_message_types ||= PostActionType.additional_message_types
+  end
+
   def suggested_topics
     if @include_suggested
-      @suggested_topics ||= TopicQuery.new(@user).list_suggested_for(topic, pm_params: pm_params)
+      @suggested_topics ||=
+        begin
+          kwargs =
+            DiscoursePluginRegistry.apply_modifier(
+              :topic_view_suggested_topics_options,
+              { include_random: true, pm_params: pm_params },
+              self,
+            )
+          TopicQuery.new(@user).list_suggested_for(topic, **kwargs)
+        end
     else
       nil
     end
@@ -675,7 +716,7 @@ class TopicView
   end
 
   def filtered_post_id(post_number)
-    @filtered_posts.where(post_number: post_number).pluck_first(:id)
+    @filtered_posts.where(post_number: post_number).pick(:id)
   end
 
   def is_mega_topic?
@@ -683,7 +724,7 @@ class TopicView
   end
 
   def last_post_id
-    @filtered_posts.reverse_order.pluck_first(:id)
+    @filtered_posts.reverse_order.pick(:id)
   end
 
   def current_post_number
@@ -700,21 +741,27 @@ class TopicView
     @topic.published_page
   end
 
-  def parse_mentions
-    @mentions = @posts.to_h { |p| [p.id, p.mentions] }.reject { |_, v| v.empty? }
+  def mentioned_users
+    @mentioned_users ||=
+      begin
+        mentions = @posts.to_h { |p| [p.id, p.mentions] }.reject { |_, v| v.empty? }
+        usernames = mentions.values
+        usernames.flatten!
+        usernames.uniq!
+
+        users = User.where(username: usernames).includes(:user_status).index_by(&:username)
+
+        mentions.reduce({}) do |hash, (post_id, post_mentioned_usernames)|
+          hash[post_id] = post_mentioned_usernames.map { |username| users[username] }.compact
+          hash
+        end
+      end
   end
 
-  def load_mentioned_users
-    usernames = @mentions.values.flatten.uniq
-    mentioned_users = User.where(username: usernames)
-
-    mentioned_users = mentioned_users.includes(:user_status) if SiteSetting.enable_user_status
-
-    @mentioned_users = mentioned_users.to_h { |u| [u.username, u] }
-  end
-
-  def tags
-    @topic.tags.map(&:name)
+  def categories
+    @categories ||= [category&.parent_category, category, suggested_topics&.categories].flatten
+      .uniq
+      .compact
   end
 
   protected
@@ -723,8 +770,8 @@ class TopicView
     @read_posts_set ||=
       begin
         result = Set.new
-        return result unless @user.present?
-        return result unless topic_user.present?
+        return result if @user.blank?
+        return result if topic_user.blank?
 
         post_numbers =
           PostTiming
@@ -820,7 +867,7 @@ class TopicView
   def find_topic(topic_or_topic_id)
     return topic_or_topic_id if topic_or_topic_id.is_a?(Topic)
     # with_deleted covered in #check_and_raise_exceptions
-    Topic.with_deleted.includes(:category, :tags).find_by(id: topic_or_topic_id)
+    Topic.with_deleted.includes(:category).find_by(id: topic_or_topic_id)
   end
 
   def unfiltered_posts
@@ -989,5 +1036,9 @@ class TopicView
         StaffActionLogger.new(@user).log_check_personal_message(@topic)
       end
     end
+  end
+
+  def visible_tags
+    @visible_tags ||= topic.tags.visible(guardian)
   end
 end

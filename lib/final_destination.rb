@@ -8,6 +8,12 @@ require "url_helper"
 
 # Determine the final endpoint for a Web URI, following redirects
 class FinalDestination
+  class SSRFError < SocketError
+  end
+
+  class UrlEncodingError < ArgumentError
+  end
+
   MAX_REQUEST_TIME_SECONDS = 10
   MAX_REQUEST_SIZE_BYTES = 5_242_880 # 1024 * 1024 * 5
 
@@ -46,6 +52,7 @@ class FinalDestination
     @default_user_agent = @opts[:default_user_agent] || DEFAULT_USER_AGENT
     @opts[:max_redirects] ||= 5
     @https_redirect_ignore_limit = @opts[:initial_https_redirect_ignore_limit]
+    @include_port_in_host_header = @opts[:include_port_in_host_header] || false
 
     @max_redirects = @opts[:max_redirects]
     @limit = @max_redirects
@@ -74,12 +81,13 @@ class FinalDestination
     @user_agent =
       (
         if @force_custom_user_agent_hosts.any? { |host| hostname_matches?(host) }
-          Onebox.options.user_agent
+          Onebox::Helpers.user_agent
         else
           @default_user_agent
         end
       )
     @stop_at_blocked_pages = @opts[:stop_at_blocked_pages]
+    @extra_headers = @opts[:headers]
   end
 
   def self.connection_timeout
@@ -111,9 +119,10 @@ class FinalDestination
       "User-Agent" => @user_agent,
       "Accept" => "*/*",
       "Accept-Language" => "*",
-      "Host" => @uri.hostname,
+      "Host" => @uri.hostname + (@include_port_in_host_header ? ":#{@uri.port}" : ""),
     }
 
+    result.merge!(@extra_headers) if @extra_headers
     result["Cookie"] = @cookie if @cookie
 
     result
@@ -147,7 +156,7 @@ class FinalDestination
 
   # this is a new interface for simply getting
   # N bytes accounting for all internal logic
-  def get(redirects = @limit, extra_headers: {}, &blk)
+  def get(redirects = @limit, extra_headers: {}, except_headers: [], &blk)
     raise "Must specify block" unless block_given?
 
     if @uri && @uri.port == 80 && FinalDestination.is_https_domain?(@uri.hostname)
@@ -158,7 +167,7 @@ class FinalDestination
     return if !validate_uri
     return if @stop_at_blocked_pages && blocked_domain?(@uri)
 
-    result, headers_subset = safe_get(@uri, &blk)
+    result, headers_subset = safe_get(@uri, except_headers:, &blk)
     return if !result
 
     cookie = headers_subset.set_cookie
@@ -189,7 +198,12 @@ class FinalDestination
       extra = nil
       extra = { "Cookie" => cookie } if cookie
 
-      get(redirects - 1, extra_headers: extra, &blk)
+      # Most HTTP Clients strip the Authorization header on redirects as the client could be redirecting to a untrusted
+      # party. Not stripping the Authorization header on redirect can also lead to problems where the
+      # redirected party does not expect a Authorization header and thus rejects the request.
+      except_headers = ["Authorization"]
+
+      get(redirects - 1, extra_headers: extra, except_headers:, &blk)
     elsif result == :ok
       @uri.to_s
     else
@@ -237,10 +251,10 @@ class FinalDestination
       lambda do |chunk, _remaining_bytes, _total_bytes|
         response_body << chunk
         if response_body.bytesize > MAX_REQUEST_SIZE_BYTES
-          raise Excon::Errors::ExpectationFailed.new("response size too big: #{@uri.to_s}")
+          raise Excon::Errors::ExpectationFailed.new("response size too big: #{@uri}")
         end
         if Time.now - request_start_time > MAX_REQUEST_TIME_SECONDS
-          raise Excon::Errors::ExpectationFailed.new("connect timeout reached: #{@uri.to_s}")
+          raise Excon::Errors::ExpectationFailed.new("connect timeout reached: #{@uri}")
         end
       end
 
@@ -393,8 +407,16 @@ class FinalDestination
 
   def validate_uri_format
     return false unless @uri && @uri.host
-    return false unless %w[https http].include?(@uri.scheme)
-    return false if @uri.scheme == "http" && @uri.port != 80
+    return false if %w[https http].exclude?(@uri.scheme)
+
+    # In some cases (like local/test environments) we may want to allow http URLs
+    # to be used for internal hosts, but only if it's the case that the host is
+    # explicitly used for SiteSetting.s3_endpoint. This is to allow for local
+    # S3 providers like minio.
+    #
+    # In all other cases, we should not be allowing http calls to anything except
+    # port 80.
+    return false if @uri.scheme == "http" && !http_port_ok?
     return false if @uri.scheme == "https" && @uri.port != 443
 
     # Disallow IP based crawling
@@ -405,6 +427,23 @@ class FinalDestination
         nil
       end
     ).nil?
+  end
+
+  def http_port_ok?
+    return true if @uri.port == 80
+
+    allowed_internal_hosts =
+      SiteSetting.allowed_internal_hosts&.split(/[|\n]/)&.filter_map { |aih| aih.strip.presence }
+    return false if allowed_internal_hosts.empty? || SiteSetting.s3_endpoint.blank?
+    return false if allowed_internal_hosts.none? { |aih| hostname_matches_s3_endpoint?(aih) }
+
+    true
+  end
+
+  def hostname_matches_s3_endpoint?(allowed_internal_host)
+    s3_endpoint_uri = URI(SiteSetting.s3_endpoint)
+    hostname_matches?("http://#{allowed_internal_host}") && @uri.port == s3_endpoint_uri.port &&
+      @uri.hostname.end_with?(s3_endpoint_uri.hostname)
   end
 
   def hostname
@@ -428,6 +467,8 @@ class FinalDestination
 
   def normalized_url
     UrlHelper.normalized_encode(@url)
+  rescue ArgumentError => e
+    raise UrlEncodingError, e.message
   end
 
   def log(log_level, message)
@@ -442,13 +483,17 @@ class FinalDestination
 
   protected
 
-  def safe_get(uri)
+  def safe_get(uri, except_headers: [])
     result = nil
     unsafe_close = false
     headers_subset = Struct.new(:location, :set_cookie).new
 
     safe_session(uri) do |http|
-      headers = request_headers.merge("Accept-Encoding" => "gzip", "Host" => uri.host)
+      headers =
+        request_headers.merge(
+          "Accept-Encoding" => "gzip",
+          "Host" => uri.hostname + (@include_port_in_host_header ? ":#{uri.port}" : ""),
+        ).except(*except_headers)
 
       req = FinalDestination::HTTP::Get.new(uri.request_uri, headers)
 

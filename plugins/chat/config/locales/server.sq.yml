@@ -14,8 +14,10 @@ sq:
         disagree:
           title: "Jo dakord"
     channel:
-      statuses:
-        open: "Fillo"
+      dm_title:
+        single_user: "%{username}"
+    mention_warning:
+      dismiss: "hiqe"
   discourse_push_notifications:
     popup:
       chat_mention:

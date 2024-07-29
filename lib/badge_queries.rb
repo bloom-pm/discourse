@@ -73,7 +73,7 @@ module BadgeQueries
       SELECT pa.user_id, min(pa.id) id
       FROM post_actions pa
       JOIN badge_posts p on p.id = pa.post_id
-      WHERE post_action_type_id IN (#{PostActionType.flag_types_without_custom.values.join(",")}) AND
+      WHERE post_action_type_id IN (#{PostActionType.flag_types_without_additional_message.values.join(",")}) AND
         (:backfill OR pa.post_id IN (:post_ids) )
       GROUP BY pa.user_id
     ) x
@@ -160,11 +160,15 @@ module BadgeQueries
         FROM invites i
         JOIN invited_users iu ON iu.invite_id = i.id
         JOIN users u2 ON u2.id = iu.user_id
-        WHERE i.deleted_at IS NULL AND u2.active AND u2.trust_level >= #{trust_level.to_i} AND u2.silenced_till IS NULL
+        WHERE i.deleted_at IS NULL
+        AND i.invited_by_id <> u2.id
+        AND u2.active
+        AND u2.trust_level >= #{trust_level.to_i}
+        AND u2.silenced_till IS NULL
         GROUP BY invited_by_id
         HAVING COUNT(*) >= #{count.to_i}
       ) AND u.active AND u.silenced_till IS NULL AND u.id > 0 AND
-        (:backfill OR u.id IN (:user_ids) )
+      (:backfill OR u.id IN (:user_ids) )
     SQL
   end
 

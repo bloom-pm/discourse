@@ -178,6 +178,34 @@ RSpec.describe SiteSettingExtension do
     end
   end
 
+  describe "DiscourseEvent for login_required changed to true" do
+    before do
+      SiteSetting.login_required = false
+      SiteSetting.bootstrap_mode_min_users = 50
+      SiteSetting.bootstrap_mode_enabled = true
+    end
+
+    it "lowers bootstrap mode min users for private sites" do
+      SiteSetting.login_required = true
+
+      expect(SiteSetting.bootstrap_mode_min_users).to eq(10)
+    end
+  end
+
+  describe "DiscourseEvent for login_required changed to false" do
+    before do
+      SiteSetting.login_required = true
+      SiteSetting.bootstrap_mode_min_users = 50
+      SiteSetting.bootstrap_mode_enabled = true
+    end
+
+    it "resets bootstrap mode min users for public sites" do
+      SiteSetting.login_required = false
+
+      expect(SiteSetting.bootstrap_mode_min_users).to eq(50)
+    end
+  end
+
   describe "int setting" do
     before do
       settings.setting(:test_setting, 77)
@@ -253,7 +281,7 @@ RSpec.describe SiteSettingExtension do
   end
 
   describe "remove_override" do
-    fab!(:upload) { Fabricate(:upload) }
+    fab!(:upload)
 
     before do
       settings.setting(:test_override, "test")
@@ -302,6 +330,8 @@ RSpec.describe SiteSettingExtension do
 
   describe "string setting with regex" do
     it "Supports custom validation errors" do
+      I18n.backend.store_translations(:en, { oops: "oops" })
+
       settings.setting(:test_str, "bob", regex: "hi", regex_error: "oops")
       settings.refresh!
 
@@ -362,6 +392,7 @@ RSpec.describe SiteSettingExtension do
       def self.valid_value?(v)
         true
       end
+
       def self.values
         [1, 2, 3]
       end
@@ -381,17 +412,17 @@ RSpec.describe SiteSettingExtension do
       def self.valid_value?(v)
         self.values.include?(v)
       end
+
       def self.values
         ["en"]
       end
+
       def self.translate_names?
         false
       end
     end
 
-    let :test_enum_class do
-      TestEnumClass
-    end
+    let(:test_enum_class) { TestEnumClass }
 
     before do
       settings.setting(:test_enum, "en", enum: test_enum_class)
@@ -535,6 +566,16 @@ RSpec.describe SiteSettingExtension do
       expect(settings.title).to eq("Discourse v2")
       expect(UserHistory.last.previous_value).to eq("Discourse v1")
       expect(UserHistory.last.new_value).to eq("Discourse v2")
+    end
+
+    context "when a detailed message is provided" do
+      let(:message) { "We really need to do this, see https://meta.discourse.org/t/123" }
+
+      it "adds the detailed message to the user history record" do
+        expect {
+          settings.set_and_log("title", "Discourse v2", Discourse.system_user, message)
+        }.to change { UserHistory.last.try(:details) }.to(message)
+      end
     end
   end
 
@@ -783,6 +824,45 @@ RSpec.describe SiteSettingExtension do
         expect(setting[:default]).to eq(system_upload.url)
       end
     end
+
+    context "with the filter_allowed_hidden argument" do
+      it "includes the specified hidden settings only if include_hidden is true" do
+        result =
+          SiteSetting
+            .all_settings(include_hidden: true, filter_allowed_hidden: [:about_banner_image])
+            .map { |ss| ss[:setting] }
+
+        expect(result).to include(:about_banner_image)
+        expect(result).not_to include(:community_owner)
+
+        result =
+          SiteSetting
+            .all_settings(include_hidden: false, filter_allowed_hidden: [:about_banner_image])
+            .map { |ss| ss[:setting] }
+
+        expect(result).not_to include(:about_banner_image)
+        expect(result).not_to include(:community_owner)
+
+        result =
+          SiteSetting
+            .all_settings(include_hidden: true, filter_allowed_hidden: [:community_owner])
+            .map { |ss| ss[:setting] }
+
+        expect(result).not_to include(:about_banner_image)
+        expect(result).to include(:community_owner)
+
+        result =
+          SiteSetting
+            .all_settings(
+              include_hidden: true,
+              filter_allowed_hidden: %i[about_banner_image community_owner],
+            )
+            .map { |ss| ss[:setting] }
+
+        expect(result).to include(:about_banner_image)
+        expect(result).to include(:community_owner)
+      end
+    end
   end
 
   describe ".client_settings_json_uncached" do
@@ -808,7 +888,7 @@ RSpec.describe SiteSettingExtension do
 
   describe ".setup_methods" do
     describe "for uploads site settings" do
-      fab!(:upload) { Fabricate(:upload) }
+      fab!(:upload)
       fab!(:upload2) { Fabricate(:upload) }
 
       it "should return the upload record" do
@@ -823,6 +903,94 @@ RSpec.describe SiteSettingExtension do
 
         expect(settings.some_upload).to eq(upload2)
       end
+    end
+  end
+
+  describe "mandatory_values for group list settings" do
+    it "adds mandatory values" do
+      expect(SiteSetting.embedded_media_post_allowed_groups).to eq("1|2|10")
+
+      SiteSetting.embedded_media_post_allowed_groups = 14
+      expect(SiteSetting.embedded_media_post_allowed_groups).to eq("1|2|14")
+
+      SiteSetting.embedded_media_post_allowed_groups = ""
+      expect(SiteSetting.embedded_media_post_allowed_groups).to eq("1|2")
+
+      test_provider = SiteSetting.provider
+      SiteSetting.provider = SiteSettings::DbProvider.new(SiteSetting)
+      SiteSetting.embedded_media_post_allowed_groups = "13|14"
+      expect(SiteSetting.embedded_media_post_allowed_groups).to eq("1|2|13|14")
+      expect(SiteSetting.find_by(name: "embedded_media_post_allowed_groups").value).to eq(
+        "1|2|13|14",
+      )
+    ensure
+      SiteSetting.find_by(name: "embedded_media_post_allowed_groups").destroy
+      SiteSetting.provider = test_provider
+    end
+  end
+
+  describe "requires_confirmation settings" do
+    it "returns 'simple' for settings that require confirmation with 'simple' type" do
+      expect(
+        SiteSetting.all_settings.find { |s| s[:setting] == :min_password_length }[
+          :requires_confirmation
+        ],
+      ).to eq("simple")
+    end
+
+    it "returns nil for settings that do not require confirmation" do
+      expect(
+        SiteSetting.all_settings.find { |s| s[:setting] == :display_local_time_in_user_card }[
+          :requires_confirmation
+        ],
+      ).to eq(nil)
+    end
+  end
+
+  describe "_map extension for list settings" do
+    it "handles splitting group_list settings" do
+      SiteSetting.personal_message_enabled_groups = "1|2"
+      expect(SiteSetting.personal_message_enabled_groups_map).to eq([1, 2])
+    end
+
+    it "handles splitting compact list settings" do
+      SiteSetting.markdown_linkify_tlds = "com|net"
+      expect(SiteSetting.markdown_linkify_tlds_map).to eq(%w[com net])
+    end
+
+    it "handles splitting simple list settings" do
+      SiteSetting.ga_universal_auto_link_domains = "test.com|xy.com"
+      expect(SiteSetting.ga_universal_auto_link_domains_map).to eq(%w[test.com xy.com])
+    end
+
+    it "handles splitting list settings with no type" do
+      SiteSetting.post_menu = "read|like"
+      expect(SiteSetting.post_menu_map).to eq(%w[read like])
+    end
+
+    it "does not handle splitting secret list settings" do
+      SiteSetting.discourse_connect_provider_secrets = "test|secret1\ntest2|secret2"
+      expect(SiteSetting.respond_to?(:discourse_connect_provider_secrets_map)).to eq(false)
+    end
+
+    it "handles splitting emoji_list settings" do
+      SiteSetting.emoji_deny_list = "smile|frown"
+      expect(SiteSetting.emoji_deny_list_map).to eq(%w[smile frown])
+    end
+
+    it "handles splitting tag_list settings" do
+      SiteSetting.digest_suppress_tags = "blah|blah2"
+      expect(SiteSetting.digest_suppress_tags_map).to eq(%w[blah blah2])
+    end
+
+    it "handles null values for settings" do
+      SiteSetting.ga_universal_auto_link_domains = nil
+      SiteSetting.pm_tags_allowed_for_groups = nil
+      SiteSetting.exclude_rel_nofollow_domains = nil
+
+      expect(SiteSetting.ga_universal_auto_link_domains_map).to eq([])
+      expect(SiteSetting.pm_tags_allowed_for_groups_map).to eq([])
+      expect(SiteSetting.exclude_rel_nofollow_domains_map).to eq([])
     end
   end
 end

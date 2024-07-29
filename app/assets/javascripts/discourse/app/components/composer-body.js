@@ -1,16 +1,15 @@
+import Component from "@ember/component";
 import { cancel, schedule, throttle } from "@ember/runloop";
+import { headerOffset } from "discourse/lib/offset-calculator";
+import positioningWorkaround from "discourse/lib/safari-hacks";
+import { isiPad } from "discourse/lib/utilities";
+import Composer from "discourse/models/composer";
+import discourseDebounce from "discourse-common/lib/debounce";
 import discourseLater from "discourse-common/lib/later";
 import discourseComputed, {
   bind,
   observes,
 } from "discourse-common/utils/decorators";
-import Component from "@ember/component";
-import Composer from "discourse/models/composer";
-import KeyEnterEscape from "discourse/mixins/key-enter-escape";
-import afterTransition from "discourse/lib/after-transition";
-import discourseDebounce from "discourse-common/lib/debounce";
-import { headerOffset } from "discourse/lib/offset-calculator";
-import positioningWorkaround from "discourse/lib/safari-hacks";
 
 const START_DRAG_EVENTS = ["touchstart", "mousedown"];
 const DRAG_EVENTS = ["touchmove", "mousemove"];
@@ -22,7 +21,7 @@ function mouseYPos(e) {
   return e.clientY || (e.touches && e.touches[0] && e.touches[0].clientY);
 }
 
-export default Component.extend(KeyEnterEscape, {
+export default Component.extend({
   elementId: "reply-control",
 
   classNameBindings: [
@@ -118,14 +117,15 @@ export default Component.extend(KeyEnterEscape, {
   @observes("composeState", "composer.{action,canEditTopicFeaturedLink}")
   _triggerComposerResized() {
     schedule("afterRender", () => {
-      if (!this.element || this.isDestroying || this.isDestroyed) {
-        return;
-      }
       discourseDebounce(this, this.composerResized, 300);
     });
   },
 
   composerResized() {
+    if (!this.element || this.isDestroying || this.isDestroyed) {
+      return;
+    }
+
     this.appEvents.trigger("composer:resized");
   },
 
@@ -181,8 +181,10 @@ export default Component.extend(KeyEnterEscape, {
     };
     triggerOpen();
 
-    afterTransition($(this.element), () => {
-      triggerOpen();
+    this.element.addEventListener("transitionend", (event) => {
+      if (event.propertyName === "height") {
+        triggerOpen();
+      }
     });
 
     positioningWorkaround(this.element);
@@ -202,5 +204,21 @@ export default Component.extend(KeyEnterEscape, {
 
   click() {
     this.openIfDraft();
+  },
+
+  keyDown(e) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      this.cancelled();
+    } else if (
+      e.key === "Enter" &&
+      (e.ctrlKey || e.metaKey || (isiPad() && e.altKey))
+    ) {
+      // Ctrl+Enter or Cmd+Enter
+      // iPad physical keyboard does not offer Command or Ctrl detection
+      // so use Alt+Enter
+      e.preventDefault();
+      this.save(undefined, e);
+    }
   },
 });

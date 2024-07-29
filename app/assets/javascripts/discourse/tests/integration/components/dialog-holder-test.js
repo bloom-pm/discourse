@@ -1,6 +1,3 @@
-import I18n from "I18n";
-import { module, test } from "qunit";
-import { setupRenderingTest } from "discourse/tests/helpers/component-test";
 import {
   click,
   fillIn,
@@ -9,7 +6,12 @@ import {
   triggerKeyEvent,
 } from "@ember/test-helpers";
 import { hbs } from "ember-cli-htmlbars";
+import { module, test } from "qunit";
+import GroupDeleteDialogMessage from "discourse/components/dialog-messages/group-delete";
+import SecondFactorConfirmPhrase from "discourse/components/dialog-messages/second-factor-confirm-phrase";
+import { setupRenderingTest } from "discourse/tests/helpers/component-test";
 import { query } from "discourse/tests/helpers/qunit-helpers";
+import I18n from "discourse-i18n";
 
 module("Integration | Component | dialog-holder", function (hooks) {
   setupRenderingTest(hooks);
@@ -32,11 +34,7 @@ module("Integration | Component | dialog-holder", function (hooks) {
     });
     await settled();
 
-    assert.ok(
-      query(".dialog-overlay").offsetWidth > 0,
-      true,
-      "overlay is visible"
-    );
+    assert.true(query(".dialog-overlay").offsetWidth > 0, "overlay is visible");
     assert.strictEqual(
       query(".dialog-body").innerText.trim(),
       "This is an error",
@@ -77,11 +75,7 @@ module("Integration | Component | dialog-holder", function (hooks) {
     });
     await settled();
 
-    assert.ok(
-      query(".dialog-overlay").offsetWidth > 0,
-      true,
-      "overlay is visible"
-    );
+    assert.true(query(".dialog-overlay").offsetWidth > 0, "overlay is visible");
     assert.strictEqual(
       query(".dialog-body").innerText.trim(),
       "This is an error",
@@ -89,7 +83,7 @@ module("Integration | Component | dialog-holder", function (hooks) {
     );
 
     // dismiss by pressing Esc
-    await triggerKeyEvent(document, "keydown", "Escape");
+    await triggerKeyEvent(document.activeElement, "keydown", "Escape");
 
     assert.ok(cancelCallbackCalled, "cancel callback called");
     assert.ok(query("#dialog-holder"), "element is still in DOM");
@@ -394,17 +388,41 @@ module("Integration | Component | dialog-holder", function (hooks) {
       ".btn-primary element is not present in the dialog"
     );
   });
-  test("delete confirm with confirmation phase", async function (assert) {
+
+  test("delete confirm with confirmation phrase component", async function (assert) {
     await render(hbs`<DialogHolder />`);
 
     this.dialog.deleteConfirm({
-      message: "A delete confirm message",
-      confirmPhrase: "test",
+      bodyComponent: SecondFactorConfirmPhrase,
+      confirmButtonDisabled: true,
     });
     await settled();
 
     assert.strictEqual(query(".btn-danger").disabled, true);
-    await fillIn("#confirm-phrase", "test");
+    await fillIn("#confirm-phrase", "Disa");
+    assert.strictEqual(query(".btn-danger").disabled, true);
+    await fillIn("#confirm-phrase", "Disable");
     assert.strictEqual(query(".btn-danger").disabled, false);
+  });
+
+  test("delete confirm with a component and model", async function (assert) {
+    await render(hbs`<DialogHolder />`);
+    const message_count = 5;
+
+    this.dialog.deleteConfirm({
+      bodyComponent: GroupDeleteDialogMessage,
+      bodyComponentModel: {
+        message_count,
+      },
+    });
+    await settled();
+
+    assert.strictEqual(
+      query(".dialog-body p:first-child").innerText.trim(),
+      I18n.t("admin.groups.delete_with_messages_confirm", {
+        count: message_count,
+      }),
+      "correct message is shown in dialog"
+    );
   });
 });

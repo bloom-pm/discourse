@@ -13,28 +13,8 @@ RSpec.describe Discourse do
 
   describe "avatar_sizes" do
     it "returns a list of integers" do
-      expect(Discourse.avatar_sizes).to contain_exactly(
-        20,
-        25,
-        30,
-        32,
-        37,
-        40,
-        45,
-        48,
-        50,
-        60,
-        64,
-        67,
-        75,
-        90,
-        96,
-        120,
-        135,
-        180,
-        240,
-        360,
-      )
+      SiteSetting.avatar_sizes = "10|20|30"
+      expect(Discourse.avatar_sizes).to contain_exactly(10, 20, 30)
     end
   end
 
@@ -84,6 +64,30 @@ RSpec.describe Discourse do
       req = stub(fullpath: "/hello", headers: {})
       opts = Discourse.asset_filter_options(:js, req)
       expect(opts[:path]).to eq("/hello")
+    end
+  end
+
+  describe ".plugins_sorted_by_name" do
+    before do
+      Discourse.stubs(:visible_plugins).returns(
+        [
+          stub(enabled?: false, name: "discourse-doctor-sleep", humanized_name: "Doctor Sleep"),
+          stub(enabled?: true, name: "discourse-shining", humanized_name: "The Shining"),
+          stub(enabled?: true, name: "discourse-misery", humanized_name: "misery"),
+        ],
+      )
+    end
+
+    it "sorts enabled plugins by humanized name" do
+      expect(Discourse.plugins_sorted_by_name.map(&:name)).to eq(
+        %w[discourse-misery discourse-shining],
+      )
+    end
+
+    it "sorts both enabled and disabled plugins when that option is provided" do
+      expect(Discourse.plugins_sorted_by_name(enabled_only: false).map(&:name)).to eq(
+        %w[discourse-doctor-sleep discourse-misery discourse-shining],
+      )
     end
   end
 
@@ -191,7 +195,7 @@ RSpec.describe Discourse do
   end
 
   describe "#site_contact_user" do
-    fab!(:admin) { Fabricate(:admin) }
+    fab!(:admin)
     fab!(:another_admin) { Fabricate(:admin) }
 
     it "returns the user specified by the site setting site_contact_username" do
@@ -300,12 +304,18 @@ RSpec.describe Discourse do
         Discourse.disable_readonly_mode(user_readonly_mode_key)
         expect(Discourse.readonly_mode?).to eq(false)
       end
+
+      it "returns true when forced via global setting" do
+        expect(Discourse.readonly_mode?).to eq(false)
+        global_setting :pg_force_readonly_mode, true
+        expect(Discourse.readonly_mode?).to eq(true)
+      end
     end
 
     describe ".received_postgres_readonly!" do
       it "sets the right time" do
         time = Discourse.received_postgres_readonly!
-        expect(Discourse.postgres_last_read_only["default"]).to eq(time)
+        expect(Discourse.redis.get(Discourse::LAST_POSTGRES_READONLY_KEY).to_i).to eq(time.to_i)
       end
     end
 
@@ -322,7 +332,7 @@ RSpec.describe Discourse do
         messages = []
 
         expect do messages = MessageBus.track_publish { Discourse.clear_readonly! } end.to change {
-          Discourse.postgres_last_read_only["default"]
+          Discourse.redis.get(Discourse::LAST_POSTGRES_READONLY_KEY)
         }.to(nil)
 
         expect(messages.any? { |m| m.channel == Site::SITE_JSON_CHANNEL }).to eq(true)
@@ -465,7 +475,7 @@ RSpec.describe Discourse do
     it "works for individual commands" do
       expect(Discourse::Utils.execute_command("pwd").strip).to eq(Rails.root.to_s)
       expect(Discourse::Utils.execute_command("pwd", chdir: "plugins").strip).to eq(
-        "#{Rails.root.to_s}/plugins",
+        "#{Rails.root}/plugins",
       )
     end
 
@@ -491,12 +501,12 @@ RSpec.describe Discourse do
 
       result =
         Discourse::Utils.execute_command(chdir: "plugins") do |runner|
-          expect(runner.exec("pwd").strip).to eq("#{Rails.root.to_s}/plugins")
+          expect(runner.exec("pwd").strip).to eq("#{Rails.root}/plugins")
           runner.exec("pwd")
         end
 
       # Should return output of block
-      expect(result.strip).to eq("#{Rails.root.to_s}/plugins")
+      expect(result.strip).to eq("#{Rails.root}/plugins")
     end
 
     it "does not leak chdir between threads" do

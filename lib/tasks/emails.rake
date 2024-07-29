@@ -84,7 +84,7 @@ task "emails:test", [:email] => [:environment] do |_, args|
       domain: smtp[:domain] || "localhost",
       username: smtp[:user_name],
       password: smtp[:password],
-      authentication: smtp[:authentication] || "plain",
+      authentication: smtp[:authentication],
     )
   rescue Exception => e
     if e.to_s.match(/execution expired/)
@@ -206,4 +206,57 @@ task "emails:test", [:email] => [:environment] do |_, args|
       The `disable_emails` site setting is currently set to #{SiteSetting.disable_emails}.
       Consider changing it to 'no' before performing any further troubleshooting.
     TEXT
+end
+
+desc "run this to fix users associated to emails mirrored from a mailman mailing list"
+task "emails:fix_mailman_users" => :environment do
+  if !SiteSetting.enable_staged_users
+    puts "Please enable staged users first"
+    exit 1
+  end
+
+  def find_or_create_user(email, name)
+    user = nil
+
+    User.transaction do
+      unless user = User.find_by_email(email)
+        username = UserNameSuggester.sanitize_username(name) if name.present?
+        username = UserNameSuggester.suggest(username.presence || email)
+        name = name.presence || User.suggest_name(email)
+
+        begin
+          user = User.create!(email: email, username: username, name: name, staged: true)
+        rescue PG::UniqueViolation, ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid
+        end
+      end
+    end
+
+    user
+  end
+
+  IncomingEmail
+    .includes(:user, :post)
+    .where("raw LIKE '%X-Mailman-Version: %'")
+    .find_each do |ie|
+      next if ie.post.blank?
+
+      mail = Mail.new(ie.raw)
+      email, name = Email::Receiver.extract_email_address_and_name_from_mailman(mail)
+
+      if email.blank? || email == ie.user.email
+        putc "."
+      elsif new_owner = find_or_create_user(email, name)
+        PostOwnerChanger.new(
+          post_ids: [ie.post_id],
+          topic_id: ie.post.topic_id,
+          new_owner: new_owner,
+          acting_user: Discourse.system_user,
+          skip_revision: true,
+        ).change_owner!
+        putc "#"
+      else
+        putc "X"
+      end
+    end
+  nil
 end
