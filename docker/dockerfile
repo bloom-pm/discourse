@@ -78,9 +78,9 @@ RUN echo 'gem: --no-document' >> /usr/local/etc/gemrc &&\
     cd /src/ruby-build && ./install.sh &&\
     cd / && rm -rf /src/ruby-build && (ruby-build 3.3.4 /usr/local)
 
-RUN gem update --system 3.4.9
+RUN gem update --system
 
-RUN gem install bundler  2.4.1 --force &&\
+RUN gem install bundler -v 2.4.1 &&\
     rm -rf /usr/local/share/ri/2.7.4/system &&\
     cd / && git clone https://github.com/discourse/pups.git
 
