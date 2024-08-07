@@ -1,7 +1,7 @@
 version: 0.0
-os: linux 
+os: linux
 files:
-  - source: / 
+  - source: /
     destination: /var/www/discourse/
 permissions:
   - object: /var/www
@@ -11,8 +11,8 @@ permissions:
 
 hooks:
   AfterInstall:
-    - location: ./codeDeploy/scripts/build_containers.sh     
-      timeout: 2400 
+    - location: ./codeDeploy/scripts/build_containers.sh
+      timeout: 4800
       runas: ec2-user
 
   ApplicationStart:
@@ -24,4 +24,3 @@ hooks:
     - location: ./codeDeploy/scripts/change_files_owner_to_ec2_user.sh
       timeout: 300
       runas: root
-
