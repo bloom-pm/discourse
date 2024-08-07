@@ -73,14 +73,15 @@ RUN mkdir /jemalloc-new && cd /jemalloc-new &&\
       tar -xjf jemalloc-5.2.1.tar.bz2 && cd jemalloc-5.2.1 && ./configure --prefix=/usr --with-install-suffix=5.2.1 && make build_lib && make install_lib &&\
       cd / && rm -rf /jemalloc-new
 
+
 RUN echo 'gem: --no-document' >> /usr/local/etc/gemrc &&\
     mkdir /src && cd /src && git clone https://github.com/sstephenson/ruby-build.git &&\
     cd /src/ruby-build && ./install.sh &&\
-    cd / && rm -rf /src/ruby-build && (ruby-build 3.3.4 /usr/local)
+    cd / && rm -rf /src/ruby-build && (ruby-build 2.7.4 /usr/local)
 
-RUN gem update --system
+RUN gem update --system 3.4.12
 
-RUN gem install bundler -v 2.4.1 &&\
+RUN gem install bundler -v 2.4.1 --force &&\
     rm -rf /usr/local/share/ri/2.7.4/system &&\
     cd / && git clone https://github.com/discourse/pups.git
 
